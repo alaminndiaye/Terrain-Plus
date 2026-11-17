@@ -11,12 +11,19 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { SPORTS_CONFIG } from '../data/sportsConfig';
-import { apiRequest } from '../lib/api';
+import { TECHNIQUE_FICHES } from '../data/exerciseMedia';
+import { apiRequest, readJsonCache, writeJsonCache } from '../lib/api';
 import type { PublicPartnersPayload, SportCode } from '../types';
 import { PWAInstallButton } from './PWAControls';
 
+const PUBLIC_PARTNERS_CACHE_KEY = 'terrain_plus_public_partners_v1';
+
 interface PublicLandingProps {
-  onOpenAuth: (mode: 'login' | 'register', preselectedSport?: SportCode) => void;
+  onOpenAuth: (
+    mode: 'login' | 'register',
+    preselectedSport?: SportCode,
+    initialRole?: 'athlete' | 'coach'
+  ) => void;
 }
 
 const PARTNER_TYPE_LABELS: Record<'ASC' | 'CAMPUS' | 'LIGUE', string> = {
@@ -29,8 +36,10 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
   const [previewSport, setPreviewSport] = useState<SportCode>('football');
   const activeSport = SPORTS_CONFIG[previewSport];
 
-  // Live aggregated partner data
-  const [partnerData, setPartnerData] = useState<PublicPartnersPayload | null>(null);
+  // Live aggregated partner data (hydrated from cache for instant offline/3G render)
+  const [partnerData, setPartnerData] = useState<PublicPartnersPayload | null>(() =>
+    readJsonCache<PublicPartnersPayload>(PUBLIC_PARTNERS_CACHE_KEY)
+  );
   const [partnerTypeFilter, setPartnerTypeFilter] = useState<'ALL' | 'ASC' | 'CAMPUS' | 'LIGUE'>('ALL');
   const [showPartnerForm, setShowPartnerForm] = useState(false);
 
@@ -43,14 +52,18 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
   const [contactEmail, setContactEmail] = useState('');
   const [sportPrincipal, setSportPrincipal] = useState('Football');
   const [estAthletes, setEstAthletes] = useState('40');
+  const [packSouhaite, setPackSouhaite] = useState('PACK_ASC_CAMPUS');
   const [orgMessage, setOrgMessage] = useState('');
   const [partnerSubmitting, setPartnerSubmitting] = useState(false);
   const [partnerError, setPartnerError] = useState<string | null>(null);
   const [partnerSuccess, setPartnerSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    apiRequest<PublicPartnersPayload>('/api/public/partners')
-      .then((res) => setPartnerData(res))
+    apiRequest<PublicPartnersPayload>('/api/public/partners', { timeoutMs: 8000 })
+      .then((res) => {
+        setPartnerData(res);
+        writeJsonCache(PUBLIC_PARTNERS_CACHE_KEY, res);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -88,6 +101,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
           contact_email: contactEmail,
           sport_principal: sportPrincipal,
           nombre_athletes_estime: estAthletes ? Number(estAthletes) : null,
+          pack_souhaite: packSouhaite,
           message: orgMessage,
         }),
       });
@@ -114,6 +128,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
             <img
               src="/brand/terrain-logo.png"
               alt="Terrain+"
+              decoding="async"
               referrerPolicy="no-referrer"
               className="h-8 sm:h-9 w-auto object-contain"
             />
@@ -192,6 +207,8 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
                 <img
                   src="/src/assets/images/hero_terrain_campus_1794878270523.jpg"
                   alt="Jeunes athlètes sénégalais en séance de préparation physique sur terrain extérieur"
+                  decoding="async"
+                  fetchPriority="high"
                   referrerPolicy="no-referrer"
                   className="h-full w-full object-cover"
                 />
@@ -254,13 +271,13 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
                 </p>
               </div>
 
-              <div className="inline-flex items-center gap-1 rounded-xl bg-neutral-100 p-1 self-start">
-                {(['football', 'basket', 'handball'] as SportCode[]).map((code) => (
+              <div className="flex flex-wrap items-center gap-1 rounded-xl bg-neutral-100 p-1 self-start">
+                {(['football', 'basket', 'handball', 'volleyball', 'athletisme'] as SportCode[]).map((code) => (
                   <button
                     key={code}
                     type="button"
                     onClick={() => setPreviewSport(code)}
-                    className={`rounded-lg px-4 py-2 text-xs font-semibold transition-colors min-h-[40px] whitespace-nowrap ${
+                    className={`rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors min-h-[40px] whitespace-nowrap ${
                       previewSport === code
                         ? 'bg-neutral-900 text-white'
                         : 'text-neutral-600 hover:text-neutral-900'
@@ -278,6 +295,8 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
                   <img
                     src={activeSport.imageUrl}
                     alt={`Entraînement ${activeSport.nom}`}
+                    loading="lazy"
+                    decoding="async"
                     referrerPolicy="no-referrer"
                     className="h-full w-full object-cover"
                   />
@@ -379,6 +398,59 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
               </p>
             </div>
           </div>
+
+          {/* Curated Posture & Anatomy Technique Previews */}
+          <div className="mt-10 rounded-2xl border border-neutral-200 bg-white p-6">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+              <div>
+                <h3 className="font-display text-lg font-bold text-neutral-900">
+                  Fiches techniques illustrées sans matériel
+                </h3>
+                <p className="mt-1 text-xs text-neutral-600">
+                  Des repères anatomiques et posturaux clairs (Squats, Pompes, Planche & variantes) intégrés directement dans vos séances et tests, désactivables en mode éco-données.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenAuth('register', previewSport, 'athlete')}
+                className="text-xs font-semibold text-[#0D3B2A] underline hover:text-neutral-900 self-start sm:self-auto"
+              >
+                Accéder aux 11 fiches illustrées
+              </button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                TECHNIQUE_FICHES.find((f) => f.id === 'squat-muscles-travailles'),
+                TECHNIQUE_FICHES.find((f) => f.id === 'pompes-positions-mains'),
+                TECHNIQUE_FICHES.find((f) => f.id === 'planche-et-variantes'),
+                TECHNIQUE_FICHES.find((f) => f.id === 'pompes-amplitude'),
+              ]
+                .filter(Boolean)
+                .map((fiche) => (
+                  <div
+                    key={fiche!.id}
+                    className="rounded-xl border border-neutral-200 bg-[#F7F7F5] overflow-hidden flex flex-col"
+                  >
+                    <div className="h-40 bg-white border-b border-neutral-100 flex items-center justify-center p-2">
+                      <img
+                        src={fiche!.imageUrl}
+                        alt={fiche!.titre}
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        className="max-h-full w-auto object-contain"
+                      />
+                    </div>
+                    <div className="p-3.5 space-y-1 flex-1">
+                      <div className="text-[11px] font-semibold text-[#0D3B2A]">{fiche!.category}</div>
+                      <h4 className="text-xs font-semibold text-neutral-900">{fiche!.titre}</h4>
+                      <p className="text-[11px] text-neutral-600 leading-relaxed">{fiche!.muscles}</p>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
         </section>
 
         {/* Security & Governance */}
@@ -437,18 +509,20 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
                   <img
                     src="/brand/terrain-mark-light.png"
                     alt="Terrain+ Partenaires"
+                    loading="lazy"
+                    decoding="async"
                     referrerPolicy="no-referrer"
                     className="h-10 w-10 rounded-xl object-contain shrink-0"
                   />
                   <span className="text-xs font-medium text-emerald-100/90">
-                    Modèle collectif · ASC, Campus universitaires & Ligues
+                    Privilège Jeunes Sportifs · ASC, Campus universitaires & Ligues
                   </span>
                 </div>
                 <h2 className="font-display text-2xl sm:text-3xl font-bold text-white text-balance">
-                  Accès gratuit pour les jeunes sportifs, animé avec les Capitaines Prépa
+                  Un accès libre pour les jeunes, juste pour les coachs et durable pour les clubs
                 </h2>
                 <p className="text-sm text-emerald-50/85 leading-relaxed max-w-2xl">
-                  Les ASC, campus universitaires et ligues déploient Terrain+ pour encadrer leurs groupes sans matériel, suivre la régularité de manière strictement agrégée et lancer des défis collectifs sans classement individuel public.
+                  Votre socle d’entraînement quotidien (séances FR/Wolof, chronomètre, test du jour, alerte douleur, défis ASC) est gratuit à vie. Evoluez à votre rythme vers <strong>Progression+</strong> ou le <strong>Suivi Coach</strong>, pendant que les coachs s’inscrivent à <strong>0 FCFA</strong>.
                 </p>
                 {partnerData && (
                   <div className="pt-2 flex flex-wrap items-center gap-6 font-mono text-xs tabular-nums text-amber-300">
@@ -465,16 +539,133 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
                   onClick={() => setShowPartnerForm((v) => !v)}
                   className="rounded-xl bg-amber-500 px-5 py-3 text-sm font-semibold text-neutral-950 hover:bg-amber-400 transition-colors min-h-[44px] text-center"
                 >
-                  {showPartnerForm ? 'Fermer le formulaire partenaire' : 'Devenir partenaire Terrain+'}
+                  {showPartnerForm ? 'Fermer le formulaire partenaire' : 'Demander un Pack ASC / Campus'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth('register', previewSport, 'coach')}
+                  className="rounded-xl bg-white/15 px-5 py-3 text-sm font-semibold text-white hover:bg-white/25 transition-colors min-h-[44px] text-center"
+                >
+                  Devenir Coach Prépa (0 FCFA à l’inscription)
                 </button>
                 <button
                   type="button"
                   onClick={() => onOpenAuth('login')}
                   className="rounded-xl border border-white/25 px-5 py-3 text-sm font-medium text-white hover:bg-white/10 transition-colors min-h-[44px] text-center"
                 >
-                  Accès Coach & Administrateur
+                  Se connecter à mon espace
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* 3-Tier Freemium Sportifs + Zero-Friction Coach & B2B Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5 flex flex-col justify-between gap-4">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-emerald-800">Athlète · Essentiel</span>
+                  <span className="font-mono text-sm font-bold text-neutral-900">0 FCFA</span>
+                </div>
+                <h3 className="text-base font-semibold text-neutral-900">Socle sportif gratuit à vie</h3>
+                <ul className="space-y-1.5 text-xs text-neutral-600">
+                  <li className="flex items-start gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-700 mt-0.5 shrink-0" /><span>Séance du jour & lecteur FR/Wolof + chrono</span></li>
+                  <li className="flex items-start gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-700 mt-0.5 shrink-0" /><span>Protocole d’alerte douleur 100 % gratuit</span></li>
+                  <li className="flex items-start gap-1.5"><Check className="h-3.5 w-3.5 text-emerald-700 mt-0.5 shrink-0" /><span>2 séances téléchargeables hors ligne & groupes ASC</span></li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenAuth('register', previewSport, 'athlete')}
+                className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-50 min-h-[42px]"
+              >
+                Créer mon accès gratuit
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-amber-300 bg-white p-5 flex flex-col justify-between gap-4">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-amber-800">Athlète · Progression+</span>
+                  <span className="font-mono text-sm font-bold text-neutral-900">1 500 FCFA / mois</span>
+                </div>
+                <h3 className="text-base font-semibold text-neutral-900">Bibliothèque complète & hors-ligne illimité</h3>
+                <ul className="space-y-1.5 text-xs text-neutral-600">
+                  <li className="flex items-start gap-1.5"><Check className="h-3.5 w-3.5 text-amber-700 mt-0.5 shrink-0" /><span>Cycles spécialisés (Navétanes, Détente, Tir) & tous niveaux</span></li>
+                  <li className="flex items-start gap-1.5"><Check className="h-3.5 w-3.5 text-amber-700 mt-0.5 shrink-0" /><span>Téléchargements hors connexion illimités</span></li>
+                  <li className="flex items-start gap-1.5"><Check className="h-3.5 w-3.5 text-amber-700 mt-0.5 shrink-0" /><span>Comparatif multi-bilans · 4 000 F / trimestre</span></li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenAuth('register', previewSport, 'athlete')}
+                className="w-full rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-semibold text-neutral-950 hover:bg-amber-400 min-h-[42px]"
+              >
+                Démarrer avec Progression+
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-[#0D3B2A] bg-white p-5 flex flex-col justify-between gap-4">
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-[#0D3B2A]">Privilège Jeunes · Suivi Coach</span>
+                  <span className="font-mono text-sm font-bold text-[#0D3B2A]">5 000 FCFA / mois</span>
+                </div>
+                <h3 className="text-base font-semibold text-neutral-900">Progression+ et votre coach dédié</h3>
+                <ul className="space-y-1.5 text-xs text-neutral-600">
+                  <li className="flex items-start gap-1.5"><Check className="h-3.5 w-3.5 text-[#0D3B2A] mt-0.5 shrink-0" /><span>Tous les modules Progression+ inclus sans surcoût</span></li>
+                  <li className="flex items-start gap-1.5"><Check className="h-3.5 w-3.5 text-[#0D3B2A] mt-0.5 shrink-0" /><span>Ajustements hebdomadaires datés & avis sur vos bilans</span></li>
+                  <li className="flex items-start gap-1.5"><Check className="h-3.5 w-3.5 text-[#0D3B2A] mt-0.5 shrink-0" /><span>80 % reversés au coach (4 000 F) · 20 % plateforme</span></li>
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenAuth('register', previewSport, 'athlete')}
+                className="w-full rounded-xl bg-[#0D3B2A] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#0A2E21] min-h-[42px]"
+              >
+                Choisir mon coach
+              </button>
+            </div>
+          </div>
+
+          {/* Coach Zero-Friction + B2B Packs Strip */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="text-xs font-semibold text-neutral-500">Coach Prépa · Modèle sans friction</div>
+                <h3 className="text-base font-semibold text-neutral-900">
+                  0 FCFA à l’inscription (Marketplace 80 %) ou Coach Pro 3 000 F/mois
+                </h3>
+                <p className="text-xs text-neutral-600 leading-relaxed">
+                  Rejoignez l’annuaire gratuitement et percevez 4 000 FCFA/mois par athlète suivi, ou passez à la licence Coach Pro (0 % de commission sur votre effectif).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenAuth('register', previewSport, 'coach')}
+                className="rounded-xl bg-neutral-900 px-4 py-2.5 text-xs font-semibold text-white hover:bg-neutral-800 min-h-[42px] whitespace-nowrap shrink-0"
+              >
+                Inscrire mon profil Coach
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-neutral-200 bg-white p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="text-xs font-semibold text-neutral-500">Partenaires B2B · ASC, Campus & Ligues</div>
+                <h3 className="text-base font-semibold text-neutral-900">
+                  Pack Collectif dès 15 000 – 30 000 FCFA / mois pour vos sportifs
+                </h3>
+                <p className="text-xs text-neutral-600 leading-relaxed">
+                  Offrez Progression+ à vos effectifs, désignez vos Capitaines Prépa et suivez la régularité agrégée sans classement individuel public.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPartnerForm(true)}
+                className="rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-50 min-h-[42px] whitespace-nowrap shrink-0"
+              >
+                Demander un devis B2B
+              </button>
             </div>
           </div>
 
@@ -606,7 +797,9 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
                     <option value="Football">Football</option>
                     <option value="Basket">Basket</option>
                     <option value="Handball">Handball</option>
-                    <option value="Multi-sports">Football, Basket & Handball</option>
+                    <option value="Volleyball">Volleyball</option>
+                    <option value="Athlétisme">Athlétisme</option>
+                    <option value="Multi-sports">Multi-disciplines</option>
                   </select>
                 </div>
                 <div>
@@ -624,16 +817,31 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-neutral-700 mb-1">
-                    Précisions sur vos besoins
+                    Formule partenaire B2B
                   </label>
-                  <input
-                    type="text"
-                    value={orgMessage}
-                    onChange={(e) => setOrgMessage(e.target.value)}
-                    placeholder="Ex: Prépa navétanes, suivi campus..."
-                    className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
-                  />
+                  <select
+                    value={packSouhaite}
+                    onChange={(e) => setPackSouhaite(e.target.value)}
+                    className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm min-h-[44px]"
+                  >
+                    <option value="PACK_ASC_CAMPUS">Pack ASC / Campus (15 000 – 30 000 F/mois)</option>
+                    <option value="OBSERVATOIRE_LIGUE">Observatoire Ligue & Collectivité</option>
+                    <option value="DEFI_SPONSORISE">Défi Collectif Sponsorisé</option>
+                  </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-neutral-700 mb-1">
+                  Précisions sur vos besoins
+                </label>
+                <input
+                  type="text"
+                  value={orgMessage}
+                  onChange={(e) => setOrgMessage(e.target.value)}
+                  placeholder="Ex: Prépa navétanes, suivi campus..."
+                  className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                />
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
@@ -768,6 +976,8 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
             <img
               src="/brand/terrain-mark.png"
               alt="Terrain+"
+              loading="lazy"
+              decoding="async"
               referrerPolicy="no-referrer"
               className="h-6 w-6 rounded-md object-contain shrink-0"
             />

@@ -15,12 +15,14 @@ import { apiRequest } from '../lib/api';
 import { playTone, speakCue, stopSpeech } from '../lib/audioCues';
 import { queueOfflineCompletion } from '../lib/offlineCache';
 import { SPORTS_CONFIG } from '../data/sportsConfig';
+import { getExerciseVisual } from '../data/exerciseMedia';
 import type { SessionTemplate } from '../types';
 
 interface GuidedSessionPlayerProps {
   session: SessionTemplate;
   scheduledId: number | null;
   defaultLangue: 'fr' | 'wo';
+  ecoMode?: boolean;
   onClose: () => void;
   onCompleted: () => void;
   onReportPain: () => void;
@@ -32,6 +34,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
   session,
   scheduledId,
   defaultLangue,
+  ecoMode = false,
   onClose,
   onCompleted,
   onReportPain,
@@ -52,6 +55,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
 
   const sportTheme = SPORTS_CONFIG[session.sport_code];
   const currentEx = session.exercises[stepIdx];
+  const currentVisual = currentEx ? getExerciseVisual(currentEx.nom, currentEx.imageUrl) : null;
   const totalSteps = session.exercises.length;
 
   useEffect(() => {
@@ -341,6 +345,24 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
               ) : (
                 <div className="space-y-4">
                   <h3 className="text-2xl font-semibold text-white">{currentEx?.nom}</h3>
+                  {currentVisual && !ecoMode ? (
+                    <div className="mx-auto max-w-sm rounded-2xl border border-neutral-800 bg-white p-2.5 text-neutral-900">
+                      <img
+                        src={currentVisual.imageUrl}
+                        alt={currentVisual.label}
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        className="mx-auto max-h-44 w-auto object-contain"
+                      />
+                      <div className="mt-1.5 text-[11px] font-medium text-neutral-600 px-1">
+                        {currentVisual.label}
+                      </div>
+                    </div>
+                  ) : currentVisual && ecoMode ? (
+                    <div className="text-[11px] text-neutral-400">
+                      Fiche visuelle masquée (mode éco données actif)
+                    </div>
+                  ) : null}
                   <p className="text-base text-neutral-200 leading-relaxed max-w-xl mx-auto">
                     {cueLang === 'wo' ? currentEx?.consigneWo : currentEx?.consigneFr}
                   </p>

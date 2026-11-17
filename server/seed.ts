@@ -87,10 +87,533 @@ function ensureMinisterPilotUser(): void {
   }
 }
 
+function ensureSecondCoachPilot(): void {
+  const existingCoach2 = db
+    .prepare("SELECT id FROM users WHERE LOWER(email) = 'coach.mbaye@terrainplus.sn' LIMIT 1")
+    .get() as { id: number } | undefined;
+  if (!existingCoach2) {
+    const coach2Id = Number(
+      db
+        .prepare(
+          `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified)
+           VALUES (?, ?, ?, ?, ?, 'COACH', ?, 'fr', 'ACTIF', 0, 1)`
+        )
+        .run('Mbaye', 'Fatou Kiné', '+221774009911', 'coach.mbaye@terrainplus.sn', hashPassword('Coach2026!'), '1995-03-11')
+        .lastInsertRowid
+    );
+    db.prepare(
+      `INSERT INTO coaches (
+        user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
+        platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa
+      ) VALUES (?, ?, ?, ?, 3000, 5000, ?, 'COACH_PRO', 0, 5000)`
+    ).run(coach2Id, 'Explosivité, détente & prévention articulaire', 'Master STAPS · Préparatrice physique', 'Dakar & Rufisque', 'ACTIF_1000');
+  }
+}
+
+function attachImagesToExerciseJson(rawJson: string): string {
+  try {
+    const list = JSON.parse(rawJson) as Array<Record<string, unknown>>;
+    const updated = list.map((ex) => {
+      const nom = String(ex.nom || '').toLowerCase();
+      let imageUrl = ex.imageUrl as string | undefined;
+      if (!imageUrl) {
+        if (nom.includes('squat') && nom.includes('saut')) imageUrl = '/assets/aistudio/image_09378c32.png';
+        else if (nom.includes('squat')) imageUrl = '/assets/aistudio/image_bbc9d397.png';
+        else if (nom.includes('fente') || nom.includes('pont')) imageUrl = '/assets/aistudio/image_bbc9d397.png';
+        else if (nom.includes('pompe') && nom.includes('scapulaire')) imageUrl = '/assets/aistudio/image_8527d860.png';
+        else if (nom.includes('pompe') && nom.includes('rapproch')) imageUrl = '/assets/aistudio/image_090875a4.png';
+        else if (nom.includes('pompe')) imageUrl = '/assets/aistudio/image_07428322.png';
+        else if (nom.includes('gainage') || nom.includes('planche')) imageUrl = '/assets/aistudio/image_b6a22554.png';
+      }
+      return imageUrl ? { ...ex, imageUrl } : ex;
+    });
+    return JSON.stringify(updated);
+  } catch {
+    return rawJson;
+  }
+}
+
+function ensureBusinessModelBackfill(): void {
+  // Ensure coaches showcase both 0 FCFA Marketplace and Coach Pro (3 000 FCFA / 0% commission)
+  const c1User = db
+    .prepare("SELECT id FROM users WHERE LOWER(email) = 'coach.ndiaye@terrainplus.sn'")
+    .get() as { id: number } | undefined;
+  if (c1User) {
+    db.prepare(
+      `UPDATE coaches
+       SET coach_plan = 'MARKETPLACE', monthly_fee_fcfa = 0, commission_pct = 20, athlete_payout_fcfa = 4000
+       WHERE user_id = ?`
+    ).run(c1User.id);
+  }
+  const c2User = db
+    .prepare("SELECT id FROM users WHERE LOWER(email) = 'coach.mbaye@terrainplus.sn'")
+    .get() as { id: number } | undefined;
+  if (c2User) {
+    db.prepare(
+      `UPDATE coaches
+       SET coach_plan = 'COACH_PRO', monthly_fee_fcfa = 3000, commission_pct = 0, athlete_payout_fcfa = 5000
+       WHERE user_id = ?`
+    ).run(c2User.id);
+  }
+
+  // Ensure seeded PROGRESSION sessions exist and existing advanced/intermediate sessions carry access_tier + exercise imageUrls
+  const progressionTitles = [
+    'Puissance des jambes et stabilité',
+    'Plyométrie contrôlée demi-terrain',
+    'Contre-attaque et gainage anti-rotation',
+  ];
+  for (const title of progressionTitles) {
+    db.prepare("UPDATE sessions_library SET access_tier = 'PROGRESSION' WHERE titre = ?").run(title);
+  }
+
+  const allSessions = db.prepare('SELECT id, exercises_json FROM sessions_library').all() as Array<{
+    id: number;
+    exercises_json: string;
+  }>;
+  for (const s of allSessions) {
+    const nextJson = attachImagesToExerciseJson(s.exercises_json);
+    if (nextJson !== s.exercises_json) {
+      db.prepare('UPDATE sessions_library SET exercises_json = ? WHERE id = ?').run(nextJson, s.id);
+    }
+  }
+
+  const coachId = c1User?.id || null;
+
+  const extraSessions: Array<{
+    sport: string;
+    titre: string;
+    niveau: string;
+    duree: number;
+    objectif: string;
+    prevention: string;
+    exercises: Array<Record<string, unknown>>;
+  }> = [
+    {
+      sport: 'football',
+      titre: 'Cycle Navétanes — Force jambes & gainage avancé',
+      niveau: 'intermediaire',
+      duree: 24,
+      objectif: 'Préparation spécifique tournoi et tenue d’appuis',
+      prevention: 'Quadriceps, fessiers et sangle abdominale',
+      exercises: [
+        {
+          id: 'fb-prog-1',
+          nom: 'Squats variés (écartement ciblé)',
+          consigneFr: 'Alternez pieds largeur épaules puis écartés, dos neutre, descente contrôlée sur 3 secondes.',
+          consigneWo: 'Wàccal sa yaram ci ndànk, jubal sa ginnaaw te bësël ci tànk yi.',
+          varianteFacile: 'Squat amplitude moyenne sans pause en bas',
+          varianteDifficile: 'Squat Goblet avec ballon ou charge devant le buste',
+          mode: 'duree',
+          dureeSec: 45,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_76a64964.png',
+        },
+        {
+          id: 'fb-prog-2',
+          nom: 'Planche dynamique bras & jambes décollés',
+          consigneFr: 'En appui sur avant-bras, stabilisez les hanches sans rotation lors du lever alterné.',
+          consigneWo: 'Tekkal say conc ci suuf, yëkkal benn tànk walla benn loxo ci ndànk.',
+          varianteFacile: 'Planche classique ou sur les genoux',
+          varianteDifficile: 'Enchaîner bras décollé puis jambe opposée',
+          mode: 'duree',
+          dureeSec: 45,
+          reposSec: 20,
+          imageUrl: '/assets/aistudio/image_b6a22554.png',
+        },
+      ],
+    },
+    {
+      sport: 'basket',
+      titre: 'Cycle Détente — Squat Goblet & haut du corps',
+      niveau: 'avance',
+      duree: 25,
+      objectif: 'Gain de puissance verticale et solidité au contact',
+      prevention: 'Genoux, ceinture scapulaire et lombaires',
+      exercises: [
+        {
+          id: 'bk-prog-1',
+          nom: 'Squat Goblet ou barre contrôlé',
+          consigneFr: 'Maintenez la charge près du buste ou sur le haut du dos, descendez hanches sous les genoux puis poussez fort.',
+          consigneWo: 'Tëyeel li ngay jàpp ci kanam, wàccal ba mu yam te yëkkal ci kàttan.',
+          varianteFacile: 'Squat sans charge bras tendus devant',
+          varianteDifficile: 'Squat barre en club (position A vers B)',
+          mode: 'duree',
+          dureeSec: 45,
+          reposSec: 30,
+          imageUrl: '/assets/aistudio/image_740f23a8.png',
+        },
+        {
+          id: 'bk-prog-2',
+          nom: 'Pompes posture alignée & positions variées',
+          consigneFr: 'Corps aligné de la tête aux talons, variez l’écartement des mains entre chaque série.',
+          consigneWo: 'Jubal sa yaram ci suuf, soppi say loxo ci biir liggéey bi.',
+          varianteFacile: 'Pompes mains largeur épaules',
+          varianteDifficile: 'Pompes mains serrées ciblant triceps',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_f97009a6.png',
+        },
+      ],
+    },
+    {
+      sport: 'handball',
+      titre: 'Cycle Arrière/Ailier — Pompes ciblées & gainage',
+      niveau: 'intermediaire',
+      duree: 24,
+      objectif: 'Puissance de tir au bras et protection d’épaule',
+      prevention: 'Épaules, triceps et gainage latéral',
+      exercises: [
+        {
+          id: 'hb-prog-1',
+          nom: 'Pompes mains rapprochées (triceps & dentelés)',
+          consigneFr: 'Mains rapprochées sous la poitrine, coudes proches des côtes, poussée explosive.',
+          consigneWo: 'Jegeelel say loxo ci suuf, bësël ngir dëgëral say loxo ak sa dënn.',
+          varianteFacile: 'Pompes classiques largeur épaules',
+          varianteDifficile: 'Descente lente 3 s suivie d’une poussée rapide',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_090875a4.png',
+        },
+        {
+          id: 'hb-prog-2',
+          nom: 'Squat barre / appuis bas de tir',
+          consigneFr: 'Stabilisez le bassin en flexion puis enchaînez sur une extension complète.',
+          consigneWo: 'Wàccal sa ndigg bu baax balaa ngay tëb walla sànni.',
+          varianteFacile: 'Squat au poids du corps',
+          varianteDifficile: 'Squat avec charge ou barre légère en salle',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_7b2641ec.png',
+        },
+      ],
+    },
+  ];
+
+  const insertExtra = db.prepare(
+    `INSERT INTO sessions_library (
+      sport_code, titre, niveau, duree_min, objectif, prevention_focus,
+      relue_par, validation_status, proposee_par_user_id, access_tier, exercises_json
+    ) VALUES (?, ?, ?, ?, ?, ?, 'Dr. S. Diagne (Médecin du sport)', 'VALIDEE', ?, 'PROGRESSION', ?)`
+  );
+
+  for (const item of extraSessions) {
+    const exists = db.prepare('SELECT id FROM sessions_library WHERE titre = ?').get(item.titre);
+    if (!exists) {
+      insertExtra.run(
+        item.sport,
+        item.titre,
+        item.niveau,
+        item.duree,
+        item.objectif,
+        item.prevention,
+        coachId,
+        JSON.stringify(item.exercises)
+      );
+    }
+  }
+}
+
+function ensureExpandedSportsLibrary(): void {
+  const coachRow = db
+    .prepare("SELECT id FROM users WHERE role = 'COACH' ORDER BY id ASC LIMIT 1")
+    .get() as { id: number } | undefined;
+  const coachId = coachRow ? coachRow.id : null;
+
+  const newSportSessions = [
+    {
+      sport: 'volleyball',
+      titre: 'Détente verticale et réception stable',
+      niveau: 'debutant',
+      duree: 22,
+      objectif: 'Améliorer l’impulsion au filet et amortir les réceptions',
+      prevention: 'Genoux (tendon rotulien) et chevilles',
+      accessTier: 'ESSENTIEL',
+      exercises: [
+        {
+          id: 'vb-ex1',
+          nom: 'Squats contrôlés avec montée dynamique',
+          consigneFr: 'Fléchissez à 90° genoux alignés, poussez fort sur les pointes sans sauter pour préparer les tendons.',
+          consigneWo: 'Wàccal ci sa óom yi, nga yéeg ci kaw bu gaaw te jub.',
+          varianteFacile: 'Demi-squats lents sans extension sur pointes',
+          varianteDifficile: 'Ajoutez un blocage de 2 secondes en bas avant l’extension',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 20,
+          imageUrl: '/assets/aistudio/image_09378c32.png',
+        },
+        {
+          id: 'vb-ex2',
+          nom: 'Sauts pogo chevilles et réception souple',
+          consigneFr: 'Petits rebonds rapides sur l’avant-pied, suivis d’une réception stable genoux fléchis pendant 2 secondes.',
+          consigneWo: 'Tëbël ndànk ci sa tànk yi, nga taxaw ci sa óom yi ngir aar sa tank.',
+          varianteFacile: 'Montées de mollets dynamiques sans quitter le sol',
+          varianteDifficile: 'Rebonds enchaînés avec saut haut toutes les 4 répétitions',
+          mode: 'duree',
+          dureeSec: 30,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_408868fa.png',
+        },
+        {
+          id: 'vb-ex3',
+          nom: 'Pompes protection d’épaule et gainage',
+          consigneFr: 'Mains largeur d’épaules, coudes à 45°, descendez lentement puis repoussez fort pour stabiliser la coiffe des rotateurs.',
+          consigneWo: 'Defal pomp yi ci ndànk ngir dëgëral say mbagg balaa ngay fëgg.',
+          varianteFacile: 'Pompes mains surélevées contre un banc ou genoux au sol',
+          varianteDifficile: 'Ajoutez une tape d’épaule alternée en haut de chaque pompe',
+          mode: 'duree',
+          dureeSec: 35,
+          reposSec: 20,
+          imageUrl: '/assets/aistudio/image_07428322.png',
+        },
+      ],
+    },
+    {
+      sport: 'volleyball',
+      titre: 'Appuis défensifs bas et gainage aérien',
+      niveau: 'intermediaire',
+      duree: 24,
+      objectif: 'Vitesse de déplacement sous le ballon et contrôle du tronc en extension',
+      prevention: 'Épaules et bas du dos',
+      accessTier: 'ESSENTIEL',
+      exercises: [
+        {
+          id: 'vb2-ex1',
+          nom: 'Pas chassés bas position manchette',
+          consigneFr: 'Bassin bas, dos droit, glissez rapidement latéralement sur 4 mètres et stoppez net sur l’appui extérieur.',
+          consigneWo: 'Wàccal sa ndigg, nga daw ci wet gi te taxaw bu baax ci sa tànk.',
+          varianteFacile: 'Déplacement sur 2,5 mètres à rythme modéré',
+          varianteDifficile: 'Touchez le sol à chaque extrémité et repartez sans redresser le buste',
+          mode: 'duree',
+          dureeSec: 35,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_f97009a6.png',
+        },
+        {
+          id: 'vb2-ex2',
+          nom: 'Planche superman alternée (gainage smash)',
+          consigneFr: 'En position de planche haute, levez bras droit et jambe gauche opposée sans vriller le bassin.',
+          consigneWo: 'Tëddël ci say loxo, nga yékkati sa loxo ndijoor ak sa tànk càmmooñ.',
+          varianteFacile: 'Genoux au sol et élévation des bras uniquement',
+          varianteDifficile: 'Maintien 3 secondes à chaque extension',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 20,
+          imageUrl: '/assets/aistudio/image_b6a22554.png',
+        },
+      ],
+    },
+    {
+      sport: 'volleyball',
+      titre: 'Cycle avancé · Impulsion block & puissance épaule',
+      niveau: 'avance',
+      duree: 28,
+      objectif: 'Enchaîner plusieurs sauts de contre et frappes sans perte d’explosivité',
+      prevention: 'Tendon rotulien et coiffe des rotateurs',
+      accessTier: 'PROGRESSION',
+      exercises: [
+        {
+          id: 'vb3-ex1',
+          nom: 'Squats sautés avec amorti silencieux',
+          consigneFr: 'Descendez en squat gobelet à vide puis sautez verticalement mains vers le haut. Réception silencieuse.',
+          consigneWo: 'Tëbël ci kaw ni ku fëgg balle bi, nga wàcc ci ndànk.',
+          varianteFacile: 'Squats dynamiques sans saut',
+          varianteDifficile: 'Enchaînement 3 sauts successifs avec pas chassé latéral',
+          mode: 'duree',
+          dureeSec: 35,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_09378c32.png',
+        },
+        {
+          id: 'vb3-ex2',
+          nom: 'Pompes mains rapprochées & gainage',
+          consigneFr: 'Coudes près du buste pour renforcer triceps et épaules de frappe.',
+          consigneWo: 'Jegeelel say loxo ci suuf ngir dëgëral sa mbagg ak sa loxo.',
+          varianteFacile: 'Pompes largeur épaules',
+          varianteDifficile: 'Descente freinée 3 secondes, poussée explosive',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_090875a4.png',
+        },
+      ],
+    },
+    {
+      sport: 'athletisme',
+      titre: 'Mécanique de course et réactivité Achille',
+      niveau: 'debutant',
+      duree: 22,
+      objectif: 'Installer une foulée économique et renforcer mollets et pieds sans matériel',
+      prevention: 'Tendons d’Achille et mollets',
+      accessTier: 'ESSENTIEL',
+      exercises: [
+        {
+          id: 'ath-ex1',
+          nom: 'Montées de genoux rythmées (skipping)',
+          consigneFr: 'Buste droit, bras à 90°, montez les genoux à hauteur de hanche avec rebond actif sous l’avant-pied.',
+          consigneWo: 'Yékkatil say óom bu gaaw te sa bopp ak sa ginnaaw jub.',
+          varianteFacile: 'Marche dynamique avec montée de genoux lente',
+          varianteDifficile: 'Alternez 10 s rapides et 10 s en foulée ample',
+          mode: 'duree',
+          dureeSec: 35,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_408868fa.png',
+        },
+        {
+          id: 'ath-ex2',
+          nom: 'Squats tempo et fentes d’alignement',
+          consigneFr: 'Descente 3 secondes, poussée franche pour solidifier quadriceps et hanches.',
+          consigneWo: 'Wàccal ci ndànk ngir dëgëral say tànk balaa ngay daw.',
+          varianteFacile: 'Amplitude réduite selon confort',
+          varianteDifficile: 'Fentes marchées enchaînées sur 15 mètres',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 20,
+          imageUrl: '/assets/aistudio/image_740f23a8.png',
+        },
+        {
+          id: 'ath-ex3',
+          nom: 'Gainage latéral coureur',
+          consigneFr: 'Maintenez bassin haut sur l’avant-bras (20 s chaque côté) pour éviter l’affaissement à chaque foulée.',
+          consigneWo: 'Dëgëral sa ndigg ci wet gi ngir sa daw baña sëgg.',
+          varianteFacile: 'Genou inférieur posé au sol',
+          varianteDifficile: 'Élevez la jambe supérieure pendant le maintien',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 20,
+          imageUrl: '/assets/aistudio/image_b6a22554.png',
+        },
+      ],
+    },
+    {
+      sport: 'athletisme',
+      titre: 'Fractionné court 15 s / 15 s & prévention ischios',
+      niveau: 'intermediaire',
+      duree: 25,
+      objectif: 'Développer VMA et protection excentrique des ischio-jambiers',
+      prevention: 'Ischio-jambiers et bas du dos',
+      accessTier: 'ESSENTIEL',
+      exercises: [
+        {
+          id: 'ath2-ex1',
+          nom: 'Pont fessier unilatéral (protection ischios)',
+          consigneFr: 'Allongé sur le dos, une jambe tendue, poussez fort dans le talon au sol pour monter les hanches.',
+          consigneWo: 'Tëddël ci suuf, yékkatil sa ndigg ci benn tànk ngir aar sa tank.',
+          varianteFacile: 'Pont fessier à deux pieds au sol',
+          varianteDifficile: 'Avancez légèrement le talon au sol et freinez la descente 3 s',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 20,
+          imageUrl: '/assets/aistudio/image_76a64964.png',
+        },
+        {
+          id: 'ath2-ex2',
+          nom: 'Accélérations progressives sur 20–30 m',
+          consigneFr: 'Départ dynamique, montez en vitesse sur 20 m puis décélérez en douceur sur les 10 derniers mètres.',
+          consigneWo: 'Tambalil ci ndànk, nga yokk sa daw ci 20 meetar, nga waññi ci ndànk.',
+          varianteFacile: 'Course rythmée à 75 % de la vitesse max',
+          varianteDifficile: 'Départ 3 appuis bas vers sprint fluide sur 30 m',
+          mode: 'duree',
+          dureeSec: 30,
+          reposSec: 35,
+          imageUrl: '/assets/aistudio/image_f97009a6.png',
+        },
+      ],
+    },
+    {
+      sport: 'athletisme',
+      titre: 'Cycle avancé · Puissance sprint & force sous-maximale',
+      niveau: 'avance',
+      duree: 28,
+      objectif: 'Maximiser la poussée horizontale au départ et la rigidité de cheville',
+      prevention: 'Tendons d’Achille et ischio-jambiers',
+      accessTier: 'PROGRESSION',
+      exercises: [
+        {
+          id: 'ath3-ex1',
+          nom: 'Fentes explosives alternées (foulée bondissante)',
+          consigneFr: 'Poussez verticalement et vers l’avant depuis la position de fente, bras coordonnés comme au sprint.',
+          consigneWo: 'Tëbël bu gaaw ci fente bi, say loxo di daw ni ci piste bi.',
+          varianteFacile: 'Fentes alternées sans saut',
+          varianteDifficile: 'Foulées bondissantes enchaînées sur 25 m',
+          mode: 'duree',
+          dureeSec: 30,
+          reposSec: 30,
+          imageUrl: '/assets/aistudio/image_09378c32.png',
+        },
+        {
+          id: 'ath3-ex2',
+          nom: 'Squats barre / charge contrôlée',
+          consigneFr: 'Renforcement lourd ou tempo des extenseurs de hanche et genou pour la phase d’accélération.',
+          consigneWo: 'Dëgëral say tànk ak sa ndigg ngir sa tambali daw gën a gaaw.',
+          varianteFacile: 'Squat gobelet poids du corps',
+          varianteDifficile: 'Charge modérée avec remontée explosive',
+          mode: 'duree',
+          dureeSec: 40,
+          reposSec: 25,
+          imageUrl: '/assets/aistudio/image_7b2641ec.png',
+        },
+      ],
+    },
+  ];
+
+  const insertSess = db.prepare(
+    `INSERT INTO sessions_library (
+      sport_code, titre, niveau, duree_min, objectif, prevention_focus,
+      relue_par, validation_status, proposee_par_user_id, access_tier, exercises_json
+    ) VALUES (?, ?, ?, ?, ?, ?, 'Dr. S. Diagne (Médecin du sport)', 'VALIDEE', ?, ?, ?)`
+  );
+
+  for (const item of newSportSessions) {
+    const exists = db.prepare('SELECT id FROM sessions_library WHERE titre = ?').get(item.titre);
+    if (!exists) {
+      insertSess.run(
+        item.sport,
+        item.titre,
+        item.niveau,
+        item.duree,
+        item.objectif,
+        item.prevention,
+        coachId,
+        item.accessTier,
+        JSON.stringify(item.exercises)
+      );
+    }
+  }
+
+  // Ensure collective groups exist for Volleyball and Athlétisme
+  const firstPartner = db.prepare('SELECT id FROM partners ORDER BY id ASC LIMIT 1').get() as { id: number } | undefined;
+  if (firstPartner) {
+    const hasVolleyGroup = db.prepare("SELECT id FROM groups WHERE sport_code = 'volleyball' LIMIT 1").get();
+    if (!hasVolleyGroup) {
+      db.prepare('INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)').run(
+        'Collectif Volley Campus Dakar',
+        firstPartner.id,
+        'Mariama Ndiaye',
+        'volleyball'
+      );
+    }
+    const hasAthGroup = db.prepare("SELECT id FROM groups WHERE sport_code = 'athletisme' LIMIT 1").get();
+    if (!hasAthGroup) {
+      db.prepare('INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)').run(
+        'Collectif Athlétisme Piste Thiès',
+        firstPartner.id,
+        'Pape Moussa Fall',
+        'athletisme'
+      );
+    }
+  }
+}
+
 export function seedIfEmpty(): void {
   const countRow = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number };
   if (countRow.c > 0) {
     ensureMinisterPilotUser();
+    ensureSecondCoachPilot();
+    ensureBusinessModelBackfill();
+    ensureExpandedSportsLibrary();
     return;
   }
 
@@ -126,6 +649,9 @@ export function seedIfEmpty(): void {
   const coachId = Number(
     insertUser.run('Ndiaye', 'Mamadou', '+221774005566', 'coach.ndiaye@terrainplus.sn', hashPassword('Coach2026!'), 'COACH', '1993-08-22', 'fr', 'ACTIF').lastInsertRowid
   );
+  const coach2Id = Number(
+    insertUser.run('Mbaye', 'Fatou Kiné', '+221774009911', 'coach.mbaye@terrainplus.sn', hashPassword('Coach2026!'), 'COACH', '1995-03-11', 'fr', 'ACTIF').lastInsertRowid
+  );
   const moussaId = Number(
     insertUser.run('Diop', 'Moussa', '+221771001122', 'moussa.diop@terrainplus.sn', hashPassword('Terrain2026!'), 'ATHLETE', '2003-03-18', 'fr', 'SUIVI_ACTIF').lastInsertRowid
   );
@@ -137,8 +663,18 @@ export function seedIfEmpty(): void {
   );
 
   db.prepare(
-    'INSERT INTO coaches (user_id, specialite, qualification, zone) VALUES (?, ?, ?, ?)'
-  ).run(coachId, 'Préparation physique sports collectifs', 'Licence STAPS · Préparateur fédéral', 'Thiès & Saint-Louis');
+    `INSERT INTO coaches (
+      user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
+      platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa
+    ) VALUES (?, ?, ?, ?, 0, 5000, ?, 'MARKETPLACE', 20, 4000)`
+  ).run(coachId, 'Préparation physique sports collectifs', 'Licence STAPS · Préparateur fédéral', 'Thiès & Saint-Louis', 'ACTIF_1000');
+
+  db.prepare(
+    `INSERT INTO coaches (
+      user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
+      platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa
+    ) VALUES (?, ?, ?, ?, 3000, 5000, ?, 'COACH_PRO', 0, 5000)`
+  ).run(coach2Id, 'Explosivité, détente & prévention articulaire', 'Master STAPS · Préparatrice physique', 'Dakar & Rufisque', 'ACTIF_1000');
 
   const insertConsent = db.prepare(
     'INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)'
@@ -149,18 +685,18 @@ export function seedIfEmpty(): void {
   }
 
   db.prepare(
-    `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled, coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at, plan_tier, plan_fee_fcfa, plan_billing_cycle)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIF_5000', 5000, datetime('now', '-15 days'), 'COACH_PRIVE', 5000, 'MENSUEL')`
   ).run(moussaId, 'football', 'intermediaire', 178, 'Milieu', 'Gagner en explosivité sur 15 m et régularité 4 semaines', 0, 1);
 
   db.prepare(
-    `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled, coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at, plan_tier, plan_fee_fcfa, plan_billing_cycle)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIF_5000', 5000, datetime('now', '-10 days'), 'COACH_PRIVE', 5000, 'MENSUEL')`
   ).run(awaId, 'basket', 'intermediaire', 173, 'Meneur', 'Améliorer la détente verticale et protéger les chevilles', 0, 1);
 
   db.prepare(
-    `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled, coach_subscription_status, coach_monthly_fee_fcfa, plan_tier, plan_fee_fcfa, plan_billing_cycle)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'GRATUIT_BASE', 0, 'ESSENTIEL', 0, 'MENSUEL')`
   ).run(ibrahimaId, 'handball', 'debutant', 181, 'Arrière', 'Renforcer les épaules et tenir la cadence de match', 1, 1);
 
   db.prepare('INSERT INTO assignments (coach_user_id, athlete_user_id, date_debut, statut) VALUES (?, ?, ?, ?)').run(
@@ -664,4 +1200,6 @@ export function seedIfEmpty(): void {
   ).run(adminId, moussaId);
 
   ensureMinisterPilotUser();
+  ensureBusinessModelBackfill();
+  ensureExpandedSportsLibrary();
 }

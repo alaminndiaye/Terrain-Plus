@@ -4,6 +4,9 @@ import {
   AlertTriangle,
   ArrowRight,
   BarChart3,
+  Bell,
+  BellOff,
+  BellRing,
   Calendar,
   CheckCircle2,
   ChevronLeft,
@@ -13,13 +16,15 @@ import {
   Download,
   HardDriveDownload,
   LayoutDashboard,
+  Lock,
   LogOut,
+  Maximize2,
   Play,
   ShieldCheck,
   Trash2,
   User,
-  Users,
   WifiOff,
+  X,
 } from 'lucide-react';
 import {
   Bar,
@@ -32,7 +37,14 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ApiError, apiRequest, clearSessionToken } from '../lib/api';
+import {
+  ApiError,
+  apiRequest,
+  clearAllWorkspaceCaches,
+  clearSessionToken,
+  readJsonCache,
+  writeJsonCache,
+} from '../lib/api';
 import {
   clearPendingCompletion,
   getOfflineSessions,
@@ -40,10 +52,14 @@ import {
   removeSessionOffline,
   saveSessionOffline,
 } from '../lib/offlineCache';
+import { formatReminderLeadLabel } from '../lib/pwaNotifications';
+import { TECHNIQUE_FICHES, type TechniqueCategory, type TechniqueFiche } from '../data/exerciseMedia';
 import { LEVEL_LABELS, SPORTS_CONFIG } from '../data/sportsConfig';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useSessionReminders } from '../hooks/useSessionReminders';
 import type {
   AthleteLevel,
+  AthletePlanTier,
   AthleteWorkspacePayload,
   ScheduledSession,
   SessionTemplate,
@@ -109,9 +125,12 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   onSessionExpired,
 }) => {
   const isOnline = useOnlineStatus();
+  const [cachedInit] = useState<AthleteWorkspacePayload | null>(() =>
+    readJsonCache<AthleteWorkspacePayload>(WORKSPACE_CACHE_KEY)
+  );
   const [tab, setTab] = useState<AthleteTab>('dashboard');
-  const [data, setData] = useState<AthleteWorkspacePayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<AthleteWorkspacePayload | null>(cachedInit);
+  const [loading, setLoading] = useState(!cachedInit);
   const [error, setError] = useState<string | null>(null);
   const [feedbackBanner, setFeedbackBanner] = useState<string | null>(null);
 
@@ -142,25 +161,49 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   const [chronoSeconds, setChronoSeconds] = useState(0);
   const [chronoMode, setChronoMode] = useState<'up' | '30' | '20'>('up');
 
+  // Technical fiches & freemium plan states
+  const [ficheCategoryFilter, setFicheCategoryFilter] = useState<'Toutes' | TechniqueCategory>('Toutes');
+  const [selectedFicheModal, setSelectedFicheModal] = useState<TechniqueFiche | null>(null);
+  const [upgradePrompt, setUpgradePrompt] = useState<{ title: string; reason: string } | null>(null);
+
   // Profile form states
   const [newWeight, setNewWeight] = useState('');
-  const [profileNom, setProfileNom] = useState('');
-  const [profilePrenom, setProfilePrenom] = useState('');
-  const [profileNiveau, setProfileNiveau] = useState<AthleteLevel>('debutant');
-  const [profilePoste, setProfilePoste] = useState('');
-  const [profileTaille, setProfileTaille] = useState('');
-  const [profileLangue, setProfileLangue] = useState<'fr' | 'wo'>('fr');
-  const [ecoMode, setEcoMode] = useState(false);
-  const [notifEnabled, setNotifEnabled] = useState(true);
+  const [profileNom, setProfileNom] = useState(() => cachedInit?.user.nom || '');
+  const [profilePrenom, setProfilePrenom] = useState(() => cachedInit?.user.prenom || '');
+  const [profileNiveau, setProfileNiveau] = useState<AthleteLevel>(() => cachedInit?.profile.niveau || 'debutant');
+  const [profilePoste, setProfilePoste] = useState(() => cachedInit?.profile.poste || '');
+  const [profileTaille, setProfileTaille] = useState(() =>
+    cachedInit?.profile.taille_cm ? String(cachedInit.profile.taille_cm) : ''
+  );
+  const [profileLangue, setProfileLangue] = useState<'fr' | 'wo'>(() => cachedInit?.user.langue || 'fr');
+  const [ecoMode, setEcoMode] = useState(() => Boolean(cachedInit?.profile.eco_data_mode));
+  const [notifEnabled, setNotifEnabled] = useState(() => cachedInit?.profile.notifications_enabled ?? true);
+  const [reminderTime, setReminderTime] = useState(() => cachedInit?.profile.reminder_time || '18:00');
+  const [reminderLeadMinutes, setReminderLeadMinutes] = useState(() =>
+    Number(cachedInit?.profile.reminder_lead_minutes ?? 30)
+  );
+  const [reminderSubmitting, setReminderSubmitting] = useState(false);
+  const [notifBannerDismissed, setNotifBannerDismissed] = useState(false);
   const [pendingSportChange, setPendingSportChange] = useState<SportCode | null>(null);
   const [coachChangeMotif, setCoachChangeMotif] = useState('');
+  const [selectedCoachDraftId, setSelectedCoachDraftId] = useState<number | null>(() => cachedInit?.coach?.id || null);
+  const [targetPlanDraft, setTargetPlanDraft] = useState<AthletePlanTier>(() => cachedInit?.profile.plan_tier || 'ESSENTIEL');
+  const [planSwitchBilling, setPlanSwitchBilling] = useState<'MENSUEL' | 'TRIMESTRIEL'>(() =>
+    cachedInit?.profile.plan_billing_cycle === 'TRIMESTRIEL' ? 'TRIMESTRIEL' : 'MENSUEL'
+  );
+  const [confirmPlanSwitch, setConfirmPlanSwitch] = useState(false);
+  const [coachActionSubmitting, setCoachActionSubmitting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
   const loadWorkspace = useCallback(async () => {
     try {
       const payload = await apiRequest<AthleteWorkspacePayload>('/api/athlete/workspace');
       setData(payload);
-      localStorage.setItem(WORKSPACE_CACHE_KEY, JSON.stringify(payload));
+      writeJsonCache(WORKSPACE_CACHE_KEY, payload);
       setProfileNom(payload.user.nom);
       setProfilePrenom(payload.user.prenom);
       setProfileNiveau(payload.profile.niveau);
@@ -169,22 +212,27 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       setProfileLangue(payload.user.langue);
       setEcoMode(payload.profile.eco_data_mode);
       setNotifEnabled(payload.profile.notifications_enabled);
+      setReminderTime(payload.profile.reminder_time || '18:00');
+      setReminderLeadMinutes(Number(payload.profile.reminder_lead_minutes ?? 30));
+      setTargetPlanDraft(payload.profile.plan_tier || 'ESSENTIEL');
+      if (payload.profile.plan_billing_cycle === 'TRIMESTRIEL' || payload.profile.plan_billing_cycle === 'MENSUEL') {
+        setPlanSwitchBilling(payload.profile.plan_billing_cycle);
+      }
+      if (payload.coach?.id) {
+        setSelectedCoachDraftId(payload.coach.id);
+      }
       setError(null);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        localStorage.removeItem(WORKSPACE_CACHE_KEY);
+        clearAllWorkspaceCaches();
         onSessionExpired();
         return;
       }
-      try {
-        const cached = localStorage.getItem(WORKSPACE_CACHE_KEY);
-        if (cached) {
-          setData(JSON.parse(cached) as AthleteWorkspacePayload);
-          setError('Mode hors ligne : affichage des dernières données synchronisées.');
-        } else {
-          setError(err instanceof Error ? err.message : 'Erreur de chargement.');
-        }
-      } catch {
+      const cached = readJsonCache<AthleteWorkspacePayload>(WORKSPACE_CACHE_KEY);
+      if (cached) {
+        setData(cached);
+        setError('Connexion instable ou hors ligne : affichage des dernières données synchronisées.');
+      } else {
         setError(err instanceof Error ? err.message : 'Erreur de chargement.');
       }
     } finally {
@@ -235,6 +283,17 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   }, [chronoRunning, chronoMode]);
 
   const sportTheme = data ? SPORTS_CONFIG[data.profile.sport_code] : SPORTS_CONFIG.football;
+  const currentPlanTier: AthletePlanTier = data?.profile.plan_tier ?? 'ESSENTIEL';
+  const isProgressionUnlocked = currentPlanTier === 'PROGRESSION' || currentPlanTier === 'COACH_PRIVE';
+
+  const currentPlanShortLabel =
+    currentPlanTier === 'COACH_PRIVE'
+      ? 'Suivi Coach · 5 000 F/mois'
+      : currentPlanTier === 'PROGRESSION'
+        ? data?.profile.plan_billing_cycle === 'TRIMESTRIEL'
+          ? 'Progression+ · 4 000 F/trim.'
+          : 'Progression+ · 1 500 F/mois'
+        : 'Essentiel · 0 FCFA';
 
   const todaySession: ScheduledSession | null = useMemo(() => {
     if (!data) return null;
@@ -250,6 +309,19 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     if (levelFilter === 'all') return data.library;
     return data.library.filter((s) => s.niveau === levelFilter);
   }, [data, levelFilter]);
+
+  const filteredFiches = useMemo(() => {
+    if (ficheCategoryFilter === 'Toutes') return TECHNIQUE_FICHES;
+    return TECHNIQUE_FICHES.filter((f) => f.category === ficheCategoryFilter);
+  }, [ficheCategoryFilter]);
+
+  const evalChartData = useMemo(() => {
+    if (!data) return [];
+    return [...data.evaluations].reverse().map((ev) => ({
+      date: ev.date,
+      score: ev.score_global,
+    }));
+  }, [data]);
 
   const weeklySummary = useMemo(() => {
     if (!data) {
@@ -430,26 +502,111 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     return raw;
   }, [sessionsByDate, selectedCalendarDate, calendarFilter]);
 
-  const jumpToCalendarDate = (iso: string) => {
+  const jumpToCalendarDate = useCallback((iso: string) => {
     const d = parseIsoDateLocal(iso);
     setCalendarMonth({ year: d.getFullYear(), month: d.getMonth() });
     setSelectedCalendarDate(iso.slice(0, 10));
-  };
+  }, []);
+
+  const handleOpenScheduledFromNotification = useCallback(
+    (scheduledId: number) => {
+      setTab('programme');
+      const slot = data?.schedule.find((s) => s.id === scheduledId);
+      if (slot?.date_prevue) {
+        jumpToCalendarDate(slot.date_prevue);
+      }
+    },
+    [data, jumpToCalendarDate]
+  );
+
+  // Support deep-link (?tab=programme&scheduledId=...) when opened from a closed PWA notification
+  useEffect(() => {
+    if (!data) return;
+    const params = new URLSearchParams(window.location.search);
+    const paramTab = params.get('tab');
+    const paramScheduledId = Number(params.get('scheduledId'));
+    if (paramTab === 'programme' || Number.isInteger(paramScheduledId) && paramScheduledId > 0) {
+      setTab('programme');
+      if (Number.isInteger(paramScheduledId) && paramScheduledId > 0) {
+        const slot = data.schedule.find((s) => s.id === paramScheduledId);
+        if (slot?.date_prevue) {
+          jumpToCalendarDate(slot.date_prevue);
+        }
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [data, jumpToCalendarDate]);
+
+  const {
+    permission: notifPermission,
+    swReady,
+    supportsTriggerApi,
+    nextReminder,
+    requestPermission: requestNotifPermission,
+    sendTestNotification,
+  } = useSessionReminders({
+    enabled: Boolean(data?.profile.notifications_enabled),
+    reminderTime: data?.profile.reminder_time || reminderTime,
+    leadMinutes: Number(data?.profile.reminder_lead_minutes ?? reminderLeadMinutes),
+    schedule: data?.schedule || [],
+    onOpenScheduledSession: handleOpenScheduledFromNotification,
+  });
 
   const handleLogout = async () => {
     await apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     clearSessionToken();
-    localStorage.removeItem(WORKSPACE_CACHE_KEY);
+    clearAllWorkspaceCaches();
     onLoggedOut();
   };
 
   const handleToggleOfflineSession = (s: SessionTemplate) => {
     if (offlineMap[s.id]) {
       removeSessionOffline(s.id);
-    } else {
-      saveSessionOffline(s);
+      setOfflineMap(getOfflineSessions());
+      return;
     }
+    if (s.access_tier === 'PROGRESSION' && !isProgressionUnlocked) {
+      setUpgradePrompt({
+        title: `Téléchargement Progression+ : ${s.titre}`,
+        reason:
+          'Activez Progression+ (1 500 FCFA / mois ou 4 000 FCFA / trimestre) ou Suivi Coach (5 000 FCFA / mois) pour télécharger les cycles avancés hors ligne.',
+      });
+      return;
+    }
+    if (!isProgressionUnlocked && Object.keys(offlineMap).length >= 2) {
+      setUpgradePrompt({
+        title: 'Limite hors ligne Essentiel atteinte (2 séances)',
+        reason:
+          'Votre formule Essentiel gratuite permet de garder jusqu’à 2 séances hors ligne simultanément. Retirez une séance déjà en cache ou passez à Progression+ (1 500 FCFA / mois) pour les téléchargements illimités.',
+      });
+      return;
+    }
+    saveSessionOffline(s);
     setOfflineMap(getOfflineSessions());
+  };
+
+  const handleLaunchLibrarySession = (sess: SessionTemplate) => {
+    if (sess.access_tier === 'PROGRESSION' && !isProgressionUnlocked) {
+      setUpgradePrompt({
+        title: `Cycle Progression+ : ${sess.titre}`,
+        reason:
+          'Toutes les séances fondamentales et la sécurité douleur restent 100 % gratuites. Passez à Progression+ (1 500 FCFA / mois) ou Suivi Coach (5 000 FCFA / mois) pour débloquer les cycles avancés et variantes avec charge.',
+      });
+      return;
+    }
+    setActivePlayer({ session: sess, scheduledId: null });
+  };
+
+  const handleOpenTechniqueFiche = (fiche: TechniqueFiche) => {
+    if (fiche.tier === 'PROGRESSION' && !isProgressionUnlocked) {
+      setUpgradePrompt({
+        title: `Fiche technique Progression+ : ${fiche.titre}`,
+        reason:
+          'Les 7 fiches posturales de base (squats sans matériel, pompes classiques, gainage) sont gratuites. Passez à Progression+ (1 500 FCFA / mois) pour agrandir et exploiter les variantes avec charge ou barre.',
+      });
+      return;
+    }
+    setSelectedFicheModal(fiche);
   };
 
   const handleStartChrono = (mode: 'up' | '30' | '20') => {
@@ -521,12 +678,71 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
           langue: profileLangue,
           eco_data_mode: ecoMode,
           notifications_enabled: notifEnabled,
+          reminder_time: reminderTime,
+          reminder_lead_minutes: reminderLeadMinutes,
         }),
       });
       setFeedbackBanner('Préférences et profil enregistrés.');
       await loadWorkspace();
     } catch (err) {
       setFeedbackBanner(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde.');
+    }
+  };
+
+  const handleSaveReminders = async (
+    nextEnabled = notifEnabled,
+    nextTime = reminderTime,
+    nextLead = reminderLeadMinutes
+  ) => {
+    setReminderSubmitting(true);
+    try {
+      await apiRequest('/api/athlete/reminders', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          notifications_enabled: nextEnabled,
+          reminder_time: nextTime,
+          reminder_lead_minutes: nextLead,
+        }),
+      });
+      setFeedbackBanner(
+        nextEnabled
+          ? `Rappels PWA enregistrés (${nextTime} · ${formatReminderLeadLabel(nextLead).toLowerCase()}).`
+          : 'Rappels automatiques de séance désactivés.'
+      );
+      await loadWorkspace();
+    } catch (err) {
+      setFeedbackBanner(err instanceof Error ? err.message : 'Impossible d’enregistrer les rappels.');
+    } finally {
+      setReminderSubmitting(false);
+    }
+  };
+
+  const handleEnablePwaNotifications = async () => {
+    const res = await requestNotifPermission();
+    if (res === 'granted') {
+      if (!notifEnabled) {
+        setNotifEnabled(true);
+      }
+      await handleSaveReminders(true, reminderTime, reminderLeadMinutes);
+      await sendTestNotification();
+      setNotifBannerDismissed(true);
+    } else if (res === 'denied') {
+      setFeedbackBanner(
+        'Notifications bloquées dans les paramètres du navigateur. Autorisez Terrain+ depuis l’icône cadenas de la barre d’adresse.'
+      );
+    }
+  };
+
+  const handleTestPwaNotification = async () => {
+    const res = await sendTestNotification();
+    if (res.ok) {
+      setFeedbackBanner('Notification de test envoyée via le Service Worker Terrain+.');
+    } else if (res.permission === 'denied') {
+      setFeedbackBanner('Notifications bloquées dans votre navigateur. Réactivez l’autorisation pour recevoir les rappels.');
+    } else if (res.permission === 'unsupported') {
+      setFeedbackBanner('Votre navigateur actuel ne supporte pas les notifications PWA locales.');
+    } else {
+      setFeedbackBanner('Autorisez l’affichage des notifications dans votre navigateur pour tester.');
     }
   };
 
@@ -569,6 +785,39 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     }
   };
 
+  const handleSwitchAthletePlan = async (e?: React.FormEvent, explicitTier?: AthletePlanTier) => {
+    if (e) e.preventDefault();
+    const tierToApply = explicitTier || targetPlanDraft;
+    if (tierToApply !== 'ESSENTIEL' && !confirmPlanSwitch) {
+      setFeedbackBanner('Cochez la confirmation de formule avant de valider.');
+      return;
+    }
+    if (tierToApply === 'COACH_PRIVE' && !selectedCoachDraftId) {
+      setFeedbackBanner('Sélectionnez d’abord un coach dans la liste.');
+      return;
+    }
+    setCoachActionSubmitting(true);
+    try {
+      const res = await apiRequest<{ message: string }>('/api/athlete/select-plan', {
+        method: 'POST',
+        body: JSON.stringify({
+          plan_tier: tierToApply,
+          billing_cycle: tierToApply === 'PROGRESSION' ? planSwitchBilling : 'MENSUEL',
+          coach_user_id: tierToApply === 'COACH_PRIVE' ? selectedCoachDraftId : null,
+          confirm_plan: tierToApply !== 'ESSENTIEL',
+        }),
+      });
+      setConfirmPlanSwitch(false);
+      setUpgradePrompt(null);
+      setFeedbackBanner(res.message);
+      await loadWorkspace();
+    } catch (err) {
+      setFeedbackBanner(err instanceof Error ? err.message : 'Impossible de mettre à jour votre formule.');
+    } finally {
+      setCoachActionSubmitting(false);
+    }
+  };
+
   const handleExportData = async () => {
     try {
       const exported = await apiRequest<Record<string, unknown>>('/api/athlete/export');
@@ -584,11 +833,40 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     }
   };
 
-  const handleDeleteAccount = async () => {
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordSubmitting(true);
     try {
-      await apiRequest('/api/athlete/account', { method: 'DELETE' });
+      const res = await apiRequest<{ message: string; sessionToken?: string }>('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          current_password: currentPasswordInput,
+          new_password: newPasswordInput,
+        }),
+      });
+      setCurrentPasswordInput('');
+      setNewPasswordInput('');
+      setFeedbackBanner(res.message);
+    } catch (err) {
+      setFeedbackBanner(err instanceof Error ? err.message : 'Impossible de modifier le mot de passe.');
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  };
+
+  const handleDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deletePassword) {
+      setFeedbackBanner('Saisissez votre mot de passe actuel pour confirmer la suppression.');
+      return;
+    }
+    try {
+      await apiRequest('/api/athlete/account', {
+        method: 'DELETE',
+        body: JSON.stringify({ password: deletePassword }),
+      });
       clearSessionToken();
-      localStorage.removeItem(WORKSPACE_CACHE_KEY);
+      clearAllWorkspaceCaches();
       onLoggedOut();
     } catch (err) {
       setFeedbackBanner(err instanceof Error ? err.message : 'Suppression impossible.');
@@ -636,11 +914,15 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
           <img
             src="/brand/terrain-logo.png"
             alt="Terrain+"
+            decoding="async"
             referrerPolicy="no-referrer"
             className="h-8 w-auto object-contain"
           />
           <div className={`mt-2 text-xs font-semibold ${sportTheme.accentTextClass}`}>
             {sportTheme.nom} · {LEVEL_LABELS[data.profile.niveau]}
+          </div>
+          <div className="mt-1 font-mono text-[11px] font-medium text-neutral-500">
+            {currentPlanShortLabel}
           </div>
         </div>
 
@@ -697,6 +979,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
             <img
               src="/brand/terrain-mark.png"
               alt="Terrain+"
+              decoding="async"
               referrerPolicy="no-referrer"
               className="h-7 w-7 rounded-md object-contain shrink-0"
             />
@@ -831,6 +1114,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       <img
                         src={sportTheme.imageUrl}
                         alt={sportTheme.nom}
+                        loading="lazy"
+                        decoding="async"
                         referrerPolicy="no-referrer"
                         className="h-full w-full object-cover"
                       />
@@ -1252,14 +1537,21 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 {/* Coach & Alerts */}
                 <div className="lg:col-span-5 space-y-6">
                   <div className="rounded-2xl border border-neutral-200 bg-white p-5">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-base font-semibold text-neutral-900">Mon coach</h2>
-                      <span className="text-xs text-neutral-500">{data.coach ? data.coach.zone : 'En attente'}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="text-base font-semibold text-neutral-900">Ma formule & Mon coach</h2>
+                      <span className="font-mono text-xs font-semibold text-neutral-600">
+                        {currentPlanShortLabel}
+                      </span>
                     </div>
-                    {data.coach ? (
+                    {currentPlanTier === 'COACH_PRIVE' && data.coach ? (
                       <div className="mt-3 space-y-2.5">
-                        <div className="text-sm font-semibold text-neutral-900">
-                          {data.coach.prenom} {data.coach.nom}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-semibold text-neutral-900">
+                            {data.coach.prenom} {data.coach.nom}
+                          </div>
+                          <span className="text-[11px] font-semibold text-emerald-800">
+                            Suivi Coach actif · {data.coach.zone}
+                          </span>
                         </div>
                         <div className="text-xs text-neutral-500">{data.coach.qualification}</div>
                         {latestEval?.comments[0] && (
@@ -1267,20 +1559,103 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             Dernier commentaire : « {latestEval.comments[0].texte} »
                           </div>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => setTab('profil')}
+                          className="text-xs font-semibold text-neutral-900 underline hover:text-neutral-700"
+                        >
+                          Gérer ma formule ou changer de coach
+                        </button>
+                      </div>
+                    ) : currentPlanTier === 'PROGRESSION' ? (
+                      <div className="mt-2.5 space-y-3">
+                        <p className="text-xs text-neutral-600 leading-relaxed">
+                          Votre formule <strong>Progression+</strong> débloque le hors-ligne illimité, les cycles avancés et les courbes complètes d’évaluation. Ajoutez un coach dédié à tout moment pour passer à 5 000 FCFA / mois.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setTab('profil')}
+                          className="rounded-xl bg-neutral-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-neutral-800 min-h-[40px]"
+                        >
+                          Ajouter un coach ou gérer ma formule
+                        </button>
                       </div>
                     ) : (
-                      <p className="mt-2 text-xs text-neutral-600">
-                        Un coach sera affecté prochainement par l’administrateur Terrain+.
-                      </p>
+                      <div className="mt-2.5 space-y-3">
+                        <p className="text-xs text-neutral-600 leading-relaxed">
+                          Vous utilisez l’accès <strong>Essentiel (0 FCFA)</strong>. Débloquez tous les cycles avancés et le hors-ligne illimité dès 1 500 FCFA / mois, ou choisissez un coach dédié (5 000 FCFA / mois).
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setTab('profil')}
+                          className="rounded-xl bg-neutral-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-neutral-800 min-h-[40px]"
+                        >
+                          Comparer les formules Terrain+
+                        </button>
+                      </div>
                     )}
                   </div>
 
-                  <div className="rounded-2xl border border-neutral-200 bg-white p-5">
-                    <h2 className="text-base font-semibold text-neutral-900">Alertes et rappels</h2>
+                  <div className="rounded-2xl border border-neutral-200 bg-white p-5 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="text-base font-semibold text-neutral-900">Alertes et rappels</h2>
+                      <button
+                        type="button"
+                        onClick={() => setTab('profil')}
+                        className="text-xs font-medium text-neutral-600 underline hover:text-neutral-900"
+                      >
+                        Régler l’heure
+                      </button>
+                    </div>
+
+                    {notifEnabled && notifPermission === 'default' && !notifBannerDismissed && (
+                      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5 space-y-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-neutral-900">
+                            <BellRing className="h-4 w-4 text-emerald-700 shrink-0" aria-hidden="true" />
+                            <span>Activer les rappels push PWA avant vos séances</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setNotifBannerDismissed(true)}
+                            aria-label="Masquer"
+                            className="text-neutral-400 hover:text-neutral-700"
+                          >
+                            <X className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-neutral-600 leading-relaxed">
+                          Recevez une alerte locale directement sur votre téléphone ou ordinateur ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()} votre horaire de {reminderTime}).
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleEnablePwaNotifications}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-neutral-800 min-h-[36px]"
+                        >
+                          <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span>Autoriser les rappels PWA</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {notifEnabled && notifPermission === 'granted' && nextReminder && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-950 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-semibold flex items-center gap-1.5">
+                            <Bell className="h-3.5 w-3.5 text-emerald-700 shrink-0" aria-hidden="true" />
+                            <span className="truncate">Prochain rappel : {nextReminder.sessionTitle}</span>
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-emerald-900/80 font-mono tabular-nums">
+                            {nextReminder.datePrevue} · {reminderTime} ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()})
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {data.alerts.length === 0 ? (
-                      <p className="mt-2 text-xs text-neutral-500">Aucune alerte active.</p>
+                      <p className="text-xs text-neutral-500">Aucune alerte active.</p>
                     ) : (
-                      <div className="mt-3 space-y-2">
+                      <div className="space-y-2">
                         {data.alerts.slice(0, 3).map((al) => (
                           <button
                             key={al.id}
@@ -1819,9 +2194,15 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-lg font-semibold text-neutral-900">
-                      Bibliothèque {sportTheme.nom} (relue avant diffusion)
-                    </h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-lg font-semibold text-neutral-900">
+                        Bibliothèque {sportTheme.nom} (relue avant diffusion)
+                      </h2>
+                      <span className="font-mono text-xs text-neutral-500">
+                        {Object.keys(offlineMap).length}
+                        {isProgressionUnlocked ? ' hors ligne (illimité)' : '/2 hors ligne (Essentiel)'}
+                      </span>
+                    </div>
                     <p className="text-xs text-neutral-500">
                       Toutes les séances incluent des consignes français/wolof et une variante facile ou exigeante.
                     </p>
@@ -1846,11 +2227,26 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {filteredLibrary.map((sess) => {
                     const cachedOffline = Boolean(offlineMap[sess.id]);
+                    const isLockedProgression = sess.access_tier === 'PROGRESSION' && !isProgressionUnlocked;
                     return (
                       <div key={sess.id} className="rounded-2xl border border-neutral-200 bg-white p-5 flex flex-col justify-between gap-4">
                         <div>
-                          <div className="text-xs text-neutral-500">
-                            {LEVEL_LABELS[sess.niveau]} · {sess.duree_min} min · {sess.exercises.length} exercices
+                          <div className="flex items-center justify-between gap-2 text-xs text-neutral-500">
+                            <span>
+                              {LEVEL_LABELS[sess.niveau]} · {sess.duree_min} min · {sess.exercises.length} exercices
+                            </span>
+                            {sess.access_tier === 'PROGRESSION' ? (
+                              <span
+                                className={`inline-flex items-center gap-1 font-semibold ${
+                                  isLockedProgression ? 'text-amber-800' : 'text-emerald-700'
+                                }`}
+                              >
+                                {isLockedProgression && <Lock className="h-3 w-3" aria-hidden="true" />}
+                                <span>Progression+</span>
+                              </span>
+                            ) : (
+                              <span className="font-medium text-neutral-500">Essentiel gratuit</span>
+                            )}
                           </div>
                           <h3 className="mt-1.5 text-base font-semibold text-neutral-900">{sess.titre}</h3>
                           <p className="mt-1 text-xs text-neutral-600">Objectif : {sess.objectif}</p>
@@ -1875,17 +2271,120 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
                           <button
                             type="button"
-                            onClick={() => setActivePlayer({ session: sess, scheduledId: null })}
-                            className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white min-h-[40px] ${sportTheme.accentBgClass} ${sportTheme.accentHoverBgClass}`}
+                            onClick={() => handleLaunchLibrarySession(sess)}
+                            className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white min-h-[40px] ${
+                              isLockedProgression
+                                ? 'bg-neutral-800 hover:bg-neutral-900'
+                                : `${sportTheme.accentBgClass} ${sportTheme.accentHoverBgClass}`
+                            }`}
                           >
-                            <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                            <span>Commencer</span>
+                            {isLockedProgression ? (
+                              <>
+                                <Lock className="h-3.5 w-3.5" aria-hidden="true" />
+                                <span>Débloquer</span>
+                              </>
+                            ) : (
+                              <>
+                                <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                                <span>Commencer</span>
+                              </>
+                            )}
                           </button>
                         </div>
                       </div>
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Illustrated Exercise & Anatomy Technique Sheets */}
+              <div className="space-y-4 pt-4 border-t border-neutral-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold text-neutral-900">
+                      Fiches techniques illustrées (Postures & Anatomie)
+                    </h2>
+                    <p className="text-xs text-neutral-500">
+                      Repères visuels d’alignement et muscles sollicités pour exécuter chaque mouvement sans vous blesser.
+                    </p>
+                  </div>
+
+                  <div className="inline-flex items-center gap-1 rounded-xl bg-neutral-200/70 p-1 self-start">
+                    {(['Toutes', 'Squats', 'Pompes', 'Gainage'] as const).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setFicheCategoryFilter(cat)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[36px] whitespace-nowrap ${
+                          ficheCategoryFilter === cat ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {ecoMode ? (
+                  <div className="rounded-2xl border border-neutral-200 bg-white p-5 text-xs text-neutral-600">
+                    Mode éco données actif : les {filteredFiches.length} planches techniques illustrées sont masquées pour préserver votre forfait mobile. Désactivez le mode éco données dans Profil pour les afficher.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredFiches.map((fiche) => {
+                      const locked = fiche.tier === 'PROGRESSION' && !isProgressionUnlocked;
+                      return (
+                        <div
+                          key={fiche.id}
+                          className="rounded-2xl border border-neutral-200 bg-white overflow-hidden flex flex-col justify-between"
+                        >
+                          <div className="relative bg-white border-b border-neutral-100 p-3">
+                            <img
+                              src={fiche.imageUrl}
+                              alt={fiche.titre}
+                              loading="lazy"
+                              decoding="async"
+                              referrerPolicy="no-referrer"
+                              className={`h-44 w-full object-contain ${locked ? 'opacity-75' : ''}`}
+                            />
+                            <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+                              <span className="font-semibold text-neutral-500">{fiche.category}</span>
+                              <span className={locked ? 'font-semibold text-amber-800' : 'font-medium text-emerald-700'}>
+                                {fiche.tier === 'PROGRESSION' ? 'Progression+' : 'Essentiel gratuit'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="p-4 flex-1 flex flex-col justify-between gap-3">
+                            <div>
+                              <h3 className="text-sm font-semibold text-neutral-900">{fiche.titre}</h3>
+                              <div className="mt-1 text-[11px] font-medium text-neutral-500">{fiche.muscles}</div>
+                              <p className="mt-1.5 text-xs text-neutral-600 leading-relaxed">{fiche.caption}</p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenTechniqueFiche(fiche)}
+                              className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 min-h-[38px]"
+                            >
+                              {locked ? (
+                                <>
+                                  <Lock className="h-3.5 w-3.5 text-amber-800" aria-hidden="true" />
+                                  <span>Débloquer avec Progression+</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
+                                  <span>Agrandir le repère visuel</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1959,7 +2458,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
                   <div className="space-y-4">
                     {sportTheme.tests.map((testSpec) => (
-                      <div key={testSpec.code} className="rounded-xl border border-neutral-200 p-4 space-y-2">
+                      <div key={testSpec.code} className="rounded-xl border border-neutral-200 p-4 space-y-2.5">
                         <div className="flex items-center justify-between gap-2">
                           <label htmlFor={testSpec.code} className="text-sm font-semibold text-neutral-900">
                             {testSpec.nom}
@@ -1967,6 +2466,18 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           <span className="text-xs font-mono text-neutral-500">{testSpec.unite}</span>
                         </div>
                         <p className="text-xs text-neutral-600 leading-relaxed">{testSpec.consigne}</p>
+                        {!ecoMode && isOnline && testSpec.imageUrl && (
+                          <div className="rounded-lg border border-neutral-100 bg-white p-2">
+                            <img
+                              src={testSpec.imageUrl}
+                              alt={`Repère technique : ${testSpec.nom}`}
+                              loading="lazy"
+                              decoding="async"
+                              referrerPolicy="no-referrer"
+                              className="h-28 w-full object-contain"
+                            />
+                          </div>
+                        )}
                         <input
                           id={testSpec.code}
                           type="number"
@@ -2047,12 +2558,44 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
                   {/* Full History & Coach Comments */}
                   <div className="rounded-2xl border border-neutral-200 bg-white p-5 space-y-4">
-                    <h2 className="text-base font-semibold text-neutral-900">Historique et avis du coach</h2>
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="text-base font-semibold text-neutral-900">Historique et avis du coach</h2>
+                      {!isProgressionUnlocked && data.evaluations.length > 1 && (
+                        <span className="text-[11px] font-semibold text-amber-800">Progression+</span>
+                      )}
+                    </div>
+
+                    {isProgressionUnlocked && evalChartData.length >= 2 && (
+                      <div className="rounded-xl border border-neutral-100 bg-neutral-50 p-3">
+                        <div className="text-[11px] font-medium text-neutral-500 mb-2">
+                          Courbe d’évolution (score / 100)
+                        </div>
+                        <div className="h-36 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={evalChartData} margin={{ top: 6, right: 8, left: -24, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#6B7280' }} />
+                              <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#6B7280' }} />
+                              <Tooltip />
+                              <Line
+                                type="monotone"
+                                dataKey="score"
+                                name="Score"
+                                stroke={sportTheme.accentHex}
+                                strokeWidth={2.5}
+                                dot={{ r: 3.5 }}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
                     {data.evaluations.length === 0 ? (
                       <p className="text-xs text-neutral-500">Aucune évaluation enregistrée.</p>
                     ) : (
                       <div className="space-y-4">
-                        {data.evaluations.map((ev) => (
+                        {(isProgressionUnlocked ? data.evaluations : data.evaluations.slice(0, 1)).map((ev) => (
                           <div key={ev.id} className="rounded-xl border border-neutral-200 p-3.5 space-y-2">
                             <div className="flex items-center justify-between text-xs">
                               <span className="font-semibold text-neutral-900">
@@ -2074,6 +2617,27 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             )}
                           </div>
                         ))}
+
+                        {!isProgressionUnlocked && data.evaluations.length > 1 && (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 space-y-2.5">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-900">
+                              <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                              <span>
+                                {data.evaluations.length - 1} autre{data.evaluations.length - 1 > 1 ? 's' : ''} bilan{data.evaluations.length - 1 > 1 ? 's' : ''} et la courbe multi-mois disponibles
+                              </span>
+                            </div>
+                            <p className="text-xs text-amber-900/90 leading-relaxed">
+                              Votre évaluation du moment reste 100 % gratuite. Activez <strong>Progression+ (1 500 FCFA / mois)</strong> pour consulter la courbe d’évolution et tout votre historique comparatif.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setTab('profil')}
+                              className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-neutral-800"
+                            >
+                              Activer Progression+
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -2232,13 +2796,137 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     </div>
                   </form>
 
+                  <div className="rounded-2xl border border-neutral-200 bg-white p-5 space-y-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          {notifEnabled && notifPermission === 'granted' ? (
+                            <BellRing className="h-4 w-4 text-emerald-700 shrink-0" aria-hidden="true" />
+                          ) : (
+                            <BellOff className="h-4 w-4 text-neutral-500 shrink-0" aria-hidden="true" />
+                          )}
+                          <h2 className="text-base font-semibold text-neutral-900">Rappels push locaux (PWA)</h2>
+                        </div>
+                        <p className="mt-0.5 text-xs text-neutral-500">
+                          Alertes locales avant vos séances programmées · zéro SMS payant requis.
+                        </p>
+                      </div>
+                      <span
+                        className={`text-[11px] font-semibold shrink-0 ${
+                          notifPermission === 'granted' && notifEnabled
+                            ? 'text-emerald-700'
+                            : notifPermission === 'denied'
+                              ? 'text-red-700'
+                              : 'text-amber-700'
+                        }`}
+                      >
+                        {notifPermission === 'unsupported'
+                          ? 'Non supporté'
+                          : notifPermission === 'denied'
+                            ? 'Bloqué'
+                            : notifPermission === 'granted'
+                              ? notifEnabled
+                                ? 'Actifs'
+                                : 'En pause'
+                              : 'À autoriser'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label htmlFor="pwa-reminder-time" className="block text-xs font-medium text-neutral-700 mb-1">
+                          Heure habituelle
+                        </label>
+                        <input
+                          id="pwa-reminder-time"
+                          type="time"
+                          value={reminderTime}
+                          onChange={(e) => setReminderTime(e.target.value || '18:00')}
+                          className="w-full rounded-xl border border-neutral-300 px-3 py-2 font-mono text-sm min-h-[42px]"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="pwa-reminder-lead" className="block text-xs font-medium text-neutral-700 mb-1">
+                          Délai de rappel
+                        </label>
+                        <select
+                          id="pwa-reminder-lead"
+                          value={reminderLeadMinutes}
+                          onChange={(e) => setReminderLeadMinutes(Number(e.target.value))}
+                          className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs font-medium min-h-[42px]"
+                        >
+                          <option value={0}>À l’heure prévue</option>
+                          <option value={15}>15 min avant</option>
+                          <option value={30}>30 min avant</option>
+                          <option value={60}>1 heure avant</option>
+                          <option value={120}>2 heures avant</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {nextReminder ? (
+                      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-700 space-y-0.5">
+                        <div className="font-semibold text-neutral-900">
+                          Prochain rappel ciblé : {nextReminder.sessionTitle}
+                        </div>
+                        <div className="font-mono text-[11px] text-neutral-600 tabular-nums">
+                          {nextReminder.datePrevue} · séance à {reminderTime} ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()})
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-neutral-500">
+                        Toutes les séances de la semaine en cours sont déjà réalisées.
+                      </p>
+                    )}
+
+                    {notifPermission === 'denied' && (
+                      <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900 leading-relaxed">
+                        Les notifications sont actuellement bloquées dans votre navigateur. Réactivez-les depuis les paramètres du site (icône cadenas dans la barre d’adresse).
+                      </p>
+                    )}
+
+                    <div className="text-[11px] text-neutral-500 leading-relaxed">
+                      Service Worker PWA : {swReady ? 'prêt' : 'initialisation'}{' '}
+                      {supportsTriggerApi ? '· planification OS native active' : '· rappel actif à l’ouverture et en arrière-plan'}. Sur iPhone/iPad (iOS 16.4+), installez l’app sur l’écran d’accueil pour recevoir les notifications.
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {notifPermission === 'default' && (
+                        <button
+                          type="button"
+                          onClick={handleEnablePwaNotifications}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-emerald-800 min-h-[40px]"
+                        >
+                          <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+                          <span>Autoriser les notifications</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={reminderSubmitting}
+                        onClick={() => handleSaveReminders(notifEnabled, reminderTime, reminderLeadMinutes)}
+                        className="rounded-xl bg-neutral-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-neutral-800 disabled:opacity-50 min-h-[40px]"
+                      >
+                        {reminderSubmitting ? 'Enregistrement...' : 'Enregistrer les rappels'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleTestPwaNotification}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-300 px-3.5 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 min-h-[40px]"
+                      >
+                        <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>Tester</span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="rounded-2xl border border-neutral-200 bg-white p-5 space-y-3">
                     <h2 className="text-base font-semibold text-neutral-900">Discipline active : {sportTheme.nom}</h2>
                     <p className="text-xs text-neutral-600">
                       Changer de sport adapte l’interface, les séances et la batterie de tests.
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      {(['football', 'basket', 'handball'] as SportCode[]).map((code) => (
+                      {(['football', 'basket', 'handball', 'volleyball', 'athletisme'] as SportCode[]).map((code) => (
                         <button
                           key={code}
                           type="button"
@@ -2258,58 +2946,264 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 </div>
               </div>
 
-              {/* Coach Change & Data Privacy */}
+              {/* Plan Tier, Coach Switch & Data Privacy */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                <form onSubmit={handleRequestCoachChange} className="lg:col-span-6 rounded-2xl border border-neutral-200 bg-white p-5 space-y-3">
-                  <h2 className="text-base font-semibold text-neutral-900">Coach affecté</h2>
-                  <p className="text-xs text-neutral-600">
-                    {data.coach
-                      ? `${data.coach.prenom} ${data.coach.nom} (${data.coach.qualification})`
-                      : 'Aucun coach affecté pour le moment.'}
-                  </p>
-                  <div className="flex gap-2">
+                <div className="lg:col-span-6 rounded-2xl border border-neutral-200 bg-white p-5 space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-base font-semibold text-neutral-900">
+                      Ma formule Terrain+ & Coach
+                    </h2>
+                    <span className="font-mono text-xs font-semibold text-neutral-700">
+                      {currentPlanShortLabel}
+                    </span>
+                  </div>
+
+                  {currentPlanTier === 'COACH_PRIVE' && data.coach && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-neutral-900">
+                          Coach actif : {data.coach.prenom} {data.coach.nom}
+                        </span>
+                        <span className="text-xs font-medium text-emerald-800">{data.coach.zone}</span>
+                      </div>
+                      <div className="text-xs text-neutral-600">
+                        {data.coach.specialite} · {data.coach.qualification}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3-Tier Plan Selector */}
+                  <form onSubmit={(e) => handleSwitchAthletePlan(e)} className="space-y-3">
+                    <div className="space-y-2">
+                      {(
+                        [
+                          {
+                            tier: 'ESSENTIEL' as const,
+                            title: 'Essentiel',
+                            price: '0 FCFA / mois',
+                            desc: 'Programme hebdo, séance du jour, alerte douleur 100 % gratuite, collectif & 2 séances hors ligne.',
+                          },
+                          {
+                            tier: 'PROGRESSION' as const,
+                            title: 'Progression+',
+                            price:
+                              planSwitchBilling === 'TRIMESTRIEL'
+                                ? '4 000 FCFA / trimestre'
+                                : '1 500 FCFA / mois',
+                            desc: 'Hors-ligne illimité, tous les cycles avancés, fiches anatomie avec charge et courbes d’évolution.',
+                          },
+                          {
+                            tier: 'COACH_PRIVE' as const,
+                            title: 'Suivi Coach',
+                            price: '5 000 FCFA / mois',
+                            desc: 'Tout Progression+ + coach vérifié dédié (80 % reversés au coach, 20 % plateforme).',
+                          },
+                        ] as const
+                      ).map((opt) => {
+                        const selected = targetPlanDraft === opt.tier;
+                        const activeNow = currentPlanTier === opt.tier;
+                        return (
+                          <button
+                            key={opt.tier}
+                            type="button"
+                            onClick={() => {
+                              setTargetPlanDraft(opt.tier);
+                              setConfirmPlanSwitch(false);
+                            }}
+                            className={`w-full rounded-xl border p-3 text-left transition-colors ${
+                              selected
+                                ? 'border-neutral-900 bg-neutral-50'
+                                : 'border-neutral-200 hover:border-neutral-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-neutral-900">
+                                {opt.title}
+                                {activeNow ? ' (Formule actuelle)' : ''}
+                              </span>
+                              <span className="font-mono text-xs font-bold text-[#0D3B2A]">{opt.price}</span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-neutral-600 leading-relaxed">{opt.desc}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {targetPlanDraft === 'PROGRESSION' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPlanSwitchBilling('MENSUEL')}
+                          className={`rounded-xl border px-3 py-2 text-xs font-medium min-h-[38px] ${
+                            planSwitchBilling === 'MENSUEL'
+                              ? 'border-neutral-900 bg-neutral-900 text-white'
+                              : 'border-neutral-300 text-neutral-700'
+                          }`}
+                        >
+                          Mensuel · 1 500 F
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPlanSwitchBilling('TRIMESTRIEL')}
+                          className={`rounded-xl border px-3 py-2 text-xs font-medium min-h-[38px] ${
+                            planSwitchBilling === 'TRIMESTRIEL'
+                              ? 'border-neutral-900 bg-neutral-900 text-white'
+                              : 'border-neutral-300 text-neutral-700'
+                          }`}
+                        >
+                          Trimestriel · 4 000 F
+                        </button>
+                      </div>
+                    )}
+
+                    {targetPlanDraft === 'COACH_PRIVE' && data.availableCoaches.length > 0 && (
+                      <div className="space-y-2 border-t border-neutral-100 pt-2">
+                        <div className="text-xs font-semibold text-neutral-800">
+                          Choisir ou changer votre coach vérifié :
+                        </div>
+                        <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                          {data.availableCoaches.map((c) => {
+                            const isCurrent = data.coach?.id === c.id;
+                            const isSelected = selectedCoachDraftId === c.id;
+                            return (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => setSelectedCoachDraftId(c.id)}
+                                className={`w-full rounded-xl border p-3 text-left flex items-center justify-between gap-3 transition-colors ${
+                                  isSelected
+                                    ? 'border-neutral-900 bg-neutral-50'
+                                    : 'border-neutral-200 hover:border-neutral-300'
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="text-xs font-semibold text-neutral-900">
+                                    {c.prenom} {c.nom} · {c.zone}
+                                    {isCurrent ? ' (Actuel)' : ''}
+                                  </div>
+                                  <div className="text-[11px] text-neutral-600 truncate">
+                                    {c.specialite} · {c.qualification}
+                                  </div>
+                                </div>
+                                <span className="font-mono text-xs font-bold text-[#0D3B2A] shrink-0">
+                                  {c.athlete_monthly_fee_fcfa.toLocaleString('fr-FR')} F/mois
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {targetPlanDraft !== 'ESSENTIEL' && (
+                      <label className="flex items-start gap-2.5 rounded-xl border border-neutral-200 bg-neutral-50 p-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={confirmPlanSwitch}
+                          onChange={(e) => setConfirmPlanSwitch(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 accent-neutral-900"
+                        />
+                        <span className="text-[11px] text-neutral-700 leading-relaxed">
+                          {targetPlanDraft === 'COACH_PRIVE'
+                            ? 'Je confirme la formule Suivi Coach à 5 000 FCFA / mois (dont 80 % reversés au coach sélectionné).'
+                            : `Je confirme la formule Progression+ (${planSwitchBilling === 'TRIMESTRIEL' ? '4 000 FCFA / trimestre' : '1 500 FCFA / mois'}).`}
+                        </span>
+                      </label>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={coachActionSubmitting}
+                      className="w-full rounded-xl bg-neutral-900 px-4 py-2.5 text-xs font-semibold text-white hover:bg-neutral-800 disabled:opacity-50 min-h-[42px]"
+                    >
+                      {coachActionSubmitting
+                        ? 'Mise à jour...'
+                        : targetPlanDraft === 'ESSENTIEL'
+                          ? 'Passer / Rester en Essentiel gratuit (0 FCFA)'
+                          : targetPlanDraft === 'PROGRESSION'
+                            ? `Activer Progression+ (${planSwitchBilling === 'TRIMESTRIEL' ? '4 000 F / trim.' : '1 500 F / mois'})`
+                            : 'Activer / Mettre à jour Suivi Coach (5 000 F / mois)'}
+                    </button>
+                  </form>
+
+                  <form onSubmit={handleRequestCoachChange} className="flex gap-2 border-t border-neutral-100 pt-3">
                     <input
                       type="text"
                       value={coachChangeMotif}
                       onChange={(e) => setCoachChangeMotif(e.target.value)}
-                      placeholder="Motif si vous souhaitez changer de coach"
-                      className="flex-1 rounded-xl border border-neutral-300 px-3 py-2 text-xs min-h-[44px]"
+                      placeholder="Note optionnelle pour l’administrateur"
+                      className="flex-1 rounded-xl border border-neutral-300 px-3 py-2 text-xs min-h-[40px]"
                     />
                     <button
                       type="submit"
-                      className="rounded-xl border border-neutral-300 px-3.5 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 min-h-[44px] whitespace-nowrap"
+                      className="rounded-xl border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 min-h-[40px] whitespace-nowrap"
                     >
-                      Demander changement
+                      Signaler
                     </button>
-                  </div>
-                </form>
+                  </form>
+                </div>
 
-                <div className="lg:col-span-6 rounded-2xl border border-neutral-200 bg-white p-5 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-emerald-700" aria-hidden="true" />
-                    <h2 className="text-base font-semibold text-neutral-900">Confidentialité et droits</h2>
+                <div className="lg:col-span-6 rounded-2xl border border-neutral-200 bg-white p-5 space-y-5">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4 text-emerald-700" aria-hidden="true" />
+                      <h2 className="text-base font-semibold text-neutral-900">Confidentialité et sécurité</h2>
+                    </div>
+                    <p className="text-xs text-neutral-600">
+                      Consentements actifs : {data.consents.map((c) => `${c.type} (${c.version})`).join(' · ')}
+                    </p>
+                    <div className="flex flex-wrap gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={handleExportData}
+                        className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 min-h-[44px]"
+                      >
+                        <Download className="h-4 w-4" aria-hidden="true" />
+                        <span>Exporter mes données (JSON)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeletePassword('');
+                          setShowDeleteConfirm(true);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-800 hover:bg-red-100 min-h-[44px]"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        <span>Supprimer mon compte</span>
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-neutral-600">
-                    Consentements actifs : {data.consents.map((c) => `${c.type} (${c.version})`).join(' · ')}
-                  </p>
-                  <div className="flex flex-wrap gap-3 pt-1">
+
+                  <form onSubmit={handleChangePassword} className="space-y-3 border-t border-neutral-100 pt-4">
+                    <h3 className="text-sm font-semibold text-neutral-900">Changer mon mot de passe</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <input
+                        type="password"
+                        required
+                        value={currentPasswordInput}
+                        onChange={(e) => setCurrentPasswordInput(e.target.value)}
+                        placeholder="Mot de passe actuel"
+                        className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-xs min-h-[40px]"
+                      />
+                      <input
+                        type="password"
+                        required
+                        minLength={8}
+                        value={newPasswordInput}
+                        onChange={(e) => setNewPasswordInput(e.target.value)}
+                        placeholder="Nouveau (8+ car., lettres+chiffres)"
+                        className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-xs min-h-[40px]"
+                      />
+                    </div>
                     <button
-                      type="button"
-                      onClick={handleExportData}
-                      className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 min-h-[44px]"
+                      type="submit"
+                      disabled={passwordSubmitting}
+                      className="rounded-xl bg-neutral-900 px-4 py-2 text-xs font-semibold text-white hover:bg-neutral-800 disabled:opacity-50 min-h-[40px]"
                     >
-                      <Download className="h-4 w-4" aria-hidden="true" />
-                      <span>Exporter mes données (JSON)</span>
+                      {passwordSubmitting ? 'Mise à jour...' : 'Mettre à jour le mot de passe'}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowDeleteConfirm(true)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-800 hover:bg-red-100 min-h-[44px]"
-                    >
-                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      <span>Supprimer mon compte</span>
-                    </button>
-                  </div>
+                  </form>
                 </div>
               </div>
             </div>
@@ -2374,28 +3268,47 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       {/* Delete Account Confirmation Modal */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white border border-neutral-200 p-6 space-y-4">
+          <form
+            onSubmit={handleDeleteAccount}
+            className="w-full max-w-md rounded-2xl bg-white border border-neutral-200 p-6 space-y-4"
+          >
             <h3 className="text-lg font-semibold text-neutral-900">Supprimer définitivement votre compte ?</h3>
             <p className="text-sm text-neutral-600 leading-relaxed">
-              Toutes vos données personnelles, mesures de poids, évaluations et séances planifiées seront supprimées de la base Terrain+. Pensez à exporter vos données avant si vous souhaitez les conserver.
+              Toutes vos données personnelles, mesures de poids, évaluations et séances planifiées seront supprimées de la base Terrain+. Saisissez votre mot de passe actuel pour confirmer cette action irréversible.
             </p>
+            <div>
+              <label htmlFor="delete-account-password" className="block text-xs font-medium text-neutral-700 mb-1">
+                Mot de passe actuel *
+              </label>
+              <input
+                id="delete-account-password"
+                type="password"
+                required
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Confirmez votre mot de passe"
+                className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm min-h-[44px]"
+              />
+            </div>
             <div className="flex justify-end gap-3">
               <button
                 type="button"
-                onClick={() => setShowDeleteConfirm(false)}
+                onClick={() => {
+                  setDeletePassword('');
+                  setShowDeleteConfirm(false);
+                }}
                 className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 min-h-[44px]"
               >
                 Annuler
               </button>
               <button
-                type="button"
-                onClick={handleDeleteAccount}
+                type="submit"
                 className="rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800 min-h-[44px]"
               >
                 Supprimer définitivement
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
 
@@ -2415,6 +3328,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
           session={activePlayer.session}
           scheduledId={activePlayer.scheduledId}
           defaultLangue={data.user.langue}
+          ecoMode={ecoMode}
           onClose={() => setActivePlayer(null)}
           onCompleted={() => {
             setActivePlayer(null);
@@ -2426,6 +3340,84 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
             setShowPainModal(true);
           }}
         />
+      )}
+
+      {selectedFicheModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white border border-neutral-200 overflow-hidden">
+            <div className="flex items-center justify-between gap-4 border-b border-neutral-200 px-5 py-3.5">
+              <div>
+                <div className="text-[11px] font-semibold text-neutral-500">
+                  {selectedFicheModal.category} · {selectedFicheModal.muscles}
+                </div>
+                <h3 className="text-base font-semibold text-neutral-900">{selectedFicheModal.titre}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedFicheModal(null)}
+                aria-label="Fermer la fiche"
+                className="rounded-lg border border-neutral-200 p-2 text-neutral-600 hover:bg-neutral-50 min-h-[40px] min-w-[40px] flex items-center justify-center"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="bg-white p-4 sm:p-6 flex items-center justify-center">
+              <img
+                src={selectedFicheModal.imageUrl}
+                alt={selectedFicheModal.titre}
+                decoding="async"
+                referrerPolicy="no-referrer"
+                className="max-h-[60vh] w-auto object-contain"
+              />
+            </div>
+            <div className="border-t border-neutral-200 bg-neutral-50 px-5 py-3.5 text-xs text-neutral-700 leading-relaxed">
+              {selectedFicheModal.caption}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {upgradePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white border border-neutral-200 p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2 text-amber-800">
+                <Lock className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="text-xs font-semibold uppercase tracking-wide">Option Terrain+</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUpgradePrompt(null)}
+                aria-label="Fermer"
+                className="text-neutral-400 hover:text-neutral-700"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            <h3 className="text-lg font-semibold text-neutral-900">{upgradePrompt.title}</h3>
+            <p className="text-sm text-neutral-600 leading-relaxed">{upgradePrompt.reason}</p>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setUpgradePrompt(null)}
+                className="rounded-xl border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-700 min-h-[42px]"
+              >
+                Rester en Essentiel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUpgradePrompt(null);
+                  setTargetPlanDraft('PROGRESSION');
+                  setTab('profil');
+                }}
+                className="rounded-xl bg-neutral-900 px-4 py-2 text-xs font-semibold text-white hover:bg-neutral-800 min-h-[42px]"
+              >
+                Voir Progression+ / Suivi Coach
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showPainModal && (

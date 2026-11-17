@@ -1,6 +1,6 @@
 export type UserRole = 'ATHLETE' | 'COACH' | 'ADMIN' | 'MINISTRE';
 
-export type SportCode = 'football' | 'basket' | 'handball';
+export type SportCode = 'football' | 'basket' | 'handball' | 'volleyball' | 'athletisme';
 
 export type AthleteLevel = 'debutant' | 'intermediaire' | 'avance';
 
@@ -11,6 +11,10 @@ export type ValidationStatus = 'VALIDEE' | 'EN_RELECTURE' | 'BROUILLON';
 export type AlertType = 'DOULEUR' | 'ABSENCE' | 'RAPPEL' | 'CHANGEMENT_COACH';
 
 export type TestRating = 'Faible' | 'Moyen' | 'Bon pour le niveau';
+
+export type AthletePlanTier = 'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE';
+
+export type CoachPlanType = 'MARKETPLACE' | 'COACH_PRO';
 
 export interface ExerciseItem {
   id: string;
@@ -23,6 +27,7 @@ export interface ExerciseItem {
   dureeSec: number;
   repetitions?: number;
   reposSec: number;
+  imageUrl?: string;
 }
 
 export interface SessionTemplate {
@@ -35,6 +40,7 @@ export interface SessionTemplate {
   prevention_focus: string;
   relue_par: string | null;
   validation_status: ValidationStatus;
+  access_tier?: 'ESSENTIEL' | 'PROGRESSION';
   proposee_par_nom?: string | null;
   exercises: ExerciseItem[];
 }
@@ -148,6 +154,28 @@ export interface AthleteProfileData {
   objectif: string | null;
   eco_data_mode: boolean;
   notifications_enabled: boolean;
+  reminder_time?: string;
+  reminder_lead_minutes?: number;
+  plan_tier: AthletePlanTier;
+  plan_fee_fcfa: number;
+  plan_billing_cycle?: 'MENSUEL' | 'TRIMESTRIEL';
+  coach_subscription_status: 'GRATUIT_BASE' | 'ACTIF_5000';
+  coach_monthly_fee_fcfa: number;
+  coach_subscribed_at: string | null;
+}
+
+export interface PublicCoachOption {
+  id: number;
+  nom: string;
+  prenom: string;
+  specialite: string;
+  qualification: string;
+  zone: string;
+  coach_plan?: CoachPlanType;
+  commission_pct?: number;
+  athlete_payout_fcfa?: number;
+  athlete_monthly_fee_fcfa: number;
+  active_athletes_count: number;
 }
 
 export interface AssignedCoachInfo {
@@ -157,6 +185,8 @@ export interface AssignedCoachInfo {
   specialite: string;
   qualification: string;
   zone: string;
+  coach_plan?: CoachPlanType;
+  athlete_monthly_fee_fcfa?: number;
 }
 
 export interface ProgramPlanInfo {
@@ -171,6 +201,7 @@ export interface AthleteWorkspacePayload {
   user: AuthUser;
   profile: AthleteProfileData;
   coach: AssignedCoachInfo | null;
+  availableCoaches: PublicCoachOption[];
   program: ProgramPlanInfo | null;
   schedule: ScheduledSession[];
   library: SessionTemplate[];
@@ -255,6 +286,7 @@ export interface PartnerRequestRecord {
   contact_email: string | null;
   sport_principal: string | null;
   nombre_athletes_estime: number | null;
+  pack_souhaite?: string | null;
   message: string | null;
   statut: 'NOUVELLE' | 'EN_ETUDE' | 'VALIDEE';
   created_at: string;

@@ -12,6 +12,7 @@ export interface SportTestSpec {
     avance: { medium: number; good: number };
   };
   lowerIsBetter?: boolean;
+  imageUrl?: string;
 }
 
 export interface SportThemeConfig {
@@ -70,6 +71,7 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
         consigne: 'Pieds largeur d’épaules, descendez cuisses parallèles au sol puis remontez complètement pendant 30 secondes.',
         unite: 'répétitions',
         dureeChronoSec: 30,
+        imageUrl: '/assets/aistudio/image_09378c32.png',
         thresholds: {
           debutant: { medium: 16, good: 22 },
           intermediaire: { medium: 20, good: 26 },
@@ -93,6 +95,7 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
         nom: 'Gainage frontal chronométré',
         consigne: 'En appui sur les avant-bras, alignez tête, bassin et chevilles sans creuser le dos. Maintenez le plus longtemps possible.',
         unite: 'secondes',
+        imageUrl: '/assets/aistudio/image_b6a22554.png',
         thresholds: {
           debutant: { medium: 40, good: 65 },
           intermediaire: { medium: 60, good: 90 },
@@ -155,6 +158,7 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
         nom: 'Gainage frontal stabilisé',
         consigne: 'Planche sur avant-bras, hanches stables, respiration régulière jusqu’à fatigue technique.',
         unite: 'secondes',
+        imageUrl: '/assets/aistudio/image_b6a22554.png',
         thresholds: {
           debutant: { medium: 40, good: 65 },
           intermediaire: { medium: 60, good: 90 },
@@ -194,6 +198,7 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
         nom: 'Pompes maximales continues',
         consigne: 'Corps gainé, descendez la poitrine près du sol puis poussez bras tendus sans pause de plus de 2 secondes.',
         unite: 'répétitions',
+        imageUrl: '/assets/aistudio/image_07428322.png',
         thresholds: {
           debutant: { medium: 10, good: 18 },
           intermediaire: { medium: 18, good: 28 },
@@ -216,10 +221,141 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
         nom: 'Gainage latéral (cumul G + D)',
         consigne: 'Maintenez l’alignement sur un avant-bras côté droit puis côté gauche. Additionnez les deux temps.',
         unite: 'secondes',
+        imageUrl: '/assets/aistudio/image_b6a22554.png',
         thresholds: {
           debutant: { medium: 50, good: 80 },
           intermediaire: { medium: 75, good: 110 },
           avance: { medium: 100, good: 140 },
+        },
+      },
+    ],
+  },
+  volleyball: {
+    code: 'volleyball',
+    nom: 'Volleyball',
+    subtitle: 'Détente verticale, réceptions stables et protection d’épaule au smash',
+    imageUrl: '/src/assets/images/sport_handball_court_1794878272432.jpg',
+    accentHex: '#0F766E',
+    accentHoverHex: '#115E59',
+    accentBgClass: 'bg-teal-700',
+    accentHoverBgClass: 'hover:bg-teal-800',
+    accentTextClass: 'text-teal-700',
+    accentSoftBgClass: 'bg-teal-50',
+    accentBorderClass: 'border-teal-200',
+    qualities: [
+      'Détente verticale et impulsion',
+      'Stabilité à la réception de saut',
+      'Déplacements latéraux courts',
+      'Solidité et endurance de l’épaule',
+    ],
+    preventionZones: ['Genoux (tendon rotulien)', 'Épaules', 'Chevilles'],
+    dashboardMetrics: {
+      primary: 'Régularité',
+      secondary: 'Score de détente',
+      tertiary: 'Score épaule & appuis',
+    },
+    positions: ['Passeur', 'Réceptionneur-Attaquant', 'Central', 'Pointu', 'Libéro'],
+    tests: [
+      {
+        code: 'vb_saut_vertical',
+        nom: 'Détente verticale contre un mur',
+        consigne: 'Marquez votre portée bras levé contre un mur, puis sautez sans élan en visant le point le plus haut possible.',
+        unite: 'cm',
+        imageUrl: '/assets/aistudio/image_09378c32.png',
+        thresholds: {
+          debutant: { medium: 34, good: 44 },
+          intermediaire: { medium: 42, good: 52 },
+          avance: { medium: 50, good: 62 },
+        },
+      },
+      {
+        code: 'vb_pompes_explosives',
+        nom: 'Pompes dynamiques en 20 s',
+        consigne: 'Corps gainé, effectuez un maximum de pompes contrôlées avec poussée dynamique en 20 secondes.',
+        unite: 'répétitions',
+        dureeChronoSec: 20,
+        imageUrl: '/assets/aistudio/image_07428322.png',
+        thresholds: {
+          debutant: { medium: 8, good: 13 },
+          intermediaire: { medium: 12, good: 18 },
+          avance: { medium: 16, good: 23 },
+        },
+      },
+      {
+        code: 'vb_navette_laterale',
+        nom: 'Navette latérale défense (4 x 5 m)',
+        consigne: 'Entre deux lignes espacées de 5 mètres, enchaînez 4 trajets en pas chassés bas et touchez la ligne.',
+        unite: 'secondes',
+        lowerIsBetter: true,
+        thresholds: {
+          debutant: { medium: 9.8, good: 8.6 },
+          intermediaire: { medium: 8.8, good: 7.7 },
+          avance: { medium: 7.9, good: 6.9 },
+        },
+      },
+    ],
+  },
+  athletisme: {
+    code: 'athletisme',
+    nom: 'Athlétisme',
+    subtitle: 'Sprint, demi-fond, gestion de charge et prévention ischio-Achille',
+    imageUrl: '/src/assets/images/hero_terrain_campus_1794878270523.jpg',
+    accentHex: '#B45309',
+    accentHoverHex: '#92400E',
+    accentBgClass: 'bg-amber-700',
+    accentHoverBgClass: 'hover:bg-amber-800',
+    accentTextClass: 'text-amber-700',
+    accentSoftBgClass: 'bg-amber-50',
+    accentBorderClass: 'border-amber-200',
+    qualities: [
+      'Accélération et vitesse de pointe',
+      'Puissance des appuis et réactivité',
+      'Stabilité du bassin à pleine foulée',
+      'Endurance aérobie et récupération',
+    ],
+    preventionZones: ['Ischio-jambiers', 'Tendons d’Achille', 'Bas du dos'],
+    dashboardMetrics: {
+      primary: 'Régularité',
+      secondary: 'Score vitesse & appuis',
+      tertiary: 'Score d’endurance',
+    },
+    positions: ['Sprint (60–400 m)', 'Demi-fond (800–1500 m)', 'Haies', 'Sauts'],
+    tests: [
+      {
+        code: 'ath_accel_30m',
+        nom: 'Accélération 30 m départ arrêté',
+        consigne: 'Sur piste ou terrain plat balisé à 30 m, partez en position haute et chronométrez votre sprint maximal.',
+        unite: 'secondes',
+        lowerIsBetter: true,
+        thresholds: {
+          debutant: { medium: 5.2, good: 4.7 },
+          intermediaire: { medium: 4.8, good: 4.35 },
+          avance: { medium: 4.45, good: 4.05 },
+        },
+      },
+      {
+        code: 'ath_squats_30s',
+        nom: 'Squats explosifs en 30 s',
+        consigne: 'Descente contrôlée cuisses parallèles au sol et remontée tonique pendant 30 secondes.',
+        unite: 'répétitions',
+        dureeChronoSec: 30,
+        imageUrl: '/assets/aistudio/image_09378c32.png',
+        thresholds: {
+          debutant: { medium: 17, good: 23 },
+          intermediaire: { medium: 21, good: 27 },
+          avance: { medium: 25, good: 32 },
+        },
+      },
+      {
+        code: 'ath_gainage_lateral',
+        nom: 'Gainage latéral (cumul G + D)',
+        consigne: 'Maintenez le bassin aligné sur l’avant-bras droit puis gauche pour stabiliser la foulée.',
+        unite: 'secondes',
+        imageUrl: '/assets/aistudio/image_b6a22554.png',
+        thresholds: {
+          debutant: { medium: 55, good: 85 },
+          intermediaire: { medium: 80, good: 115 },
+          avance: { medium: 105, good: 145 },
         },
       },
     ],

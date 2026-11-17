@@ -51,13 +51,21 @@ export function initSchema(): void {
     CREATE TABLE IF NOT EXISTS athlete_profiles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball')),
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
       niveau TEXT NOT NULL CHECK(niveau IN ('debutant', 'intermediaire', 'avance')),
       taille_cm INTEGER,
       poste TEXT,
       objectif TEXT,
       eco_data_mode INTEGER NOT NULL DEFAULT 0,
-      notifications_enabled INTEGER NOT NULL DEFAULT 1
+      notifications_enabled INTEGER NOT NULL DEFAULT 1,
+      reminder_time TEXT NOT NULL DEFAULT '18:00',
+      reminder_lead_minutes INTEGER NOT NULL DEFAULT 30,
+      coach_subscription_status TEXT NOT NULL DEFAULT 'GRATUIT_BASE' CHECK(coach_subscription_status IN ('GRATUIT_BASE', 'ACTIF_5000')),
+      coach_monthly_fee_fcfa INTEGER NOT NULL DEFAULT 0,
+      coach_subscribed_at TEXT,
+      plan_tier TEXT NOT NULL DEFAULT 'ESSENTIEL',
+      plan_fee_fcfa INTEGER NOT NULL DEFAULT 0,
+      plan_billing_cycle TEXT NOT NULL DEFAULT 'MENSUEL'
     );
 
     CREATE TABLE IF NOT EXISTS weight_logs (
@@ -72,7 +80,14 @@ export function initSchema(): void {
       user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
       specialite TEXT NOT NULL,
       qualification TEXT NOT NULL,
-      zone TEXT NOT NULL
+      zone TEXT NOT NULL,
+      monthly_fee_fcfa INTEGER NOT NULL DEFAULT 0,
+      athlete_monthly_fee_fcfa INTEGER NOT NULL DEFAULT 5000,
+      platform_subscription_status TEXT NOT NULL DEFAULT 'ACTIF_1000' CHECK(platform_subscription_status IN ('EN_ATTENTE', 'ACTIF_1000')),
+      coach_plan TEXT NOT NULL DEFAULT 'MARKETPLACE',
+      commission_pct INTEGER NOT NULL DEFAULT 20,
+      athlete_payout_fcfa INTEGER NOT NULL DEFAULT 4000,
+      verification_status TEXT NOT NULL DEFAULT 'VERIFIE' CHECK(verification_status IN ('EN_ATTENTE', 'VERIFIE', 'REFUSE'))
     );
 
     CREATE TABLE IF NOT EXISTS assignments (
@@ -96,7 +111,7 @@ export function initSchema(): void {
       nom TEXT NOT NULL,
       partner_id INTEGER NOT NULL REFERENCES partners(id) ON DELETE CASCADE,
       captain_name TEXT NOT NULL,
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball'))
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme'))
     );
 
     CREATE TABLE IF NOT EXISTS group_memberships (
@@ -119,7 +134,7 @@ export function initSchema(): void {
 
     CREATE TABLE IF NOT EXISTS sessions_library (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball')),
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
       titre TEXT NOT NULL,
       niveau TEXT NOT NULL CHECK(niveau IN ('debutant', 'intermediaire', 'avance')),
       duree_min INTEGER NOT NULL,
@@ -128,6 +143,7 @@ export function initSchema(): void {
       relue_par TEXT,
       validation_status TEXT NOT NULL DEFAULT 'VALIDEE' CHECK(validation_status IN ('VALIDEE', 'EN_RELECTURE', 'BROUILLON')),
       proposee_par_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      access_tier TEXT NOT NULL DEFAULT 'ESSENTIEL',
       exercises_json TEXT NOT NULL
     );
 
@@ -135,7 +151,7 @@ export function initSchema(): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       coach_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball')),
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
       date_debut TEXT NOT NULL,
       duree_semaines INTEGER NOT NULL DEFAULT 4,
       objectif TEXT NOT NULL,
@@ -164,7 +180,7 @@ export function initSchema(): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       type TEXT NOT NULL CHECK(type IN ('INITIALE', 'PERIODIQUE')),
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball')),
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
       date TEXT NOT NULL,
       score_global INTEGER NOT NULL,
       results_json TEXT NOT NULL
@@ -211,6 +227,7 @@ export function initSchema(): void {
       contact_email TEXT,
       sport_principal TEXT,
       nombre_athletes_estime INTEGER,
+      pack_souhaite TEXT,
       message TEXT,
       statut TEXT NOT NULL DEFAULT 'NOUVELLE' CHECK(statut IN ('NOUVELLE', 'EN_ETUDE', 'VALIDEE')),
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -228,6 +245,72 @@ export function initSchema(): void {
   }
   if (!colNames.has('locked_until')) {
     db.exec('ALTER TABLE users ADD COLUMN locked_until TEXT;');
+  }
+
+  const athCols = db.prepare('PRAGMA table_info(athlete_profiles)').all() as Array<{ name: string }>;
+  const athColNames = new Set(athCols.map((c) => c.name));
+  if (!athColNames.has('coach_subscription_status')) {
+    db.exec("ALTER TABLE athlete_profiles ADD COLUMN coach_subscription_status TEXT NOT NULL DEFAULT 'GRATUIT_BASE';");
+  }
+  if (!athColNames.has('coach_monthly_fee_fcfa')) {
+    db.exec('ALTER TABLE athlete_profiles ADD COLUMN coach_monthly_fee_fcfa INTEGER NOT NULL DEFAULT 0;');
+  }
+  if (!athColNames.has('coach_subscribed_at')) {
+    db.exec('ALTER TABLE athlete_profiles ADD COLUMN coach_subscribed_at TEXT;');
+  }
+  if (!athColNames.has('plan_tier')) {
+    db.exec("ALTER TABLE athlete_profiles ADD COLUMN plan_tier TEXT NOT NULL DEFAULT 'ESSENTIEL';");
+    db.exec("UPDATE athlete_profiles SET plan_tier = 'COACH_PRIVE', plan_fee_fcfa = 5000 WHERE coach_subscription_status = 'ACTIF_5000';");
+  }
+  if (!athColNames.has('plan_fee_fcfa')) {
+    db.exec('ALTER TABLE athlete_profiles ADD COLUMN plan_fee_fcfa INTEGER NOT NULL DEFAULT 0;');
+    db.exec("UPDATE athlete_profiles SET plan_tier = 'COACH_PRIVE', plan_fee_fcfa = 5000 WHERE coach_subscription_status = 'ACTIF_5000';");
+  }
+  if (!athColNames.has('plan_billing_cycle')) {
+    db.exec("ALTER TABLE athlete_profiles ADD COLUMN plan_billing_cycle TEXT NOT NULL DEFAULT 'MENSUEL';");
+  }
+  if (!athColNames.has('reminder_time')) {
+    db.exec("ALTER TABLE athlete_profiles ADD COLUMN reminder_time TEXT NOT NULL DEFAULT '18:00';");
+  }
+  if (!athColNames.has('reminder_lead_minutes')) {
+    db.exec('ALTER TABLE athlete_profiles ADD COLUMN reminder_lead_minutes INTEGER NOT NULL DEFAULT 30;');
+  }
+
+  const coachCols = db.prepare('PRAGMA table_info(coaches)').all() as Array<{ name: string }>;
+  const coachColNames = new Set(coachCols.map((c) => c.name));
+  if (!coachColNames.has('monthly_fee_fcfa')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN monthly_fee_fcfa INTEGER NOT NULL DEFAULT 0;');
+  }
+  if (!coachColNames.has('athlete_monthly_fee_fcfa')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN athlete_monthly_fee_fcfa INTEGER NOT NULL DEFAULT 5000;');
+  }
+  if (!coachColNames.has('platform_subscription_status')) {
+    db.exec("ALTER TABLE coaches ADD COLUMN platform_subscription_status TEXT NOT NULL DEFAULT 'ACTIF_1000';");
+  }
+  if (!coachColNames.has('coach_plan')) {
+    db.exec("ALTER TABLE coaches ADD COLUMN coach_plan TEXT NOT NULL DEFAULT 'MARKETPLACE';");
+    db.exec("UPDATE coaches SET coach_plan = 'MARKETPLACE', monthly_fee_fcfa = 0, commission_pct = 20, athlete_payout_fcfa = 4000;");
+  }
+  if (!coachColNames.has('commission_pct')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN commission_pct INTEGER NOT NULL DEFAULT 20;');
+  }
+  if (!coachColNames.has('athlete_payout_fcfa')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN athlete_payout_fcfa INTEGER NOT NULL DEFAULT 4000;');
+  }
+  if (!coachColNames.has('verification_status')) {
+    db.exec("ALTER TABLE coaches ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'VERIFIE';");
+  }
+
+  const sessCols = db.prepare('PRAGMA table_info(sessions_library)').all() as Array<{ name: string }>;
+  const sessColNames = new Set(sessCols.map((c) => c.name));
+  if (!sessColNames.has('access_tier')) {
+    db.exec("ALTER TABLE sessions_library ADD COLUMN access_tier TEXT NOT NULL DEFAULT 'ESSENTIEL';");
+  }
+
+  const prCols = db.prepare('PRAGMA table_info(partner_requests)').all() as Array<{ name: string }>;
+  const prColNames = new Set(prCols.map((c) => c.name));
+  if (!prColNames.has('pack_souhaite')) {
+    db.exec('ALTER TABLE partner_requests ADD COLUMN pack_souhaite TEXT;');
   }
 
   // Safe idempotent role CHECK constraint migration to include MINISTRE
@@ -277,6 +360,147 @@ export function initSchema(): void {
       `);
     });
     migrateUsers();
+    db.pragma('foreign_keys = ON');
+  }
+
+  // Safe idempotent sport_code CHECK constraint migration to include volleyball and athletisme
+  const checkSportsTable = (tableName: string): boolean => {
+    const row = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName) as { sql: string } | undefined;
+    return Boolean(row && (!row.sql.includes("'volleyball'") || !row.sql.includes("'athletisme'")));
+  };
+
+  if (
+    checkSportsTable('athlete_profiles') ||
+    checkSportsTable('groups') ||
+    checkSportsTable('sessions_library') ||
+    checkSportsTable('program_plans') ||
+    checkSportsTable('evaluations')
+  ) {
+    db.pragma('foreign_keys = OFF');
+    const migrateSports = db.transaction(() => {
+      if (checkSportsTable('athlete_profiles')) {
+        db.exec(`
+          CREATE TABLE athlete_profiles_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+            niveau TEXT NOT NULL CHECK(niveau IN ('debutant', 'intermediaire', 'avance')),
+            taille_cm INTEGER,
+            poste TEXT,
+            objectif TEXT,
+            eco_data_mode INTEGER NOT NULL DEFAULT 0,
+            notifications_enabled INTEGER NOT NULL DEFAULT 1,
+            reminder_time TEXT NOT NULL DEFAULT '18:00',
+            reminder_lead_minutes INTEGER NOT NULL DEFAULT 30,
+            coach_subscription_status TEXT NOT NULL DEFAULT 'GRATUIT_BASE' CHECK(coach_subscription_status IN ('GRATUIT_BASE', 'ACTIF_5000')),
+            coach_monthly_fee_fcfa INTEGER NOT NULL DEFAULT 0,
+            coach_subscribed_at TEXT,
+            plan_tier TEXT NOT NULL DEFAULT 'ESSENTIEL',
+            plan_fee_fcfa INTEGER NOT NULL DEFAULT 0,
+            plan_billing_cycle TEXT NOT NULL DEFAULT 'MENSUEL'
+          );
+          INSERT INTO athlete_profiles_new (
+            id, user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode,
+            notifications_enabled, reminder_time, reminder_lead_minutes,
+            coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at,
+            plan_tier, plan_fee_fcfa, plan_billing_cycle
+          )
+          SELECT
+            id, user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode,
+            notifications_enabled, COALESCE(reminder_time, '18:00'), COALESCE(reminder_lead_minutes, 30),
+            coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at,
+            plan_tier, plan_fee_fcfa, plan_billing_cycle
+          FROM athlete_profiles;
+          DROP TABLE athlete_profiles;
+          ALTER TABLE athlete_profiles_new RENAME TO athlete_profiles;
+        `);
+      }
+
+      if (checkSportsTable('groups')) {
+        db.exec(`
+          CREATE TABLE groups_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            partner_id INTEGER NOT NULL REFERENCES partners(id) ON DELETE CASCADE,
+            captain_name TEXT NOT NULL,
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme'))
+          );
+          INSERT INTO groups_new (id, nom, partner_id, captain_name, sport_code)
+          SELECT id, nom, partner_id, captain_name, sport_code FROM groups;
+          DROP TABLE groups;
+          ALTER TABLE groups_new RENAME TO groups;
+        `);
+      }
+
+      if (checkSportsTable('sessions_library')) {
+        db.exec(`
+          CREATE TABLE sessions_library_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+            titre TEXT NOT NULL,
+            niveau TEXT NOT NULL CHECK(niveau IN ('debutant', 'intermediaire', 'avance')),
+            duree_min INTEGER NOT NULL,
+            objectif TEXT NOT NULL,
+            prevention_focus TEXT NOT NULL,
+            relue_par TEXT,
+            validation_status TEXT NOT NULL DEFAULT 'VALIDEE' CHECK(validation_status IN ('VALIDEE', 'EN_RELECTURE', 'BROUILLON')),
+            proposee_par_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            access_tier TEXT NOT NULL DEFAULT 'ESSENTIEL',
+            exercises_json TEXT NOT NULL
+          );
+          INSERT INTO sessions_library_new (
+            id, sport_code, titre, niveau, duree_min, objectif, prevention_focus,
+            relue_par, validation_status, proposee_par_user_id, access_tier, exercises_json
+          )
+          SELECT
+            id, sport_code, titre, niveau, duree_min, objectif, prevention_focus,
+            relue_par, validation_status, proposee_par_user_id, COALESCE(access_tier, 'ESSENTIEL'), exercises_json
+          FROM sessions_library;
+          DROP TABLE sessions_library;
+          ALTER TABLE sessions_library_new RENAME TO sessions_library;
+        `);
+      }
+
+      if (checkSportsTable('program_plans')) {
+        db.exec(`
+          CREATE TABLE program_plans_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            coach_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+            date_debut TEXT NOT NULL,
+            duree_semaines INTEGER NOT NULL DEFAULT 4,
+            objectif TEXT NOT NULL,
+            notes TEXT
+          );
+          INSERT INTO program_plans_new (id, athlete_user_id, coach_user_id, sport_code, date_debut, duree_semaines, objectif, notes)
+          SELECT id, athlete_user_id, coach_user_id, sport_code, date_debut, duree_semaines, objectif, notes FROM program_plans;
+          DROP TABLE program_plans;
+          ALTER TABLE program_plans_new RENAME TO program_plans;
+        `);
+      }
+
+      if (checkSportsTable('evaluations')) {
+        db.exec(`
+          CREATE TABLE evaluations_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            type TEXT NOT NULL CHECK(type IN ('INITIALE', 'PERIODIQUE')),
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+            date TEXT NOT NULL,
+            score_global INTEGER NOT NULL,
+            results_json TEXT NOT NULL
+          );
+          INSERT INTO evaluations_new (id, athlete_user_id, type, sport_code, date, score_global, results_json)
+          SELECT id, athlete_user_id, type, sport_code, date, score_global, results_json FROM evaluations;
+          DROP TABLE evaluations;
+          ALTER TABLE evaluations_new RENAME TO evaluations;
+        `);
+      }
+    });
+    migrateSports();
     db.pragma('foreign_keys = ON');
   }
 }

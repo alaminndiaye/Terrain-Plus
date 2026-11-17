@@ -8,8 +8,18 @@ import {
   ShieldCheck,
   Users,
 } from 'lucide-react';
-import { ApiError, apiRequest, clearSessionToken } from '../lib/api';
+import {
+  ApiError,
+  apiRequest,
+  clearAllWorkspaceCaches,
+  clearSessionToken,
+  readJsonCache,
+  writeJsonCache,
+} from '../lib/api';
 import { LEVEL_LABELS, SPORTS_CONFIG } from '../data/sportsConfig';
+
+const ADMIN_OVERVIEW_CACHE_KEY = 'terrain_plus_admin_overview_v1';
+const MINISTER_OVERVIEW_CACHE_KEY = 'terrain_plus_minister_overview_v1';
 import type {
   AthleteLevel,
   AthleteStatus,
@@ -44,9 +54,15 @@ interface AdminCoachRow {
   id: number;
   nom: string;
   prenom: string;
+  email?: string;
+  telephone?: string;
+  statut?: AthleteStatus;
+  verified?: number;
   specialite: string;
   qualification: string;
   zone: string;
+  coach_plan?: string;
+  verification_status?: 'EN_ATTENTE' | 'VERIFIE' | 'REFUSE';
 }
 
 interface AdminSessionRow {
@@ -98,11 +114,16 @@ export const AdminWorkspace: React.FC<{
   onLoggedOut: () => void;
   onSessionExpired: () => void;
 }> = ({ onLoggedOut, onSessionExpired }) => {
+  const [cachedAdmin] = useState<AdminOverviewResponse | null>(() =>
+    readJsonCache<AdminOverviewResponse>(ADMIN_OVERVIEW_CACHE_KEY)
+  );
   const [tab, setTab] = useState<AdminTab>('comptes');
-  const [data, setData] = useState<AdminOverviewResponse | null>(null);
-  const [ministerData, setMinisterData] = useState<MinisterOverviewPayload | null>(null);
+  const [data, setData] = useState<AdminOverviewResponse | null>(cachedAdmin);
+  const [ministerData, setMinisterData] = useState<MinisterOverviewPayload | null>(() =>
+    readJsonCache<MinisterOverviewPayload>(MINISTER_OVERVIEW_CACHE_KEY)
+  );
   const [ministerSection, setMinisterSection] = useState<MinisterSection>('synthese');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedAdmin);
   const [notice, setNotice] = useState<string | null>(null);
   const [reviewerBySession, setReviewerBySession] = useState<Record<number, string>>({});
   const [auditFilter, setAuditFilter] = useState('');
@@ -113,11 +134,15 @@ export const AdminWorkspace: React.FC<{
   const [newPartnerZone, setNewPartnerZone] = useState('');
 
   const [newGroupNom, setNewGroupNom] = useState('');
-  const [newGroupPartnerId, setNewGroupPartnerId] = useState('');
+  const [newGroupPartnerId, setNewGroupPartnerId] = useState(() =>
+    cachedAdmin?.partners[0] ? String(cachedAdmin.partners[0].id) : ''
+  );
   const [newGroupCaptain, setNewGroupCaptain] = useState('');
   const [newGroupSport, setNewGroupSport] = useState<SportCode>('football');
 
-  const [newChallPartnerId, setNewChallPartnerId] = useState('');
+  const [newChallPartnerId, setNewChallPartnerId] = useState(() =>
+    cachedAdmin?.partners[0] ? String(cachedAdmin.partners[0].id) : ''
+  );
   const [newChallTitre, setNewChallTitre] = useState('');
   const [newChallIndicateur, setNewChallIndicateur] = useState('Séances collectives terminées');
   const [newChallPeriode, setNewChallPeriode] = useState('Décembre 2026');
@@ -130,17 +155,28 @@ export const AdminWorkspace: React.FC<{
         apiRequest<MinisterOverviewPayload>('/api/minister/overview').catch(() => null),
       ]);
       setData(res);
-      if (minRes) setMinisterData(minRes);
+      writeJsonCache(ADMIN_OVERVIEW_CACHE_KEY, res);
+      if (minRes) {
+        setMinisterData(minRes);
+        writeJsonCache(MINISTER_OVERVIEW_CACHE_KEY, minRes);
+      }
       if (res.partners.length > 0) {
         setNewGroupPartnerId((prev) => prev || String(res.partners[0].id));
         setNewChallPartnerId((prev) => prev || String(res.partners[0].id));
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
+        clearAllWorkspaceCaches();
         onSessionExpired();
         return;
       }
-      setNotice(err instanceof Error ? err.message : 'Erreur de chargement.');
+      const cached = readJsonCache<AdminOverviewResponse>(ADMIN_OVERVIEW_CACHE_KEY);
+      if (cached) {
+        setData(cached);
+        setNotice('Connexion instable ou hors ligne : affichage des dernières données synchronisées.');
+      } else {
+        setNotice(err instanceof Error ? err.message : 'Erreur de chargement.');
+      }
     } finally {
       setLoading(false);
     }
@@ -171,6 +207,22 @@ export const AdminWorkspace: React.FC<{
         body: JSON.stringify({ statut }),
       });
       setNotice('Statut du compte mis à jour.');
+      await loadAdmin();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Erreur.');
+    }
+  };
+
+  const handleCoachVerification = async (
+    coachUserId: number,
+    verificationStatus: 'VERIFIE' | 'EN_ATTENTE' | 'REFUSE'
+  ) => {
+    try {
+      await apiRequest(`/api/admin/coaches/${coachUserId}/verification`, {
+        method: 'PATCH',
+        body: JSON.stringify({ verification_status: verificationStatus }),
+      });
+      setNotice('Statut de vérification du coach mis à jour et journalisé.');
       await loadAdmin();
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Erreur.');
@@ -280,6 +332,7 @@ export const AdminWorkspace: React.FC<{
   const handleLogout = async () => {
     await apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     clearSessionToken();
+    clearAllWorkspaceCaches();
     onLoggedOut();
   };
 
@@ -304,6 +357,8 @@ export const AdminWorkspace: React.FC<{
   }
 
   const pendingSessionsCount = data?.sessions.filter((s) => s.validation_status === 'EN_RELECTURE').length || 0;
+  const pendingCoachesCount =
+    data?.coaches.filter((c) => c.verification_status === 'EN_ATTENTE').length || 0;
   const newPartnerRequestsCount = data?.partnerRequests.filter((r) => r.statut === 'NOUVELLE').length || 0;
 
   const adminNavItems: Array<{
@@ -313,7 +368,13 @@ export const AdminWorkspace: React.FC<{
     icon: React.ComponentType<{ className?: string }>;
     badge?: number;
   }> = [
-    { id: 'comptes', label: 'Comptes & Affectations', mobileLabel: 'Comptes', icon: Users },
+    {
+      id: 'comptes',
+      label: 'Comptes & Affectations',
+      mobileLabel: 'Comptes',
+      icon: Users,
+      badge: pendingCoachesCount,
+    },
     {
       id: 'contenus',
       label: 'Contenus & Relecture',
@@ -340,6 +401,7 @@ export const AdminWorkspace: React.FC<{
           <img
             src="/brand/terrain-logo.png"
             alt="Terrain+"
+            decoding="async"
             referrerPolicy="no-referrer"
             className="h-8 w-auto object-contain"
           />
@@ -395,6 +457,7 @@ export const AdminWorkspace: React.FC<{
             <img
               src="/brand/terrain-mark.png"
               alt="Terrain+"
+              decoding="async"
               referrerPolicy="no-referrer"
               className="h-7 w-7 rounded-md object-contain shrink-0"
             />
@@ -424,12 +487,69 @@ export const AdminWorkspace: React.FC<{
             )}
 
           {tab === 'comptes' && data && (
-            <div className="space-y-5">
+            <div className="space-y-6">
               <div>
                 <h1 className="font-display text-2xl font-bold text-neutral-900">Comptes et affectations coach-athlète</h1>
                 <p className="text-sm text-neutral-600">
-                  Affectez un coach à chaque athlète actif et gérez les statuts de compte.
+                  Validez les dossiers des coachs avant publication, affectez un coach aux athlètes et gérez les statuts.
                 </p>
+              </div>
+
+              {/* Coach Verification Section */}
+              <div className="rounded-2xl border border-neutral-200 bg-white p-5 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-base font-semibold text-neutral-900">Validation des dossiers Coachs</h2>
+                    <p className="text-xs text-neutral-500">
+                      Seuls les coachs « VERIFIE » apparaissent dans le catalogue des athlètes.
+                    </p>
+                  </div>
+                  {pendingCoachesCount > 0 && (
+                    <span className="font-mono text-xs font-bold text-amber-800">
+                      {pendingCoachesCount} en attente
+                    </span>
+                  )}
+                </div>
+
+                <div className="divide-y divide-neutral-100">
+                  {data.coaches.map((c) => (
+                    <div key={c.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="text-sm font-semibold text-neutral-900">
+                          {c.prenom} {c.nom} · {c.zone}
+                        </div>
+                        <div className="text-xs text-neutral-600">
+                          {c.specialite} · {c.qualification}
+                        </div>
+                        <div className="text-[11px] font-mono text-neutral-500">
+                          {c.coach_plan || 'MARKETPLACE'} {c.telephone ? `· ${c.telephone}` : ''}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <select
+                          value={c.verification_status || 'VERIFIE'}
+                          onChange={(e) =>
+                            handleCoachVerification(
+                              c.id,
+                              e.target.value as 'VERIFIE' | 'EN_ATTENTE' | 'REFUSE'
+                            )
+                          }
+                          className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold min-h-[36px] ${
+                            c.verification_status === 'EN_ATTENTE'
+                              ? 'border-amber-300 bg-amber-50 text-amber-900'
+                              : c.verification_status === 'REFUSE'
+                                ? 'border-red-300 bg-red-50 text-red-900'
+                                : 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                          }`}
+                        >
+                          <option value="VERIFIE">VERIFIE</option>
+                          <option value="EN_ATTENTE">EN_ATTENTE</option>
+                          <option value="REFUSE">REFUSE</option>
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="rounded-2xl border border-neutral-200 bg-white overflow-x-auto">
@@ -466,11 +586,13 @@ export const AdminWorkspace: React.FC<{
                               className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs min-h-[36px]"
                             >
                               <option value="">Non affecté</option>
-                              {data.coaches.map((c) => (
-                                <option key={c.id} value={c.id}>
-                                  {c.prenom} {c.nom} ({c.zone})
-                                </option>
-                              ))}
+                              {data.coaches
+                                .filter((c) => (c.verification_status || 'VERIFIE') === 'VERIFIE')
+                                .map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.prenom} {c.nom} ({c.zone})
+                                  </option>
+                                ))}
                             </select>
                           ) : (
                             <span className="text-xs text-neutral-400">—</span>
@@ -728,9 +850,16 @@ export const AdminWorkspace: React.FC<{
                               <div className="font-mono text-neutral-500">{req.contact_telephone}</div>
                             </td>
                             <td className="px-3 py-3 text-neutral-600 max-w-xs">
-                              {req.sport_principal ? `${req.sport_principal} · ` : ''}
-                              {req.nombre_athletes_estime ? `${req.nombre_athletes_estime} sportifs · ` : ''}
-                              {req.message || '—'}
+                              {req.pack_souhaite ? (
+                                <div className="mb-1 inline-block rounded bg-neutral-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-neutral-800">
+                                  {req.pack_souhaite}
+                                </div>
+                              ) : null}
+                              <div>
+                                {req.sport_principal ? `${req.sport_principal} · ` : ''}
+                                {req.nombre_athletes_estime ? `${req.nombre_athletes_estime} sportifs · ` : ''}
+                                {req.message || '—'}
+                              </div>
                             </td>
                             <td className="px-3 py-3">
                               <select
@@ -833,6 +962,8 @@ export const AdminWorkspace: React.FC<{
                       <option value="football">Football</option>
                       <option value="basket">Basket</option>
                       <option value="handball">Handball</option>
+                      <option value="volleyball">Volleyball</option>
+                      <option value="athletisme">Athlétisme</option>
                     </select>
                   </div>
                   <button

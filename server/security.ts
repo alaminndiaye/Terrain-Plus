@@ -25,8 +25,13 @@ export function generateSecureToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
+const EPHEMERAL_RUNTIME_SECRET = crypto.randomBytes(32).toString('hex');
+if (!process.env.SESSION_SECRET && process.env.NODE_ENV === 'production') {
+  console.warn('[SECURITY] SESSION_SECRET manquant en production : clé éphémère générée au démarrage.');
+}
+
 export function hashToken(rawToken: string): string {
-  const secret = process.env.SESSION_SECRET || 'terrain-plus-dev-secret-change-in-production';
+  const secret = process.env.SESSION_SECRET || EPHEMERAL_RUNTIME_SECRET;
   return crypto.createHmac('sha256', secret).update(rawToken).digest('hex');
 }
 

@@ -19,7 +19,14 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ApiError, apiRequest, clearSessionToken } from '../lib/api';
+import {
+  ApiError,
+  apiRequest,
+  clearAllWorkspaceCaches,
+  clearSessionToken,
+  readJsonCache,
+  writeJsonCache,
+} from '../lib/api';
 import { LEVEL_LABELS, SPORTS_CONFIG } from '../data/sportsConfig';
 import type {
   AlertRecord,
@@ -35,11 +42,24 @@ type CoachTab = 'athletes' | 'alertes' | 'proposer';
 
 interface CoachOverviewResponse {
   coach: AuthUser;
+  coachProfile?: {
+    specialite: string;
+    qualification: string;
+    zone: string;
+    monthly_fee_fcfa: number;
+    athlete_monthly_fee_fcfa: number;
+    platform_subscription_status: string;
+    coach_plan?: 'MARKETPLACE' | 'COACH_PRO';
+    commission_pct?: number;
+    athlete_payout_fcfa?: number;
+    verification_status?: 'EN_ATTENTE' | 'VERIFIE' | 'REFUSE';
+  } | null;
   athletes: CoachAthleteSummary[];
   alerts: AlertRecord[];
   library: Array<Omit<SessionTemplate, 'exercises'>>;
 }
 
+const COACH_OVERVIEW_CACHE_KEY = 'terrain_plus_coach_overview_v1';
 const DAY_NAMES = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
 export const CoachWorkspace: React.FC<{
@@ -47,10 +67,12 @@ export const CoachWorkspace: React.FC<{
   onSessionExpired: () => void;
 }> = ({ onLoggedOut, onSessionExpired }) => {
   const [tab, setTab] = useState<CoachTab>('athletes');
-  const [overview, setOverview] = useState<CoachOverviewResponse | null>(null);
+  const [overview, setOverview] = useState<CoachOverviewResponse | null>(() =>
+    readJsonCache<CoachOverviewResponse>(COACH_OVERVIEW_CACHE_KEY)
+  );
   const [selectedAthlete, setSelectedAthlete] = useState<AthleteWorkspacePayload | null>(null);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readJsonCache<CoachOverviewResponse>(COACH_OVERVIEW_CACHE_KEY));
   const [notice, setNotice] = useState<string | null>(null);
 
   // Athlete dossier interactive states
@@ -78,12 +100,20 @@ export const CoachWorkspace: React.FC<{
     try {
       const res = await apiRequest<CoachOverviewResponse>('/api/coach/overview');
       setOverview(res);
+      writeJsonCache(COACH_OVERVIEW_CACHE_KEY, res);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
+        clearAllWorkspaceCaches();
         onSessionExpired();
         return;
       }
-      setNotice(err instanceof Error ? err.message : 'Erreur de chargement.');
+      const cached = readJsonCache<CoachOverviewResponse>(COACH_OVERVIEW_CACHE_KEY);
+      if (cached) {
+        setOverview(cached);
+        setNotice('Connexion instable ou hors ligne : affichage des dernières données synchronisées.');
+      } else {
+        setNotice(err instanceof Error ? err.message : 'Erreur de chargement.');
+      }
     } finally {
       setLoading(false);
     }
@@ -213,9 +243,23 @@ export const CoachWorkspace: React.FC<{
     }
   };
 
+  const handleSwitchCoachPlan = async (targetPlan: 'MARKETPLACE' | 'COACH_PRO') => {
+    try {
+      const res = await apiRequest<{ message: string }>('/api/coach/plan', {
+        method: 'PATCH',
+        body: JSON.stringify({ coach_plan: targetPlan }),
+      });
+      setNotice(res.message);
+      await loadOverview();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Erreur lors du changement de formule.');
+    }
+  };
+
   const handleLogout = async () => {
     await apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     clearSessionToken();
+    clearAllWorkspaceCaches();
     onLoggedOut();
   };
 
@@ -265,6 +309,7 @@ export const CoachWorkspace: React.FC<{
           <img
             src="/brand/terrain-logo.png"
             alt="Terrain+"
+            decoding="async"
             referrerPolicy="no-referrer"
             className="h-8 w-auto object-contain"
           />
@@ -300,6 +345,38 @@ export const CoachWorkspace: React.FC<{
         </nav>
 
         <div className="p-4 border-t border-neutral-200 space-y-3">
+          {overview?.coachProfile && (
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 space-y-2">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[11px] font-semibold text-neutral-900">
+                  {overview.coachProfile.coach_plan === 'COACH_PRO' ? 'Coach Pro' : 'Marketplace'}
+                </span>
+                <span className="font-mono text-[11px] font-bold text-emerald-800">
+                  {overview.coachProfile.monthly_fee_fcfa.toLocaleString('fr-FR')} F/mois
+                </span>
+              </div>
+              <div className="text-[11px] text-neutral-600 leading-snug">
+                Revenu par élève :{' '}
+                <strong>
+                  {(overview.coachProfile.athlete_payout_fcfa ?? 4000).toLocaleString('fr-FR')} F/mois
+                </strong>{' '}
+                ({100 - (overview.coachProfile.commission_pct ?? 20)} %)
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  handleSwitchCoachPlan(
+                    overview.coachProfile?.coach_plan === 'COACH_PRO' ? 'MARKETPLACE' : 'COACH_PRO'
+                  )
+                }
+                className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-neutral-800 hover:bg-neutral-100"
+              >
+                {overview.coachProfile.coach_plan === 'COACH_PRO'
+                  ? 'Passer à Marketplace (0 F)'
+                  : 'Passer à Coach Pro (3 000 F)'}
+              </button>
+            </div>
+          )}
           <p className="text-xs text-neutral-500 leading-relaxed">
             Accès strict aux athlètes affectés. Chaque consultation est journalisée. Le coach ne pose pas de diagnostic médical.
           </p>
@@ -322,6 +399,7 @@ export const CoachWorkspace: React.FC<{
             <img
               src="/brand/terrain-mark.png"
               alt="Terrain+"
+              decoding="async"
               referrerPolicy="no-referrer"
               className="h-7 w-7 rounded-md object-contain shrink-0"
             />
@@ -341,6 +419,18 @@ export const CoachWorkspace: React.FC<{
 
         <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8 pb-24 md:pb-10">
           <div className="mx-auto max-w-5xl space-y-6">
+          {overview?.coachProfile?.verification_status === 'EN_ATTENTE' && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 leading-relaxed">
+              <strong>Dossier en attente de validation :</strong> un administrateur Terrain+ doit vérifier votre qualification et votre zone avant que votre profil apparaisse dans la liste publique des athlètes.
+            </div>
+          )}
+
+          {overview?.coachProfile?.verification_status === 'REFUSE' && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-900 leading-relaxed">
+              <strong>Profil coach suspendu :</strong> votre dossier n’est actuellement pas validé pour le suivi des athlètes. Contactez l’administration Terrain+.
+            </div>
+          )}
+
           {notice && (
             <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-800 flex items-center justify-between">
               <span>{notice}</span>
@@ -765,6 +855,8 @@ export const CoachWorkspace: React.FC<{
                       <option value="football">Football</option>
                       <option value="basket">Basket</option>
                       <option value="handball">Handball</option>
+                      <option value="volleyball">Volleyball</option>
+                      <option value="athletisme">Athlétisme</option>
                     </select>
                   </div>
                   <div>

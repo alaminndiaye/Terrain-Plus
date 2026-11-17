@@ -18,7 +18,14 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ApiError, apiRequest, clearSessionToken } from '../lib/api';
+import {
+  ApiError,
+  apiRequest,
+  clearAllWorkspaceCaches,
+  clearSessionToken,
+  readJsonCache,
+  writeJsonCache,
+} from '../lib/api';
 import { SPORTS_CONFIG } from '../data/sportsConfig';
 import type { MinisterOverviewPayload } from '../types';
 
@@ -212,7 +219,7 @@ export const MinisterOverviewContent: React.FC<MinisterOverviewContentProps> = (
                   Synthèse opérationnelle par sport
                 </h2>
                 <p className="text-xs text-neutral-500">
-                  Indicateurs consolidés pour Football, Basket et Handball (sans matériel obligatoire).
+                  Indicateurs consolidés pour Football, Basket, Handball, Volleyball et Athlétisme (sans matériel obligatoire).
                 </p>
               </div>
 
@@ -567,26 +574,38 @@ export const MinisterOverviewContent: React.FC<MinisterOverviewContentProps> = (
   );
 };
 
+const MINISTER_OVERVIEW_CACHE_KEY = 'terrain_plus_minister_overview_v1';
+
 export const MinisterWorkspace: React.FC<{
   onLoggedOut: () => void;
   onSessionExpired: () => void;
 }> = ({ onLoggedOut, onSessionExpired }) => {
   const [section, setSection] = useState<MinisterSection>('synthese');
-  const [data, setData] = useState<MinisterOverviewPayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<MinisterOverviewPayload | null>(() =>
+    readJsonCache<MinisterOverviewPayload>(MINISTER_OVERVIEW_CACHE_KEY)
+  );
+  const [loading, setLoading] = useState(() => !readJsonCache<MinisterOverviewPayload>(MINISTER_OVERVIEW_CACHE_KEY));
   const [error, setError] = useState<string | null>(null);
 
   const loadMinister = useCallback(async () => {
     try {
       const res = await apiRequest<MinisterOverviewPayload>('/api/minister/overview');
       setData(res);
+      writeJsonCache(MINISTER_OVERVIEW_CACHE_KEY, res);
       setError(null);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
+        clearAllWorkspaceCaches();
         onSessionExpired();
         return;
       }
-      setError(err instanceof Error ? err.message : 'Impossible de charger la vue ministérielle.');
+      const cached = readJsonCache<MinisterOverviewPayload>(MINISTER_OVERVIEW_CACHE_KEY);
+      if (cached) {
+        setData(cached);
+        setError('Connexion instable ou hors ligne : affichage des dernières données synchronisées.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Impossible de charger la vue ministérielle.');
+      }
     } finally {
       setLoading(false);
     }
@@ -599,6 +618,7 @@ export const MinisterWorkspace: React.FC<{
   const handleLogout = async () => {
     await apiRequest('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     clearSessionToken();
+    clearAllWorkspaceCaches();
     onLoggedOut();
   };
 
@@ -630,6 +650,7 @@ export const MinisterWorkspace: React.FC<{
           <img
             src="/brand/terrain-logo.png"
             alt="Terrain+"
+            decoding="async"
             referrerPolicy="no-referrer"
             className="h-8 w-auto object-contain"
           />
@@ -681,6 +702,7 @@ export const MinisterWorkspace: React.FC<{
             <img
               src="/brand/terrain-mark.png"
               alt="Terrain+"
+              decoding="async"
               referrerPolicy="no-referrer"
               className="h-7 w-7 rounded-md object-contain shrink-0"
             />

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
+import compression from 'compression';
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { createServer as createViteServer } from 'vite';
@@ -50,6 +51,9 @@ interface AuthedRequest extends Request {
 }
 
 const SESSION_DURATION_SEC = 60 * 60 * 24 * 7;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+const VALID_SPORT_CODES: SportCode[] = ['football', 'basket', 'handball', 'volleyball', 'athletisme'];
 
 function createSessionForUser(req: Request, res: Response, userId: number): string {
   db.prepare("DELETE FROM sessions WHERE user_id = ? AND datetime(expires_at) <= datetime('now')").run(userId);
@@ -192,6 +196,33 @@ function mapUserPublic(u: AuthedUserRow) {
   };
 }
 
+function getPublicCoachesList() {
+  return db
+    .prepare(
+      `SELECT u.id, u.nom, u.prenom, c.specialite, c.qualification, c.zone,
+              c.coach_plan, c.commission_pct, c.athlete_payout_fcfa,
+              c.athlete_monthly_fee_fcfa,
+              (SELECT COUNT(*) FROM assignments a WHERE a.coach_user_id = u.id AND a.statut = 'ACTIF') as active_athletes_count
+       FROM users u
+       JOIN coaches c ON c.user_id = u.id
+       WHERE u.role = 'COACH' AND u.statut != 'CLOTURE' AND u.verified = 1 AND c.verification_status = 'VERIFIE'
+       ORDER BY u.id ASC`
+    )
+    .all() as Array<{
+    id: number;
+    nom: string;
+    prenom: string;
+    specialite: string;
+    qualification: string;
+    zone: string;
+    coach_plan: 'MARKETPLACE' | 'COACH_PRO';
+    commission_pct: number;
+    athlete_payout_fcfa: number;
+    athlete_monthly_fee_fcfa: number;
+    active_athletes_count: number;
+  }>;
+}
+
 function buildAthleteWorkspace(athleteUserId: number) {
   const user = db
     .prepare(
@@ -203,7 +234,10 @@ function buildAthleteWorkspace(athleteUserId: number) {
 
   const profileRow = db
     .prepare(
-      `SELECT sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled
+      `SELECT sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled,
+              reminder_time, reminder_lead_minutes,
+              coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at,
+              plan_tier, plan_fee_fcfa, plan_billing_cycle
        FROM athlete_profiles WHERE user_id = ?`
     )
     .get(athleteUserId) as
@@ -215,6 +249,14 @@ function buildAthleteWorkspace(athleteUserId: number) {
         objectif: string | null;
         eco_data_mode: number;
         notifications_enabled: number;
+        reminder_time: string | null;
+        reminder_lead_minutes: number | null;
+        coach_subscription_status: 'GRATUIT_BASE' | 'ACTIF_5000';
+        coach_monthly_fee_fcfa: number;
+        coach_subscribed_at: string | null;
+        plan_tier: 'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE';
+        plan_fee_fcfa: number;
+        plan_billing_cycle: 'MENSUEL' | 'TRIMESTRIEL';
       }
     | undefined;
 
@@ -222,7 +264,7 @@ function buildAthleteWorkspace(athleteUserId: number) {
 
   const coachRow = db
     .prepare(
-      `SELECT u.id, u.nom, u.prenom, c.specialite, c.qualification, c.zone
+      `SELECT u.id, u.nom, u.prenom, c.specialite, c.qualification, c.zone, c.coach_plan, c.athlete_monthly_fee_fcfa
        FROM assignments a
        JOIN users u ON u.id = a.coach_user_id
        JOIN coaches c ON c.user_id = u.id
@@ -230,7 +272,16 @@ function buildAthleteWorkspace(athleteUserId: number) {
        LIMIT 1`
     )
     .get(athleteUserId) as
-    | { id: number; nom: string; prenom: string; specialite: string; qualification: string; zone: string }
+    | {
+        id: number;
+        nom: string;
+        prenom: string;
+        specialite: string;
+        qualification: string;
+        zone: string;
+        coach_plan: 'MARKETPLACE' | 'COACH_PRO';
+        athlete_monthly_fee_fcfa: number;
+      }
     | undefined;
 
   const programRow = db
@@ -246,7 +297,8 @@ function buildAthleteWorkspace(athleteUserId: number) {
     .prepare(
       `SELECT ss.*, sl.sport_code as s_sport_code, sl.titre as s_titre, sl.niveau as s_niveau,
               sl.duree_min as s_duree_min, sl.objectif as s_objectif, sl.prevention_focus as s_prevention_focus,
-              sl.relue_par as s_relue_par, sl.validation_status as s_validation_status, sl.exercises_json as s_exercises_json
+              sl.relue_par as s_relue_par, sl.validation_status as s_validation_status,
+              sl.access_tier as s_access_tier, sl.exercises_json as s_exercises_json
        FROM scheduled_sessions ss
        LEFT JOIN sessions_library sl ON sl.id = ss.session_id
        WHERE ss.athlete_user_id = ?
@@ -280,6 +332,7 @@ function buildAthleteWorkspace(athleteUserId: number) {
           prevention_focus: String(r.s_prevention_focus),
           relue_par: r.s_relue_par ? String(r.s_relue_par) : null,
           validation_status: String(r.s_validation_status),
+          access_tier: String(r.s_access_tier || 'ESSENTIEL') as 'ESSENTIEL' | 'PROGRESSION',
           exercises: JSON.parse(String(r.s_exercises_json || '[]')),
         }
       : null,
@@ -287,10 +340,10 @@ function buildAthleteWorkspace(athleteUserId: number) {
 
   const libraryRows = db
     .prepare(
-      `SELECT id, sport_code, titre, niveau, duree_min, objectif, prevention_focus, relue_par, validation_status, exercises_json
+      `SELECT id, sport_code, titre, niveau, duree_min, objectif, prevention_focus, relue_par, validation_status, access_tier, exercises_json
        FROM sessions_library
        WHERE sport_code = ? AND validation_status = 'VALIDEE'
-       ORDER BY id ASC`
+       ORDER BY CASE WHEN access_tier = 'ESSENTIEL' THEN 0 ELSE 1 END, id ASC`
     )
     .all(profileRow.sport_code) as Array<Record<string, unknown>>;
 
@@ -304,6 +357,7 @@ function buildAthleteWorkspace(athleteUserId: number) {
     prevention_focus: String(s.prevention_focus),
     relue_par: s.relue_par ? String(s.relue_par) : null,
     validation_status: String(s.validation_status),
+    access_tier: String(s.access_tier || 'ESSENTIEL') as 'ESSENTIEL' | 'PROGRESSION',
     exercises: JSON.parse(String(s.exercises_json || '[]')),
   }));
 
@@ -413,8 +467,17 @@ function buildAthleteWorkspace(athleteUserId: number) {
       objectif: profileRow.objectif,
       eco_data_mode: Boolean(profileRow.eco_data_mode),
       notifications_enabled: Boolean(profileRow.notifications_enabled),
+      reminder_time: profileRow.reminder_time || '18:00',
+      reminder_lead_minutes: Number(profileRow.reminder_lead_minutes ?? 30),
+      plan_tier: profileRow.plan_tier || (profileRow.coach_subscription_status === 'ACTIF_5000' ? 'COACH_PRIVE' : 'ESSENTIEL'),
+      plan_fee_fcfa: Number(profileRow.plan_fee_fcfa ?? profileRow.coach_monthly_fee_fcfa ?? 0),
+      plan_billing_cycle: profileRow.plan_billing_cycle || 'MENSUEL',
+      coach_subscription_status: profileRow.coach_subscription_status || 'GRATUIT_BASE',
+      coach_monthly_fee_fcfa: Number(profileRow.coach_monthly_fee_fcfa || 0),
+      coach_subscribed_at: profileRow.coach_subscribed_at || null,
     },
     coach: coachRow || null,
+    availableCoaches: getPublicCoachesList(),
     program: programRow || null,
     schedule,
     library,
@@ -438,6 +501,7 @@ async function startServer(): Promise<void> {
   const app = express();
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
+  app.use(compression({ threshold: 512 }));
   app.use(express.json({ limit: '512kb' }));
 
   app.use((req, res, next) => {
@@ -445,11 +509,22 @@ async function startServer(): Promise<void> {
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'"
+    );
     if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
     if (req.path.startsWith('/api/')) {
       res.setHeader('Cache-Control', 'no-store');
+    } else if (
+      req.method === 'GET' &&
+      (req.path.startsWith('/assets/aistudio/') ||
+        req.path.startsWith('/src/assets/images/') ||
+        req.path.startsWith('/brand/'))
+    ) {
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
     }
     next();
   });
@@ -468,22 +543,15 @@ async function startServer(): Promise<void> {
 
   app.post('/api/auth/register', authLimiter, (req: Request, res: Response) => {
     const body = req.body as Record<string, unknown>;
+    const accountType = body.account_type === 'COACH' ? 'COACH' : 'ATHLETE';
     const nom = sanitizeText(body.nom, 80);
     const prenom = sanitizeText(body.prenom, 80);
     const email = sanitizeText(body.email, 120).toLowerCase();
     const telephone = normalizePhone(sanitizeText(body.telephone, 30));
     const password = typeof body.password === 'string' ? body.password : '';
     const date_naissance = sanitizeText(body.date_naissance, 20);
-    const sport_code = sanitizeText(body.sport_code, 20) as SportCode;
-    const niveau = (sanitizeText(body.niveau, 20) || 'debutant') as AthleteLevel;
-    const poids_kg = Number(body.poids_kg);
-    const taille_cm = body.taille_cm ? Number(body.taille_cm) : null;
-    const poste = sanitizeText(body.poste, 60) || null;
     const langue = body.langue === 'wo' ? 'wo' : 'fr';
-    const consentSensible = Boolean(body.consent_sensible);
     const consentNonMedical = Boolean(body.consent_non_medical);
-    const parentalName = sanitizeText(body.parental_consent_name, 100);
-    const parentalPhone = normalizePhone(sanitizeText(body.parental_consent_phone, 30));
 
     if (!nom || !prenom || !isValidEmail(email)) {
       res.status(400).json({ error: 'Nom, prénom et adresse email valide sont obligatoires.' });
@@ -497,7 +565,110 @@ async function startServer(): Promise<void> {
       res.status(400).json({ error: 'Le mot de passe doit contenir entre 8 et 128 caractères avec des lettres et des chiffres.' });
       return;
     }
-    if (!['football', 'basket', 'handball'].includes(sport_code)) {
+
+    const existing = db
+      .prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) OR telephone = ?')
+      .get(email, telephone);
+    if (existing) {
+      res.status(409).json({ error: 'Un compte existe déjà avec cet email ou ce numéro.' });
+      return;
+    }
+
+    if (accountType === 'COACH') {
+      const specialite = sanitizeText(body.specialite, 120);
+      const qualification = sanitizeText(body.qualification, 140);
+      const zone = sanitizeText(body.zone, 80);
+      const rawCoachPlan = sanitizeText(body.coach_plan, 30).toUpperCase();
+      const coachPlan = rawCoachPlan === 'COACH_PRO' ? 'COACH_PRO' : 'MARKETPLACE';
+      const confirmCoachTerms = Boolean(body.confirm_coach_plan ?? body.confirm_coach_platform_fee);
+
+      const age = computeAge(date_naissance);
+      if (age < 18 || age > 90) {
+        res.status(400).json({ error: 'Un coach doit être majeur (18 ans minimum).' });
+        return;
+      }
+      if (!specialite || !qualification || !zone) {
+        res.status(400).json({ error: 'Spécialité, qualification et zone d’intervention sont obligatoires pour un coach.' });
+        return;
+      }
+      if (!consentNonMedical || !confirmCoachTerms) {
+        res.status(400).json({
+          error: 'La confirmation des conditions Coach Terrain+ et de la charte non médicale est obligatoire.',
+        });
+        return;
+      }
+
+      const monthlyFee = coachPlan === 'COACH_PRO' ? 3000 : 0;
+      const commissionPct = coachPlan === 'COACH_PRO' ? 0 : 20;
+      const athletePayout = coachPlan === 'COACH_PRO' ? 5000 : 4000;
+
+      const otp = generateOtpCode();
+      const otpHash = hashToken(otp);
+      const otpExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+      const txCoach = db.transaction(() => {
+        const uRes = db
+          .prepare(
+            `INSERT INTO users (
+              nom, prenom, telephone, email, password_hash, role, date_naissance, langue,
+              statut, is_minor, verified, otp_code_hash, otp_expires_at
+            ) VALUES (?, ?, ?, ?, ?, 'COACH', ?, ?, 'INSCRIT', 0, 0, ?, ?)`
+          )
+          .run(nom, prenom, telephone, email, hashPassword(password), date_naissance, langue, otpHash, otpExpires);
+        const userId = Number(uRes.lastInsertRowid);
+
+        db.prepare(
+          `INSERT INTO coaches (
+            user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
+            platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa, verification_status
+          ) VALUES (?, ?, ?, ?, ?, 5000, 'ACTIF_1000', ?, ?, ?, 'EN_ATTENTE')`
+        ).run(userId, specialite, qualification, zone, monthlyFee, coachPlan, commissionPct, athletePayout);
+
+        const insConsent = db.prepare('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)');
+        insConsent.run(userId, 'NON_MEDICAL', 'v1.0');
+        insConsent.run(userId, `COACH_PLAN_${coachPlan}`, 'v2.0');
+
+        return userId;
+      });
+
+      const userId = txCoach();
+      res.status(201).json({
+        userId,
+        email,
+        telephone,
+        role: 'COACH',
+        coach_plan: coachPlan,
+        message:
+          coachPlan === 'COACH_PRO'
+            ? 'Compte Coach Pro créé (3 000 FCFA / mois · 0 % commission). Validez le code OTP puis votre profil sera vérifié par un administrateur.'
+            : 'Compte Coach Marketplace créé gratuitement (0 FCFA fixe · 4 000 F/athlète). Validez le code OTP puis votre profil sera vérifié par un administrateur.',
+        ...(IS_PRODUCTION ? {} : { demoVerificationCode: otp }),
+      });
+      return;
+    }
+
+    // ATHLETE Registration
+    const sport_code = sanitizeText(body.sport_code, 20) as SportCode;
+    const niveau = (sanitizeText(body.niveau, 20) || 'debutant') as AthleteLevel;
+    const poids_kg = Number(body.poids_kg);
+    const taille_cm = body.taille_cm ? Number(body.taille_cm) : null;
+    const poste = sanitizeText(body.poste, 60) || null;
+    const consentSensible = Boolean(body.consent_sensible);
+    const parentalName = sanitizeText(body.parental_consent_name, 100);
+    const parentalPhone = normalizePhone(sanitizeText(body.parental_consent_phone, 30));
+    const selectedCoachId = body.selected_coach_id ? Number(body.selected_coach_id) : null;
+    const requestedPlan = sanitizeText(body.plan_tier, 20).toUpperCase();
+    const billingCycle = sanitizeText(body.plan_billing_cycle, 20).toUpperCase() === 'TRIMESTRIEL' ? 'TRIMESTRIEL' : 'MENSUEL';
+    const confirmPlanChoice = Boolean(body.confirm_coach_contribution || body.confirm_plan_choice);
+
+    const planTier: 'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE' =
+      requestedPlan === 'COACH_PRIVE' || selectedCoachId !== null
+        ? 'COACH_PRIVE'
+        : requestedPlan === 'PROGRESSION'
+          ? 'PROGRESSION'
+          : 'ESSENTIEL';
+
+    if (!VALID_SPORT_CODES.includes(sport_code)) {
       res.status(400).json({ error: 'Sport invalide.' });
       return;
     }
@@ -529,13 +700,45 @@ async function startServer(): Promise<void> {
       return;
     }
 
-    const existing = db
-      .prepare('SELECT id FROM users WHERE email = ? OR telephone = ?')
-      .get(email, telephone);
-    if (existing) {
-      res.status(409).json({ error: 'Un compte existe déjà avec cet email ou ce numéro.' });
+    let validCoachId: number | null = null;
+    if (planTier === 'COACH_PRIVE') {
+      if (!selectedCoachId || !Number.isInteger(selectedCoachId) || selectedCoachId <= 0) {
+        res.status(400).json({ error: 'Veuillez choisir un coach pour la formule Suivi Coach.' });
+        return;
+      }
+      const coachExists = db
+        .prepare(
+          `SELECT u.id FROM users u
+           JOIN coaches c ON c.user_id = u.id
+           WHERE u.id = ? AND u.role = 'COACH' AND u.statut != 'CLOTURE' AND u.verified = 1 AND c.verification_status = 'VERIFIE'`
+        )
+        .get(selectedCoachId) as { id: number } | undefined;
+      if (!coachExists) {
+        res.status(404).json({ error: 'Le coach sélectionné est introuvable ou indisponible.' });
+        return;
+      }
+      if (!confirmPlanChoice) {
+        res.status(400).json({
+          error: 'Confirmez la formule Suivi Coach à 5 000 FCFA / mois pour activer l’accompagnement.',
+        });
+        return;
+      }
+      validCoachId = coachExists.id;
+    } else if (planTier === 'PROGRESSION' && !confirmPlanChoice) {
+      res.status(400).json({
+        error: 'Confirmez la formule Progression+ pour finaliser votre choix.',
+      });
       return;
     }
+
+    const planFeeFcfa =
+      planTier === 'COACH_PRIVE'
+        ? 5000
+        : planTier === 'PROGRESSION'
+          ? billingCycle === 'TRIMESTRIEL'
+            ? 4000
+            : 1500
+          : 0;
 
     const otp = generateOtpCode();
     const otpHash = hashToken(otp);
@@ -567,9 +770,24 @@ async function startServer(): Promise<void> {
       const userId = Number(uRes.lastInsertRowid);
 
       db.prepare(
-        `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(userId, sport_code, niveau, taille_cm, poste, `Régularité ${SPORTS_CONFIG[sport_code].nom}`);
+        `INSERT INTO athlete_profiles (
+          user_id, sport_code, niveau, taille_cm, poste, objectif,
+          coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at,
+          plan_tier, plan_fee_fcfa, plan_billing_cycle
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${validCoachId ? "datetime('now')" : 'NULL'}, ?, ?, ?)`
+      ).run(
+        userId,
+        sport_code,
+        niveau,
+        taille_cm,
+        poste,
+        `Régularité ${SPORTS_CONFIG[sport_code].nom}`,
+        validCoachId ? 'ACTIF_5000' : 'GRATUIT_BASE',
+        validCoachId ? 5000 : 0,
+        planTier,
+        planFeeFcfa,
+        billingCycle
+      );
 
       db.prepare("INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, ?, date('now'))").run(
         userId,
@@ -582,19 +800,21 @@ async function startServer(): Promise<void> {
       if (isMinor) {
         insConsent.run(userId, 'ACCORD_PARENTAL', 'v1.0');
       }
-
-      const defaultCoach = db.prepare("SELECT id FROM users WHERE role = 'COACH' LIMIT 1").get() as { id: number } | undefined;
-      if (defaultCoach) {
+      if (planTier !== 'ESSENTIEL') {
+        insConsent.run(userId, `FORMULE_${planTier}`, 'v2.0');
+      }
+      if (validCoachId) {
         db.prepare("INSERT INTO assignments (coach_user_id, athlete_user_id, date_debut, statut) VALUES (?, ?, date('now'), 'ACTIF')").run(
-          defaultCoach.id,
+          validCoachId,
           userId
         );
       }
+
       buildDefaultScheduleForAthlete(
         userId,
         sport_code,
         niveau,
-        defaultCoach ? defaultCoach.id : null,
+        validCoachId,
         `Programme initial ${SPORTS_CONFIG[sport_code].nom}`
       );
       return userId;
@@ -605,8 +825,10 @@ async function startServer(): Promise<void> {
       userId,
       email,
       telephone,
+      role: 'ATHLETE',
+      plan_tier: planTier,
       message: 'Compte créé. Validez votre inscription avec le code envoyé.',
-      demoVerificationCode: otp,
+      ...(IS_PRODUCTION ? {} : { demoVerificationCode: otp }),
     });
   });
 
@@ -679,24 +901,44 @@ async function startServer(): Promise<void> {
         })
       | undefined;
 
-    if (user?.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
+    if (!user) {
+      res.status(404).json({
+        error: "Ces identifiants n'existent pas sur Terrain+. Veuillez créer un compte pour accéder à votre espace.",
+        accountNotFound: true,
+      });
+      return;
+    }
+
+    if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
       res.status(429).json({
         error: 'Compte temporairement verrouillé après plusieurs tentatives échouées. Réessayez dans quelques minutes.',
       });
       return;
     }
 
-    if (!user || !verifyPassword(password, user.password_hash)) {
-      if (user) {
-        const nextFails = (user.failed_login_attempts || 0) + 1;
-        const lockUntil = nextFails >= 5 ? new Date(Date.now() + 5 * 60 * 1000).toISOString() : null;
-        db.prepare('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?').run(
-          nextFails >= 5 ? 0 : nextFails,
-          lockUntil,
-          user.id
-        );
+    if (!verifyPassword(password, user.password_hash)) {
+      const nextFails = (user.failed_login_attempts || 0) + 1;
+      const shouldLock = nextFails >= 5;
+      const lockUntil = shouldLock ? new Date(Date.now() + LOGIN_LOCKOUT_MS).toISOString() : null;
+      db.prepare('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?').run(
+        shouldLock ? 0 : nextFails,
+        lockUntil,
+        user.id
+      );
+      if (shouldLock) {
+        logAccess(user.id, user.role, null, 'VERROUILLAGE_COMPTE', 'tentatives_connexion_echouees');
+        res.status(429).json({
+          error: 'Compte verrouillé pendant 15 minutes suite à 5 mots de passe incorrects.',
+        });
+        return;
       }
-      res.status(401).json({ error: 'Identifiants invalides.' });
+      const remaining = 5 - nextFails;
+      res.status(401).json({
+        error:
+          remaining <= 2
+            ? `Mot de passe incorrect. Il reste ${remaining} tentative${remaining > 1 ? 's' : ''} avant verrouillage de 15 minutes.`
+            : 'Mot de passe incorrect.',
+      });
       return;
     }
 
@@ -716,10 +958,10 @@ async function startServer(): Promise<void> {
         user.id
       );
       res.status(403).json({
-        error: 'Compte en attente de validation. Saisissez le code OTP affiché ci-dessous pour vous connecter.',
+        error: 'Compte en attente de validation. Saisissez votre code OTP pour vous connecter.',
         needsVerification: true,
         identifier: user.email,
-        demoVerificationCode: otp,
+        ...(IS_PRODUCTION ? {} : { demoVerificationCode: otp }),
       });
       return;
     }
@@ -736,7 +978,10 @@ async function startServer(): Promise<void> {
       .get(identifier, normalizePhone(identifier)) as { id: number; email: string; telephone: string } | undefined;
 
     if (!user) {
-      res.status(404).json({ error: 'Aucun compte actif trouvé pour cet identifiant.' });
+      res.status(404).json({
+        error: "Ces identifiants n'existent pas sur Terrain+. Veuillez créer un compte.",
+        accountNotFound: true,
+      });
       return;
     }
     const otp = generateOtpCode();
@@ -749,7 +994,7 @@ async function startServer(): Promise<void> {
 
     res.json({
       message: 'Code à usage unique généré.',
-      demoOtpCode: otp,
+      ...(IS_PRODUCTION ? {} : { demoOtpCode: otp }),
     });
   });
 
@@ -817,8 +1062,50 @@ async function startServer(): Promise<void> {
     res.json({ ok: true });
   });
 
-  // ---------------- PUBLIC PARTNER ECOSYSTEM ROUTES (AGGREGATED ONLY) ----------------
+  app.post('/api/auth/change-password', requireAuth, (req: AuthedRequest, res: Response) => {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const currentPassword = typeof body.current_password === 'string' ? body.current_password : '';
+    const newPassword = typeof body.new_password === 'string' ? body.new_password : '';
+
+    if (!currentPassword || !isStrongPassword(newPassword)) {
+      res.status(400).json({
+        error: 'Mot de passe actuel requis et nouveau mot de passe d’au moins 8 caractères avec lettres et chiffres.',
+      });
+      return;
+    }
+    if (currentPassword === newPassword) {
+      res.status(400).json({ error: 'Le nouveau mot de passe doit être différent de l’actuel.' });
+      return;
+    }
+
+    const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.authUser!.id) as
+      | { password_hash: string }
+      | undefined;
+    if (!row || !verifyPassword(currentPassword, row.password_hash)) {
+      res.status(401).json({ error: 'Mot de passe actuel incorrect.' });
+      return;
+    }
+
+    const userId = req.authUser!.id;
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), userId);
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+    const sessionToken = createSessionForUser(req, res, userId);
+    logAccess(userId, req.authUser!.role, null, 'CHANGEMENT_MOT_DE_PASSE', 'securite_compte');
+    res.json({
+      ok: true,
+      sessionToken,
+      message: 'Mot de passe mis à jour et anciennes sessions révoquées.',
+    });
+  });
+
+  // ---------------- PUBLIC COACHES & PARTNER ECOSYSTEM ROUTES (AGGREGATED ONLY) ----------------
+  app.get('/api/public/coaches', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=600');
+    res.json({ coaches: getPublicCoachesList() });
+  });
+
   app.get('/api/public/partners', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=600');
     const partners = db
       .prepare(
         `SELECT p.id, p.nom, p.type, p.zone,
@@ -870,6 +1157,7 @@ async function startServer(): Promise<void> {
     const sportPrincipal = sanitizeText(body.sport_principal, 40);
     const nombreAthletes = body.nombre_athletes_estime ? Number(body.nombre_athletes_estime) : null;
     const message = sanitizeText(body.message, 600);
+    const packSouhaite = sanitizeText(body.pack_souhaite, 60) || 'PACK_ASC_CAMPUS';
 
     if (!organisation || !zone || !contactNom) {
       res.status(400).json({ error: 'Organisation, zone et nom du responsable sont obligatoires.' });
@@ -891,8 +1179,8 @@ async function startServer(): Promise<void> {
     db.prepare(
       `INSERT INTO partner_requests (
         organisation, type, zone, contact_nom, contact_telephone, contact_email,
-        sport_principal, nombre_athletes_estime, message, statut
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOUVELLE')`
+        sport_principal, nombre_athletes_estime, pack_souhaite, message, statut
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NOUVELLE')`
     ).run(
       organisation,
       type,
@@ -902,6 +1190,7 @@ async function startServer(): Promise<void> {
       contactEmail || null,
       sportPrincipal || null,
       nombreAthletes && Number.isFinite(nombreAthletes) ? Math.max(1, Math.min(5000, Math.round(nombreAthletes))) : null,
+      packSouhaite,
       message || null
     );
 
@@ -1067,6 +1356,10 @@ async function startServer(): Promise<void> {
     const taille_cm = body.taille_cm ? Number(body.taille_cm) : null;
     const eco_data_mode = body.eco_data_mode ? 1 : 0;
     const notifications_enabled = body.notifications_enabled ? 1 : 0;
+    const rawReminderTime = sanitizeText(body.reminder_time, 10);
+    const reminder_time = /^([01]\d|2[0-3]):[0-5]\d$/.test(rawReminderTime) ? rawReminderTime : undefined;
+    const rawLead = Number(body.reminder_lead_minutes);
+    const reminder_lead_minutes = [0, 15, 30, 60, 120].includes(rawLead) ? rawLead : undefined;
 
     if (!nom || !prenom || !['debutant', 'intermediaire', 'avance'].includes(niveau)) {
       res.status(400).json({ error: 'Champs de profil invalides.' });
@@ -1080,17 +1373,49 @@ async function startServer(): Promise<void> {
     db.prepare('UPDATE users SET nom = ?, prenom = ?, langue = ? WHERE id = ?').run(nom, prenom, langue, userId);
     db.prepare(
       `UPDATE athlete_profiles
-       SET niveau = ?, poste = ?, taille_cm = ?, eco_data_mode = ?, notifications_enabled = ?
+       SET niveau = ?, poste = ?, taille_cm = ?, eco_data_mode = ?, notifications_enabled = ?,
+           reminder_time = COALESCE(?, reminder_time),
+           reminder_lead_minutes = COALESCE(?, reminder_lead_minutes)
        WHERE user_id = ?`
-    ).run(niveau, poste || null, taille_cm, eco_data_mode, notifications_enabled, userId);
+    ).run(niveau, poste || null, taille_cm, eco_data_mode, notifications_enabled, reminder_time ?? null, reminder_lead_minutes ?? null, userId);
 
     res.json({ ok: true });
+  });
+
+  app.patch('/api/athlete/reminders', requireAuth, requireRole('ATHLETE'), (req: AuthedRequest, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    const userId = req.authUser!.id;
+    const notifications_enabled = body.notifications_enabled ? 1 : 0;
+    const reminder_time = sanitizeText(body.reminder_time, 10) || '18:00';
+    const reminder_lead_minutes = Number(body.reminder_lead_minutes);
+
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(reminder_time)) {
+      res.status(400).json({ error: 'Heure de rappel invalide (format HH:MM requis).' });
+      return;
+    }
+    if (![0, 15, 30, 60, 120].includes(reminder_lead_minutes)) {
+      res.status(400).json({ error: 'Délai de rappel invalide.' });
+      return;
+    }
+
+    db.prepare(
+      `UPDATE athlete_profiles
+       SET notifications_enabled = ?, reminder_time = ?, reminder_lead_minutes = ?
+       WHERE user_id = ?`
+    ).run(notifications_enabled, reminder_time, reminder_lead_minutes, userId);
+
+    res.json({
+      ok: true,
+      notifications_enabled: Boolean(notifications_enabled),
+      reminder_time,
+      reminder_lead_minutes,
+    });
   });
 
   app.post('/api/athlete/change-sport', requireAuth, requireRole('ATHLETE'), (req: AuthedRequest, res: Response) => {
     const body = req.body as Record<string, unknown>;
     const sportCode = sanitizeText(body.sport_code, 20) as SportCode;
-    if (!['football', 'basket', 'handball'].includes(sportCode)) {
+    if (!VALID_SPORT_CODES.includes(sportCode)) {
       res.status(400).json({ error: 'Sport invalide.' });
       return;
     }
@@ -1109,6 +1434,197 @@ async function startServer(): Promise<void> {
       `Nouveau cycle ${SPORTS_CONFIG[sportCode].nom}`
     );
     res.json({ ok: true });
+  });
+
+  app.post('/api/athlete/select-plan', requireAuth, requireRole('ATHLETE'), (req: AuthedRequest, res: Response) => {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const rawPlan = sanitizeText(body.plan_tier, 20).toUpperCase();
+    const billingCycle = sanitizeText(body.billing_cycle, 20).toUpperCase() === 'TRIMESTRIEL' ? 'TRIMESTRIEL' : 'MENSUEL';
+    const coachUserId = body.coach_user_id ? Number(body.coach_user_id) : null;
+    const confirmPlan = Boolean(body.confirm_plan);
+
+    if (!['ESSENTIEL', 'PROGRESSION', 'COACH_PRIVE'].includes(rawPlan)) {
+      res.status(400).json({ error: 'Formule invalide (ESSENTIEL, PROGRESSION ou COACH_PRIVE).' });
+      return;
+    }
+    const planTier = rawPlan as 'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE';
+
+    if (planTier !== 'ESSENTIEL' && !confirmPlan) {
+      res.status(400).json({ error: 'Veuillez confirmer la formule sélectionnée.' });
+      return;
+    }
+
+    let validCoach: { id: number; prenom: string; nom: string } | null = null;
+    if (planTier === 'COACH_PRIVE') {
+      if (!coachUserId || !Number.isInteger(coachUserId) || coachUserId <= 0) {
+        res.status(400).json({ error: 'Choisissez un coach vérifié pour activer Suivi Coach.' });
+        return;
+      }
+      const coachRow = db
+        .prepare(
+          `SELECT u.id, u.prenom, u.nom
+           FROM users u
+           JOIN coaches c ON c.user_id = u.id
+           WHERE u.id = ? AND u.role = 'COACH' AND u.statut != 'CLOTURE' AND u.verified = 1 AND c.verification_status = 'VERIFIE'`
+        )
+        .get(coachUserId) as { id: number; prenom: string; nom: string } | undefined;
+      if (!coachRow) {
+        res.status(404).json({ error: 'Coach introuvable ou indisponible.' });
+        return;
+      }
+      validCoach = coachRow;
+    }
+
+    const athleteId = req.authUser!.id;
+    const planFee =
+      planTier === 'COACH_PRIVE'
+        ? 5000
+        : planTier === 'PROGRESSION'
+          ? billingCycle === 'TRIMESTRIEL'
+            ? 4000
+            : 1500
+          : 0;
+
+    const tx = db.transaction(() => {
+      if (validCoach) {
+        db.prepare("UPDATE assignments SET statut = 'TERMINE', date_fin = date('now') WHERE athlete_user_id = ? AND statut = 'ACTIF'").run(athleteId);
+        db.prepare("INSERT INTO assignments (coach_user_id, athlete_user_id, date_debut, statut) VALUES (?, ?, date('now'), 'ACTIF')").run(
+          validCoach.id,
+          athleteId
+        );
+        db.prepare('UPDATE program_plans SET coach_user_id = ? WHERE athlete_user_id = ?').run(validCoach.id, athleteId);
+        db.prepare(
+          `UPDATE athlete_profiles
+           SET plan_tier = 'COACH_PRIVE',
+               plan_fee_fcfa = 5000,
+               plan_billing_cycle = 'MENSUEL',
+               coach_subscription_status = 'ACTIF_5000',
+               coach_monthly_fee_fcfa = 5000,
+               coach_subscribed_at = datetime('now')
+           WHERE user_id = ?`
+        ).run(athleteId);
+        db.prepare("UPDATE users SET statut = 'SUIVI_ACTIF' WHERE id = ? AND statut = 'ACTIF'").run(athleteId);
+      } else {
+        db.prepare("UPDATE assignments SET statut = 'TERMINE', date_fin = date('now') WHERE athlete_user_id = ? AND statut = 'ACTIF'").run(athleteId);
+        db.prepare('UPDATE program_plans SET coach_user_id = NULL WHERE athlete_user_id = ?').run(athleteId);
+        db.prepare(
+          `UPDATE athlete_profiles
+           SET plan_tier = ?,
+               plan_fee_fcfa = ?,
+               plan_billing_cycle = ?,
+               coach_subscription_status = 'GRATUIT_BASE',
+               coach_monthly_fee_fcfa = 0,
+               coach_subscribed_at = NULL
+           WHERE user_id = ?`
+        ).run(planTier, planFee, billingCycle, athleteId);
+      }
+
+      logAccess(athleteId, 'ATHLETE', athleteId, `CHANGEMENT_FORMULE_${planTier}`, `fee:${planFee}`);
+    });
+    tx();
+
+    res.json({
+      ok: true,
+      plan_tier: planTier,
+      plan_fee_fcfa: planFee,
+      message:
+        planTier === 'COACH_PRIVE' && validCoach
+          ? `Formule Suivi Coach activée avec ${validCoach.prenom} ${validCoach.nom} (5 000 FCFA / mois).`
+          : planTier === 'PROGRESSION'
+            ? `Formule Progression+ activée (${planFee.toLocaleString('fr-FR')} FCFA / ${billingCycle === 'TRIMESTRIEL' ? 'trimestre' : 'mois'}).`
+            : 'Vous êtes sur l’accès Essentiel 100 % gratuit (0 FCFA).',
+    });
+  });
+
+  app.post('/api/athlete/select-coach', requireAuth, requireRole('ATHLETE'), (req: AuthedRequest, res: Response) => {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const coachUserId = Number(body.coach_user_id);
+    const confirmContribution = Boolean(body.confirm_contribution);
+
+    if (!Number.isInteger(coachUserId) || coachUserId <= 0) {
+      res.status(400).json({ error: 'Identifiant du coach invalide.' });
+      return;
+    }
+    if (!confirmContribution) {
+      res.status(400).json({
+        error: 'Veuillez confirmer la contribution Privilège Jeunes de 5 000 FCFA / mois pour activer le suivi coach.',
+      });
+      return;
+    }
+
+    const coach = db
+      .prepare(
+        `SELECT u.id, u.prenom, u.nom
+         FROM users u
+         JOIN coaches c ON c.user_id = u.id
+         WHERE u.id = ? AND u.role = 'COACH' AND u.statut != 'CLOTURE' AND u.verified = 1 AND c.verification_status = 'VERIFIE'`
+      )
+      .get(coachUserId) as { id: number; prenom: string; nom: string } | undefined;
+
+    if (!coach) {
+      res.status(404).json({ error: 'Coach introuvable ou indisponible.' });
+      return;
+    }
+
+    const athleteId = req.authUser!.id;
+    const tx = db.transaction(() => {
+      db.prepare("UPDATE assignments SET statut = 'TERMINE', date_fin = date('now') WHERE athlete_user_id = ? AND statut = 'ACTIF'").run(athleteId);
+      db.prepare("INSERT INTO assignments (coach_user_id, athlete_user_id, date_debut, statut) VALUES (?, ?, date('now'), 'ACTIF')").run(
+        coachUserId,
+        athleteId
+      );
+      db.prepare('UPDATE program_plans SET coach_user_id = ? WHERE athlete_user_id = ?').run(coachUserId, athleteId);
+      db.prepare(
+        `UPDATE athlete_profiles
+         SET plan_tier = 'COACH_PRIVE',
+             plan_fee_fcfa = 5000,
+             plan_billing_cycle = 'MENSUEL',
+             coach_subscription_status = 'ACTIF_5000',
+             coach_monthly_fee_fcfa = 5000,
+             coach_subscribed_at = datetime('now')
+         WHERE user_id = ?`
+      ).run(athleteId);
+      db.prepare("UPDATE users SET statut = 'SUIVI_ACTIF' WHERE id = ? AND statut = 'ACTIF'").run(athleteId);
+
+      const hasConsent = db
+        .prepare("SELECT id FROM consents WHERE user_id = ? AND type = 'COACH_PRIVILEGE_5000'")
+        .get(athleteId);
+      if (!hasConsent) {
+        db.prepare("INSERT INTO consents (user_id, type, version) VALUES (?, 'COACH_PRIVILEGE_5000', 'v1.0')").run(athleteId);
+      }
+      logAccess(athleteId, 'ATHLETE', athleteId, 'SELECTION_COACH_5000', `coach:${coachUserId}`);
+    });
+    tx();
+
+    res.json({
+      ok: true,
+      message: `Suivi activé avec ${coach.prenom} ${coach.nom} (Privilège Jeunes · 5 000 FCFA / mois).`,
+    });
+  });
+
+  app.post('/api/athlete/cancel-coach', requireAuth, requireRole('ATHLETE'), (req: AuthedRequest, res: Response) => {
+    const athleteId = req.authUser!.id;
+    const tx = db.transaction(() => {
+      db.prepare("UPDATE assignments SET statut = 'TERMINE', date_fin = date('now') WHERE athlete_user_id = ? AND statut = 'ACTIF'").run(athleteId);
+      db.prepare('UPDATE program_plans SET coach_user_id = NULL WHERE athlete_user_id = ?').run(athleteId);
+      db.prepare(
+        `UPDATE athlete_profiles
+         SET plan_tier = 'ESSENTIEL',
+             plan_fee_fcfa = 0,
+             plan_billing_cycle = 'MENSUEL',
+             coach_subscription_status = 'GRATUIT_BASE',
+             coach_monthly_fee_fcfa = 0,
+             coach_subscribed_at = NULL
+         WHERE user_id = ?`
+      ).run(athleteId);
+      logAccess(athleteId, 'ATHLETE', athleteId, 'RETOUR_BASE_GRATUITE', 'coach_suivi_desactive');
+    });
+    tx();
+
+    res.json({
+      ok: true,
+      message: 'Vous êtes repassé sur l’accès Essentiel 100 % gratuit. Votre programme et vos tests restent actifs.',
+    });
   });
 
   app.post('/api/athlete/request-coach-change', requireAuth, requireRole('ATHLETE'), (req: AuthedRequest, res: Response) => {
@@ -1153,6 +1669,19 @@ async function startServer(): Promise<void> {
 
   app.delete('/api/athlete/account', requireAuth, requireRole('ATHLETE'), (req: AuthedRequest, res: Response) => {
     const userId = req.authUser!.id;
+    const body = (req.body || {}) as Record<string, unknown>;
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!password) {
+      res.status(400).json({ error: 'Saisissez votre mot de passe actuel pour confirmer la suppression du compte.' });
+      return;
+    }
+    const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as
+      | { password_hash: string }
+      | undefined;
+    if (!row || !verifyPassword(password, row.password_hash)) {
+      res.status(401).json({ error: 'Mot de passe incorrect : suppression annulée.' });
+      return;
+    }
     db.prepare('DELETE FROM users WHERE id = ?').run(userId);
     logAccess(null, 'ATHLETE', null, 'SUPPRESSION_COMPTE', 'donnees_personnelles');
     clearSessionCookie(req, res);
@@ -1222,11 +1751,61 @@ async function startServer(): Promise<void> {
       .prepare('SELECT id, sport_code, titre, niveau, duree_min, objectif, prevention_focus, relue_par, validation_status FROM sessions_library ORDER BY sport_code, id')
       .all();
 
+    const coachProfile = db
+      .prepare(
+        `SELECT specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
+                platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa, verification_status
+         FROM coaches WHERE user_id = ?`
+      )
+      .get(coachId) as
+      | {
+          specialite: string;
+          qualification: string;
+          zone: string;
+          monthly_fee_fcfa: number;
+          athlete_monthly_fee_fcfa: number;
+          platform_subscription_status: string;
+          coach_plan: 'MARKETPLACE' | 'COACH_PRO';
+          commission_pct: number;
+          athlete_payout_fcfa: number;
+          verification_status: 'EN_ATTENTE' | 'VERIFIE' | 'REFUSE';
+        }
+      | undefined;
+
     res.json({
       coach: mapUserPublic(req.authUser!),
+      coachProfile: coachProfile || null,
       athletes,
       alerts,
       library,
+    });
+  });
+
+  app.patch('/api/coach/plan', requireAuth, requireRole('COACH'), (req: AuthedRequest, res: Response) => {
+    const rawPlan = sanitizeText((req.body as Record<string, unknown>).coach_plan, 30).toUpperCase();
+    if (!['MARKETPLACE', 'COACH_PRO'].includes(rawPlan)) {
+      res.status(400).json({ error: 'Formule coach invalide (MARKETPLACE ou COACH_PRO).' });
+      return;
+    }
+    const coachPlan = rawPlan as 'MARKETPLACE' | 'COACH_PRO';
+    const monthlyFee = coachPlan === 'COACH_PRO' ? 3000 : 0;
+    const commissionPct = coachPlan === 'COACH_PRO' ? 0 : 20;
+    const athletePayout = coachPlan === 'COACH_PRO' ? 5000 : 4000;
+
+    db.prepare(
+      `UPDATE coaches
+       SET coach_plan = ?, monthly_fee_fcfa = ?, commission_pct = ?, athlete_payout_fcfa = ?
+       WHERE user_id = ?`
+    ).run(coachPlan, monthlyFee, commissionPct, athletePayout, req.authUser!.id);
+
+    logAccess(req.authUser!.id, 'COACH', null, `COACH_PLAN_${coachPlan}`, `fee:${monthlyFee}`);
+    res.json({
+      ok: true,
+      coach_plan: coachPlan,
+      message:
+        coachPlan === 'COACH_PRO'
+          ? 'Licence Coach Pro activée (3 000 FCFA / mois · 0 % commission sur vos athlètes).'
+          : 'Option Marketplace activée (0 FCFA fixe · 4 000 FCFA reversés par athlète suivi).',
     });
   });
 
@@ -1387,7 +1966,7 @@ async function startServer(): Promise<void> {
     const consigneFr = sanitizeText(body.consigneFr, 300);
     const consigneWo = sanitizeText(body.consigneWo, 300);
 
-    if (!['football', 'basket', 'handball'].includes(sport_code) || !titre || !objectif || !consigneFr) {
+    if (!VALID_SPORT_CODES.includes(sport_code) || !titre || !objectif || !consigneFr) {
       res.status(400).json({ error: 'Complétez tous les champs de la proposition.' });
       return;
     }
@@ -1439,8 +2018,11 @@ async function startServer(): Promise<void> {
 
     const coaches = db
       .prepare(
-        `SELECT u.id, u.nom, u.prenom, c.specialite, c.qualification, c.zone
-         FROM users u JOIN coaches c ON c.user_id = u.id WHERE u.role = 'COACH' AND u.statut != 'CLOTURE'`
+        `SELECT u.id, u.nom, u.prenom, u.email, u.telephone, u.statut, u.verified,
+                c.specialite, c.qualification, c.zone, c.coach_plan, c.verification_status
+         FROM users u JOIN coaches c ON c.user_id = u.id
+         WHERE u.role = 'COACH' AND u.statut != 'CLOTURE'
+         ORDER BY CASE WHEN c.verification_status = 'EN_ATTENTE' THEN 0 ELSE 1 END, u.id DESC`
       )
       .all();
 
@@ -1516,9 +2098,9 @@ async function startServer(): Promise<void> {
     const nom = sanitizeText(body.nom, 140);
     const partnerId = Number(body.partner_id);
     const captainName = sanitizeText(body.captain_name, 100);
-    const sportCode = sanitizeText(body.sport_code, 20);
+    const sportCode = sanitizeText(body.sport_code, 20) as SportCode;
 
-    if (!nom || !captainName || !Number.isInteger(partnerId) || !['football', 'basket', 'handball'].includes(sportCode)) {
+    if (!nom || !captainName || !Number.isInteger(partnerId) || !VALID_SPORT_CODES.includes(sportCode)) {
       res.status(400).json({ error: 'Nom du groupe, partenaire, Capitaine Prépa et sport requis.' });
       return;
     }
@@ -1627,6 +2209,29 @@ async function startServer(): Promise<void> {
     res.json({ ok: true });
   });
 
+  app.patch('/api/admin/coaches/:coachUserId/verification', requireAuth, requireRole('ADMIN'), (req: AuthedRequest, res: Response) => {
+    const coachUserId = Number(req.params.coachUserId);
+    const verificationStatus = sanitizeText((req.body as Record<string, unknown>).verification_status, 20).toUpperCase();
+    if (!Number.isInteger(coachUserId) || coachUserId <= 0 || !['VERIFIE', 'EN_ATTENTE', 'REFUSE'].includes(verificationStatus)) {
+      res.status(400).json({ error: 'Statut de vérification coach invalide.' });
+      return;
+    }
+    const upd = db
+      .prepare('UPDATE coaches SET verification_status = ? WHERE user_id = ?')
+      .run(verificationStatus, coachUserId);
+    if (upd.changes === 0) {
+      res.status(404).json({ error: 'Profil coach introuvable.' });
+      return;
+    }
+    if (verificationStatus === 'REFUSE') {
+      db.prepare("UPDATE assignments SET statut = 'TERMINE', date_fin = date('now') WHERE coach_user_id = ? AND statut = 'ACTIF'").run(
+        coachUserId
+      );
+    }
+    logAccess(req.authUser!.id, 'ADMIN', coachUserId, 'VERIFICATION_COACH', verificationStatus);
+    res.json({ ok: true, verification_status: verificationStatus });
+  });
+
   app.patch('/api/admin/sessions/:sessionId/review', requireAuth, requireRole('ADMIN'), (req: AuthedRequest, res: Response) => {
     const sessionId = Number(req.params.sessionId);
     const body = req.body as Record<string, unknown>;
@@ -1718,7 +2323,7 @@ async function startServer(): Promise<void> {
         ? Math.min(100, Math.round((completedSessionsTotal / plannedTrainingSessionsTotal) * 100))
         : 0;
 
-    const bySport = (['football', 'basket', 'handball'] as SportCode[]).map((sportCode) => {
+    const bySport = VALID_SPORT_CODES.map((sportCode) => {
       const ath = db
         .prepare(
           `SELECT COUNT(*) as c
@@ -2044,15 +2649,34 @@ async function startServer(): Promise<void> {
     res.status(500).json({ error: 'Erreur interne du serveur.' });
   });
 
+  app.use('/api', (_req: Request, res: Response) => {
+    res.status(404).json({ error: 'Route API introuvable.' });
+  });
+
   // ---------------- VITE / STATIC SERVING ----------------
   const isProd = process.env.NODE_ENV === 'production' && fs.existsSync(path.resolve('dist/index.html'));
 
   if (isProd) {
-    app.use(express.static(path.resolve('dist')));
+    app.use(
+      express.static(path.resolve('dist'), {
+        maxAge: '30d',
+        setHeaders(res, filePath) {
+          if (filePath.endsWith('index.html') || filePath.endsWith('sw.js') || filePath.endsWith('manifest.webmanifest')) {
+            res.setHeader('Cache-Control', 'no-cache');
+          } else if (filePath.includes(`${path.sep}assets${path.sep}`) && /\.(js|css|woff2)$/.test(filePath)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+        },
+      })
+    );
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.resolve('dist/index.html'));
     });
   } else {
+    app.use('/brand', express.static(path.resolve('public/brand'), { maxAge: '1d' }));
+    app.use('/assets/aistudio', express.static(path.resolve('public/assets/aistudio'), { maxAge: '7d' }));
+    app.use('/src/assets/images', express.static(path.resolve('src/assets/images'), { maxAge: '7d' }));
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
@@ -2080,7 +2704,16 @@ async function startServer(): Promise<void> {
     app.use(vite.middlewares);
   }
 
-  const port = Number(process.env.PORT || 3000);
+  const portArgIdx = process.argv.indexOf('--port');
+  const cliPort = portArgIdx !== -1 ? Number(process.argv[portArgIdx + 1]) : NaN;
+  const nginxOwnsEnvPort = Boolean(process.env.NGINX_PORT && process.env.PORT === process.env.NGINX_PORT);
+  const port =
+    Number.isFinite(cliPort) && cliPort > 0
+      ? cliPort
+      : isProd && !nginxOwnsEnvPort && process.env.PORT
+        ? Number(process.env.PORT)
+        : Number(process.env.DEFAULT_APP_PORT || 3000);
+
   app.listen(port, '0.0.0.0', () => {
     console.log(`Terrain+ server listening on http://0.0.0.0:${port}`);
   });
