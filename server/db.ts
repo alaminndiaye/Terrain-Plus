@@ -232,6 +232,44 @@ export function initSchema(): void {
       statut TEXT NOT NULL DEFAULT 'NOUVELLE' CHECK(statut IN ('NOUVELLE', 'EN_ETUDE', 'VALIDEE')),
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS coach_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      coach_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      diploma_type TEXT NOT NULL,
+      issuing_organism TEXT NOT NULL,
+      diploma_number TEXT NOT NULL,
+      issue_year INTEGER NOT NULL,
+      original_filename TEXT NOT NULL,
+      stored_filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      file_size_bytes INTEGER NOT NULL,
+      sha256_hash TEXT NOT NULL,
+      study_score INTEGER NOT NULL DEFAULT 0,
+      study_status TEXT NOT NULL DEFAULT 'A_VERIFIER' CHECK(study_status IN ('CONFORME_PRE_ETUDE', 'A_VERIFIER', 'ANOMALIE')),
+      study_report_json TEXT NOT NULL,
+      admin_review_note TEXT,
+      reviewed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      reviewed_at TEXT,
+      uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS system_traffic_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      method TEXT NOT NULL,
+      path_group TEXT NOT NULL,
+      full_path TEXT NOT NULL,
+      status_code INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      user_role TEXT,
+      user_id INTEGER,
+      ip_hash TEXT,
+      bytes_out INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_traffic_created_at ON system_traffic_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_coach_docs_user ON coach_documents(coach_user_id);
   `);
 
   // Safe idempotent column migrations for existing databases
@@ -299,6 +337,30 @@ export function initSchema(): void {
   }
   if (!coachColNames.has('verification_status')) {
     db.exec("ALTER TABLE coaches ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'VERIFIE';");
+  }
+  if (!coachColNames.has('rejection_reason')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN rejection_reason TEXT;');
+  }
+  if (!coachColNames.has('pro_card_number')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN pro_card_number TEXT;');
+  }
+  if (!coachColNames.has('pro_card_expiry')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN pro_card_expiry TEXT;');
+  }
+  if (!coachColNames.has('rc_pro_insurer')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN rc_pro_insurer TEXT;');
+  }
+  if (!coachColNames.has('rc_pro_policy_number')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN rc_pro_policy_number TEXT;');
+  }
+  if (!coachColNames.has('legal_status')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN legal_status TEXT;');
+  }
+  if (!coachColNames.has('business_reg_number')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN business_reg_number TEXT;');
+  }
+  if (!coachColNames.has('honorability_attested')) {
+    db.exec('ALTER TABLE coaches ADD COLUMN honorability_attested INTEGER NOT NULL DEFAULT 0;');
   }
 
   const sessCols = db.prepare('PRAGMA table_info(sessions_library)').all() as Array<{ name: string }>;

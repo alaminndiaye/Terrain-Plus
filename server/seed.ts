@@ -1,4 +1,5 @@
 import { db } from './db.ts';
+import { buildSampleDiplomaPdfBuffer, storeCoachDiplomaDocument } from './diplomaStudy.ts';
 import { hashPassword } from './security.ts';
 
 export function buildDefaultScheduleForAthlete(
@@ -107,6 +108,213 @@ function ensureSecondCoachPilot(): void {
         platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa
       ) VALUES (?, ?, ?, ?, 3000, 5000, ?, 'COACH_PRO', 0, 5000)`
     ).run(coach2Id, 'Explosivité, détente & prévention articulaire', 'Master STAPS · Préparatrice physique', 'Dakar & Rufisque', 'ACTIF_1000');
+  }
+}
+
+function ensureCoachDocumentsSeeded(): void {
+  const adminRow = db.prepare("SELECT id FROM users WHERE role = 'ADMIN' ORDER BY id ASC LIMIT 1").get() as
+    | { id: number }
+    | undefined;
+
+  const coach1 = db
+    .prepare("SELECT id, nom, prenom FROM users WHERE LOWER(email) = 'coach.ndiaye@terrainplus.sn' LIMIT 1")
+    .get() as { id: number; nom: string; prenom: string } | undefined;
+  if (coach1) {
+    db.prepare(
+      `UPDATE coaches
+       SET pro_card_number = COALESCE(pro_card_number, ?),
+           pro_card_expiry = COALESCE(pro_card_expiry, ?),
+           rc_pro_insurer = COALESCE(rc_pro_insurer, ?),
+           rc_pro_policy_number = COALESCE(rc_pro_policy_number, ?),
+           legal_status = COALESCE(legal_status, ?),
+           business_reg_number = COALESCE(business_reg_number, ?),
+           honorability_attested = 1
+       WHERE user_id = ?`
+    ).run(
+      'CP-MJS-2023-0412',
+      '2028-12-31',
+      'AXA Sénégal Sport Pro',
+      'RCP-SN-2026-4410',
+      'MICRO_ENTREPRISE',
+      'NINEA-008451290',
+      coach1.id
+    );
+
+    const hasDoc1 = db.prepare('SELECT id FROM coach_documents WHERE coach_user_id = ? LIMIT 1').get(coach1.id);
+    if (!hasDoc1) {
+      const buf = buildSampleDiplomaPdfBuffer(
+        `DIPLOME STAPS & LICENCE FEDERALE - ${coach1.prenom} ${coach1.nom}`,
+        'Licence STAPS Entrainement Sportif - Football (INSEPS Dakar)',
+        'STAPS-INSEPS-2021-0142'
+      );
+      const stored = storeCoachDiplomaDocument({
+        coachUserId: coach1.id,
+        diplomaType: 'STAPS_LICENCE_MASTER',
+        issuingOrganism: 'INSEPS Dakar',
+        diplomaNumber: 'STAPS-INSEPS-2021-0142',
+        issueYear: 2021,
+        specialite: 'Préparation physique Football & appuis courts',
+        qualification: 'Licence STAPS · Licence C FSF',
+        originalFilename: 'diplome_staps_moussa_ndiaye.pdf',
+        buffer: buf,
+        proCardNumber: 'CP-MJS-2023-0412',
+        proCardExpiry: '2028-12-31',
+        rcProInsurer: 'AXA Sénégal Sport Pro',
+        rcProPolicyNumber: 'RCP-SN-2026-4410',
+        legalStatus: 'MICRO_ENTREPRISE',
+        businessRegNumber: 'NINEA-008451290',
+        honorabilityAttested: true,
+      });
+      if (adminRow) {
+        db.prepare(
+          `UPDATE coach_documents
+           SET admin_review_note = ?, reviewed_by_user_id = ?, reviewed_at = datetime('now', '-10 days')
+           WHERE id = ?`
+        ).run('Diplôme, carte professionnelle et RC Pro vérifiés conformes.', adminRow.id, stored.docId);
+      }
+    }
+  }
+
+  const coach2 = db
+    .prepare("SELECT id, nom, prenom FROM users WHERE LOWER(email) = 'coach.mbaye@terrainplus.sn' LIMIT 1")
+    .get() as { id: number; nom: string; prenom: string } | undefined;
+  if (coach2) {
+    db.prepare(
+      `UPDATE coaches
+       SET pro_card_number = COALESCE(pro_card_number, ?),
+           pro_card_expiry = COALESCE(pro_card_expiry, ?),
+           rc_pro_insurer = COALESCE(rc_pro_insurer, ?),
+           rc_pro_policy_number = COALESCE(rc_pro_policy_number, ?),
+           legal_status = COALESCE(legal_status, ?),
+           business_reg_number = COALESCE(business_reg_number, ?),
+           honorability_attested = 1
+       WHERE user_id = ?`
+    ).run(
+      'CP-DRAJES-2024-1180',
+      '2029-06-30',
+      'Allianz Responsabilité Coach',
+      'RCP-ALZ-2026-8821',
+      'ENTREPRISE_INDIVIDUELLE',
+      'NINEA-009124715',
+      coach2.id
+    );
+
+    const hasDoc2 = db.prepare('SELECT id FROM coach_documents WHERE coach_user_id = ? LIMIT 1').get(coach2.id);
+    if (!hasDoc2) {
+      const buf = buildSampleDiplomaPdfBuffer(
+        `MASTER STAPS - ${coach2.prenom} ${coach2.nom}`,
+        'Master STAPS Preparation Physique & Prevention Articulaire (INSEPS Dakar)',
+        'STAPS-INSEPS-2022-0309'
+      );
+      const stored = storeCoachDiplomaDocument({
+        coachUserId: coach2.id,
+        diplomaType: 'STAPS_LICENCE_MASTER',
+        issuingOrganism: 'INSEPS Dakar',
+        diplomaNumber: 'STAPS-INSEPS-2022-0309',
+        issueYear: 2022,
+        specialite: 'Explosivité, détente & prévention articulaire',
+        qualification: 'Master STAPS · Préparatrice physique',
+        originalFilename: 'master_staps_fatou_mbaye.pdf',
+        buffer: buf,
+        proCardNumber: 'CP-DRAJES-2024-1180',
+        proCardExpiry: '2029-06-30',
+        rcProInsurer: 'Allianz Responsabilité Coach',
+        rcProPolicyNumber: 'RCP-ALZ-2026-8821',
+        legalStatus: 'ENTREPRISE_INDIVIDUELLE',
+        businessRegNumber: 'NINEA-009124715',
+        honorabilityAttested: true,
+      });
+      if (adminRow) {
+        db.prepare(
+          `UPDATE coach_documents
+           SET admin_review_note = ?, reviewed_by_user_id = ?, reviewed_at = datetime('now', '-5 days')
+           WHERE id = ?`
+        ).run('Master STAPS, carte pro et RC Pro validés et conformes.', adminRow.id, stored.docId);
+      }
+    }
+  }
+
+  let pendingCoach = db
+    .prepare("SELECT id, nom, prenom FROM users WHERE LOWER(email) = 'coach.diop.attente@terrainplus.sn' LIMIT 1")
+    .get() as { id: number; nom: string; prenom: string } | undefined;
+  if (!pendingCoach) {
+    const pendingId = Number(
+      db
+        .prepare(
+          `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified)
+           VALUES (?, ?, ?, ?, ?, 'COACH', ?, 'fr', 'INSCRIT', 0, 1)`
+        )
+        .run('Diop', 'Ousmane', '+221778884411', 'coach.diop.attente@terrainplus.sn', hashPassword('Coach2026!'), '1993-08-24')
+        .lastInsertRowid
+    );
+    db.prepare(
+      `INSERT INTO coaches (
+        user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
+        platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa, verification_status,
+        pro_card_number, pro_card_expiry, rc_pro_insurer, rc_pro_policy_number, legal_status, business_reg_number, honorability_attested
+      ) VALUES (?, ?, ?, ?, 0, 5000, 'ACTIF_1000', 'MARKETPLACE', 20, 4000, 'EN_ATTENTE', ?, ?, ?, ?, ?, ?, 1)`
+    ).run(
+      pendingId,
+      'Football & Préparation vitesse terrain',
+      'Licence Entraîneur CAF C · FSF',
+      'Kaolack',
+      'CP-MJS-2025-0934',
+      '2030-03-15',
+      'NSIA Assurances Pro',
+      'RCP-NSIA-2026-1194',
+      'MICRO_ENTREPRISE',
+      'NINEA-009874512'
+    );
+    pendingCoach = { id: pendingId, nom: 'Diop', prenom: 'Ousmane' };
+  } else {
+    db.prepare(
+      `UPDATE coaches
+       SET pro_card_number = COALESCE(pro_card_number, ?),
+           pro_card_expiry = COALESCE(pro_card_expiry, ?),
+           rc_pro_insurer = COALESCE(rc_pro_insurer, ?),
+           rc_pro_policy_number = COALESCE(rc_pro_policy_number, ?),
+           legal_status = COALESCE(legal_status, ?),
+           business_reg_number = COALESCE(business_reg_number, ?),
+           honorability_attested = 1
+       WHERE user_id = ?`
+    ).run(
+      'CP-MJS-2025-0934',
+      '2030-03-15',
+      'NSIA Assurances Pro',
+      'RCP-NSIA-2026-1194',
+      'MICRO_ENTREPRISE',
+      'NINEA-009874512',
+      pendingCoach.id
+    );
+  }
+
+  const hasPendingDoc = db
+    .prepare('SELECT id FROM coach_documents WHERE coach_user_id = ? LIMIT 1')
+    .get(pendingCoach.id);
+  if (!hasPendingDoc) {
+    const buf = buildSampleDiplomaPdfBuffer(
+      `ATTESTATION LICENCE CAF C - ${pendingCoach.prenom} ${pendingCoach.nom}`,
+      'Federation Senegalaise de Football - DTN / CAF (Specialite Football)',
+      'CAF-C-SN-2024-0815'
+    );
+    storeCoachDiplomaDocument({
+      coachUserId: pendingCoach.id,
+      diplomaType: 'LICENCE_CAF_FSF',
+      issuingOrganism: 'FSF / DTN Football Sénégal',
+      diplomaNumber: 'CAF-C-SN-2024-0815',
+      issueYear: 2024,
+      specialite: 'Football & Préparation vitesse terrain',
+      qualification: 'Licence Entraîneur CAF C · FSF',
+      originalFilename: 'licence_caf_c_ousmane_diop.pdf',
+      buffer: buf,
+      proCardNumber: 'CP-MJS-2025-0934',
+      proCardExpiry: '2030-03-15',
+      rcProInsurer: 'NSIA Assurances Pro',
+      rcProPolicyNumber: 'RCP-NSIA-2026-1194',
+      legalStatus: 'MICRO_ENTREPRISE',
+      businessRegNumber: 'NINEA-009874512',
+      honorabilityAttested: true,
+    });
   }
 }
 
@@ -612,6 +820,7 @@ export function seedIfEmpty(): void {
   if (countRow.c > 0) {
     ensureMinisterPilotUser();
     ensureSecondCoachPilot();
+    ensureCoachDocumentsSeeded();
     ensureBusinessModelBackfill();
     ensureExpandedSportsLibrary();
     return;
@@ -1200,6 +1409,8 @@ export function seedIfEmpty(): void {
   ).run(adminId, moussaId);
 
   ensureMinisterPilotUser();
+  ensureSecondCoachPilot();
+  ensureCoachDocumentsSeeded();
   ensureBusinessModelBackfill();
   ensureExpandedSportsLibrary();
 }

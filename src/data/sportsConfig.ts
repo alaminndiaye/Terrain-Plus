@@ -234,7 +234,7 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
     code: 'volleyball',
     nom: 'Volleyball',
     subtitle: 'Détente verticale, réceptions stables et protection d’épaule au smash',
-    imageUrl: '/src/assets/images/sport_handball_court_1794878272432.jpg',
+    imageUrl: '/src/assets/images/sport_volleyball_court_1795004642446.jpg',
     accentHex: '#0F766E',
     accentHoverHex: '#115E59',
     accentBgClass: 'bg-teal-700',

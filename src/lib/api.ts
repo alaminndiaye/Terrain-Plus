@@ -42,10 +42,16 @@ export function clearSessionToken(): void {
   }
 }
 
-export function readJsonCache<T>(key: string): T | null {
+export function readJsonCache<T>(key: string, validator?: (value: unknown) => value is T): T | null {
   try {
     const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (validator && !validator(parsed)) {
+      window.localStorage.removeItem(key);
+      return null;
+    }
+    return parsed as T;
   } catch {
     return null;
   }
@@ -146,7 +152,47 @@ export async function apiRequest<T>(url: string, options: ApiRequestOptions = {}
         signal: controller.signal,
       });
 
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      let data: Record<string, unknown> = {};
+      if (res.status !== 204) {
+        const contentType = res.headers.get('content-type') || '';
+        const text = await res.text();
+        if (text.trim()) {
+          try {
+            const parsed = JSON.parse(text) as unknown;
+            if (parsed && typeof parsed === 'object') {
+              data = parsed as Record<string, unknown>;
+            } else if (res.ok) {
+              throw new Error('Invalid JSON structure');
+            }
+          } catch {
+            if (res.ok) {
+              const parseErr = new ApiError(
+                contentType.includes('application/json')
+                  ? 'Réponse JSON invalide du serveur.'
+                  : 'Réponse serveur inattendue (nouvelle tentative requise).',
+                res.status,
+                {},
+                true
+              );
+              if (attempt < maxAttempts) {
+                lastError = parseErr;
+                await new Promise((resolve) => window.setTimeout(resolve, 400));
+                continue;
+              }
+              throw parseErr;
+            }
+          }
+        } else if (res.ok && !contentType.includes('application/json')) {
+          const emptyErr = new ApiError('Réponse vide du serveur.', res.status, {}, true);
+          if (attempt < maxAttempts) {
+            lastError = emptyErr;
+            await new Promise((resolve) => window.setTimeout(resolve, 400));
+            continue;
+          }
+          throw emptyErr;
+        }
+      }
+
       if (res.ok && typeof data.sessionToken === 'string') {
         setSessionToken(data.sessionToken);
       }

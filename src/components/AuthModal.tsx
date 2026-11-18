@@ -1,7 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Building2, Check, RefreshCw, ShieldCheck, UserPlus, X } from 'lucide-react';
+import { ArrowLeft, Building2, Check, Clock, FileText, RefreshCw, ShieldCheck, Upload, UserPlus, X } from 'lucide-react';
 import { ApiError, apiRequest, setSessionToken } from '../lib/api';
 import { SPORTS_CONFIG } from '../data/sportsConfig';
+import {
+  ACCEPTED_DIPLOMA_MIME_TYPES,
+  COACH_LEGAL_STATUS_OPTIONS,
+  MAX_DIPLOMA_FILE_BYTES,
+  SPORT_DIPLOMA_FORMATS,
+  SPORT_DIPLOMA_LIST,
+  type CoachLegalStatusCode,
+  type DiplomaTypeCode,
+} from '../data/sportsDiplomas';
 import type { AthleteLevel, AuthUser, PublicCoachOption, SportCode } from '../types';
 
 interface AuthModalProps {
@@ -70,6 +79,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [confirmCoachPlan, setConfirmCoachPlan] = useState(true);
   const [coachConsentNonMedical, setCoachConsentNonMedical] = useState(false);
   const [coachDateNaissance, setCoachDateNaissance] = useState('1994-05-12');
+  const [diplomaType, setDiplomaType] = useState<DiplomaTypeCode>('LICENCE_CAF_FSF');
+  const [issuingOrganism, setIssuingOrganism] = useState('FSF / CAF');
+  const [diplomaNumber, setDiplomaNumber] = useState('');
+  const [issueYear, setIssueYear] = useState(String(new Date().getFullYear()));
+  const [diplomaFile, setDiplomaFile] = useState<{
+    name: string;
+    base64: string;
+    sizeBytes: number;
+    mimeType: string;
+  } | null>(null);
+  const [proCardNumber, setProCardNumber] = useState('');
+  const [proCardExpiry, setProCardExpiry] = useState(
+    new Date(new Date().setFullYear(new Date().getFullYear() + 5)).toISOString().slice(0, 10)
+  );
+  const [rcProInsurer, setRcProInsurer] = useState('');
+  const [rcProPolicyNumber, setRcProPolicyNumber] = useState('');
+  const [legalStatus, setLegalStatus] = useState<CoachLegalStatusCode>('MICRO_ENTREPRISE');
+  const [businessRegNumber, setBusinessRegNumber] = useState('');
+  const [honorabilityAttested, setHonorabilityAttested] = useState(false);
+
+  const [pendingReviewNotice, setPendingReviewNotice] = useState<{
+    message: string;
+    status: 'EN_ATTENTE' | 'REFUSE';
+    reason?: string | null;
+  } | null>(null);
 
   const [verifyIdentifier, setVerifyIdentifier] = useState('');
   const [verifyCode, setVerifyCode] = useState('');
@@ -114,6 +148,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setPendingReviewNotice(null);
     setAccountNotFound(false);
     try {
       const res = await apiRequest<{ user: AuthUser; sessionToken?: string }>('/api/auth/login', {
@@ -131,6 +166,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setVerifyCode('');
         setMode('verify');
         setError(null);
+      } else if (err instanceof ApiError && err.payload.pendingAdminReview) {
+        setPendingReviewNotice({
+          message: err.message,
+          status: err.payload.verificationStatus === 'REFUSE' ? 'REFUSE' : 'EN_ATTENTE',
+          reason: typeof err.payload.rejectionReason === 'string' ? err.payload.rejectionReason : null,
+        });
       } else if (err instanceof ApiError && err.payload.accountNotFound) {
         setAccountNotFound(true);
         setError(err.message);
@@ -149,6 +190,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
     setLoading(true);
     setError(null);
+    setPendingReviewNotice(null);
     setAccountNotFound(false);
     try {
       const res = await apiRequest<{ demoOtpCode?: string }>('/api/auth/request-otp', {
@@ -171,6 +213,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setPendingReviewNotice(null);
     try {
       const res = await apiRequest<{ user: AuthUser; sessionToken?: string }>('/api/auth/login-otp', {
         method: 'POST',
@@ -179,7 +222,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (res.sessionToken) setSessionToken(res.sessionToken);
       onAuthenticated(res.user, false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Code invalide.');
+      if (err instanceof ApiError && err.payload.pendingAdminReview) {
+        setPendingReviewNotice({
+          message: err.message,
+          status: err.payload.verificationStatus === 'REFUSE' ? 'REFUSE' : 'EN_ATTENTE',
+          reason: typeof err.payload.rejectionReason === 'string' ? err.payload.rejectionReason : null,
+        });
+      } else {
+        setError(err instanceof Error ? err.message : 'Code invalide.');
+      }
     } finally {
       setLoading(false);
     }
@@ -244,10 +295,60 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
+  const handleDiplomaFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setDiplomaFile(null);
+      return;
+    }
+    if (file.size < 400 || file.size > MAX_DIPLOMA_FILE_BYTES) {
+      setError('Le document diplôme doit peser entre 1 Ko et 3 Mo maximum.');
+      setDiplomaFile(null);
+      return;
+    }
+    if (
+      file.type &&
+      !(ACCEPTED_DIPLOMA_MIME_TYPES as readonly string[]).includes(file.type)
+    ) {
+      setError('Format non accepté. Envoyez un document PDF, JPG, PNG ou WEBP.');
+      setDiplomaFile(null);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (!result) {
+        setError('Impossible de lire le fichier sélectionné.');
+        return;
+      }
+      setError(null);
+      setDiplomaFile({
+        name: file.name,
+        base64: result,
+        sizeBytes: file.size,
+        mimeType: file.type || 'application/pdf',
+      });
+    };
+    reader.onerror = () => {
+      setError('Erreur de lecture du document diplôme.');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleCoachRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!diplomaFile) {
+      setError('Veuillez joindre le fichier de votre diplôme ou licence sportive (PDF, JPG, PNG ou WEBP).');
+      return;
+    }
+    if (!honorabilityAttested) {
+      setError("Veuillez cocher l'attestation sur l'honneur d'honorabilité pour exercer comme éducateur sportif.");
+      return;
+    }
     setLoading(true);
     setError(null);
+    setPendingReviewNotice(null);
     try {
       const res = await apiRequest<{
         email: string;
@@ -269,6 +370,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           coach_plan: coachPlan,
           confirm_coach_plan: confirmCoachPlan,
           consent_non_medical: coachConsentNonMedical,
+          diploma_type: diplomaType,
+          issuing_organism: issuingOrganism,
+          diploma_number: diplomaNumber,
+          issue_year: Number(issueYear),
+          pro_card_number: proCardNumber,
+          pro_card_expiry: proCardExpiry,
+          rc_pro_insurer: rcProInsurer,
+          rc_pro_policy_number: rcProPolicyNumber,
+          legal_status: legalStatus,
+          business_reg_number: businessRegNumber,
+          honorability_attested: honorabilityAttested,
+          diploma_file: {
+            name: diplomaFile.name,
+            base64: diplomaFile.base64,
+          },
         }),
       });
       setVerifyIdentifier(res.email);
@@ -286,13 +402,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setPendingReviewNotice(null);
     try {
-      const res = await apiRequest<{ user: AuthUser; sessionToken?: string }>('/api/auth/verify', {
+      const res = await apiRequest<{
+        user: AuthUser | null;
+        sessionToken?: string;
+        pendingAdminReview?: boolean;
+        verificationStatus?: 'EN_ATTENTE' | 'REFUSE';
+        rejectionReason?: string | null;
+        message?: string;
+      }>('/api/auth/verify', {
         method: 'POST',
         body: JSON.stringify({ identifier: verifyIdentifier, code: verifyCode }),
       });
+
+      if (res.pendingAdminReview) {
+        setPendingReviewNotice({
+          status: res.verificationStatus === 'REFUSE' ? 'REFUSE' : 'EN_ATTENTE',
+          reason: res.rejectionReason || null,
+          message:
+            res.message ||
+            "Votre dossier et votre diplôme sont en cours d'étude par l'administrateur Terrain+. Veuillez patienter avant de vous connecter.",
+        });
+        return;
+      }
+
       if (res.sessionToken) setSessionToken(res.sessionToken);
-      onAuthenticated(res.user, true);
+      if (res.user) {
+        onAuthenticated(res.user, true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Code incorrect.');
     } finally {
@@ -349,6 +487,51 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {pendingReviewNotice && (
+          <div
+            className={`mt-4 rounded-xl border p-4 space-y-3 ${
+              pendingReviewNotice.status === 'REFUSE'
+                ? 'border-red-300 bg-red-50 text-red-900'
+                : 'border-amber-300 bg-amber-50 text-amber-950'
+            }`}
+          >
+            <div className="flex items-start gap-2.5">
+              <Clock className="h-5 w-5 shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="space-y-1">
+                <div className="text-sm font-semibold">
+                  {pendingReviewNotice.status === 'REFUSE'
+                    ? 'Dossier coach non validé par l’administrateur'
+                    : 'Dossier coach en cours d’étude par l’administrateur'}
+                </div>
+                <p className="text-xs leading-relaxed">{pendingReviewNotice.message}</p>
+                {pendingReviewNotice.reason && (
+                  <p className="text-xs font-medium pt-1">Motif : {pendingReviewNotice.reason}</p>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingReviewNotice(null);
+                  setMode('login');
+                  setError(null);
+                }}
+                className="rounded-lg bg-neutral-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-neutral-800 min-h-[38px]"
+              >
+                Compris, fermer cet avis
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-neutral-300 bg-white px-3.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-50 min-h-[38px]"
+              >
+                Revenir à l’accueil
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800 space-y-2.5">
@@ -1226,16 +1409,241 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Qualification / Diplôme *</label>
+                    <label className="block text-xs font-medium text-neutral-700 mb-1">Intitulé de qualification *</label>
                     <input
                       type="text"
                       required
                       value={coachQualification}
                       onChange={(e) => setCoachQualification(e.target.value)}
-                      placeholder="Ex: Licence STAPS / Brevet fédéral"
+                      placeholder="Ex: Licence C CAF / Licence STAPS"
                       className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
                     />
                   </div>
+                </div>
+
+                {/* Official Sport Diploma Format & Document Study Upload */}
+                <div className="rounded-xl border border-neutral-200 bg-[#F7F7F5] p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-semibold text-neutral-900">
+                        Diplôme officiel & étude documentaire (obligatoire avant activation)
+                      </div>
+                      <p className="text-[11px] text-neutral-600 mt-0.5">
+                        Votre document est pré-analysé puis vérifié par l’administrateur avant votre première connexion.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700 mb-1">Format du diplôme sportif *</label>
+                    <select
+                      value={diplomaType}
+                      onChange={(e) => {
+                        const next = e.target.value as DiplomaTypeCode;
+                        setDiplomaType(next);
+                        const spec = SPORT_DIPLOMA_FORMATS[next];
+                        if (spec?.acceptedOrganisms[0]) {
+                          setIssuingOrganism(spec.acceptedOrganisms[0]);
+                        }
+                      }}
+                      className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs min-h-[42px]"
+                    >
+                      {SPORT_DIPLOMA_LIST.map((spec) => (
+                        <option key={spec.code} value={spec.code}>
+                          {spec.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-[11px] text-neutral-500">
+                      {SPORT_DIPLOMA_FORMATS[diplomaType].summary} Organismes :{' '}
+                      {SPORT_DIPLOMA_FORMATS[diplomaType].acceptedOrganisms.join(', ')}.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 mb-1">Organisme émetteur *</label>
+                      <input
+                        type="text"
+                        required
+                        value={issuingOrganism}
+                        onChange={(e) => setIssuingOrganism(e.target.value)}
+                        placeholder="Ex: FSF / INSEPS"
+                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs min-h-[40px]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 mb-1">N° de diplôme / licence *</label>
+                      <input
+                        type="text"
+                        required
+                        value={diplomaNumber}
+                        onChange={(e) => setDiplomaNumber(e.target.value)}
+                        placeholder="CAF-C-SN-2024-0815"
+                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 mb-1">Année d’obtention *</label>
+                      <input
+                        type="number"
+                        required
+                        min={1980}
+                        max={new Date().getFullYear()}
+                        value={issueYear}
+                        onChange={(e) => setIssueYear(e.target.value)}
+                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] font-mono text-neutral-500">
+                    {SPORT_DIPLOMA_FORMATS[diplomaType].formatExample}
+                  </p>
+
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      Copie scannée ou PDF du diplôme (PDF, JPG, PNG ou WEBP · max 3 Mo) *
+                    </label>
+                    <label className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-neutral-300 bg-white px-3.5 py-3 cursor-pointer hover:border-neutral-900">
+                      <span className="flex items-center gap-2.5 min-w-0 text-xs text-neutral-700">
+                        {diplomaFile ? (
+                          <FileText className="h-4 w-4 text-emerald-700 shrink-0" aria-hidden="true" />
+                        ) : (
+                          <Upload className="h-4 w-4 text-neutral-500 shrink-0" aria-hidden="true" />
+                        )}
+                        <span className="truncate">
+                          {diplomaFile
+                            ? `${diplomaFile.name} (${Math.max(1, Math.round(diplomaFile.sizeBytes / 1024))} Ko)`
+                            : 'Sélectionner votre diplôme ou attestation fédérale'}
+                        </span>
+                      </span>
+                      <span className="text-[11px] font-semibold text-neutral-900 shrink-0">
+                        {diplomaFile ? 'Changer' : 'Parcourir'}
+                      </span>
+                      <input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                        onChange={handleDiplomaFileChange}
+                        className="sr-only"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Regulatory Compliance: Carte Pro, RC Pro, Legal Status & Honorability */}
+                <div className="rounded-xl border border-neutral-200 bg-[#F7F7F5] p-4 space-y-3">
+                  <div>
+                    <div className="text-xs font-semibold text-neutral-900">
+                      Conformité réglementaire d’exercice (Éducateur sportif)
+                    </div>
+                    <p className="text-[11px] text-neutral-600 mt-0.5">
+                      Carte professionnelle (renouvellement 5 ans), assurance RC Pro et immatriculation juridique obligatoires pour encadrer contre rémunération.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                        N° Carte professionnelle *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={proCardNumber}
+                        onChange={(e) => setProCardNumber(e.target.value)}
+                        placeholder="Ex: CPRO-SN-2025-1104"
+                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                        Validité carte pro (5 ans) *
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={proCardExpiry}
+                        onChange={(e) => setProCardExpiry(e.target.value)}
+                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                        Assureur RC Pro *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={rcProInsurer}
+                        onChange={(e) => setRcProInsurer(e.target.value)}
+                        placeholder="Ex: AXA, Allianz, Amsa Sport"
+                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs min-h-[40px]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                        N° Police RC Pro *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={rcProPolicyNumber}
+                        onChange={(e) => setRcProPolicyNumber(e.target.value)}
+                        placeholder="Ex: RCP-2025-88412"
+                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                        Statut juridique *
+                      </label>
+                      <select
+                        value={legalStatus}
+                        onChange={(e) => setLegalStatus(e.target.value as CoachLegalStatusCode)}
+                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs min-h-[40px]"
+                      >
+                        {COACH_LEGAL_STATUS_OPTIONS.map((opt) => (
+                          <option key={opt.code} value={opt.code}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                        Immatriculation (SIRET / NINEA / RNA) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={businessRegNumber}
+                        onChange={(e) => setBusinessRegNumber(e.target.value)}
+                        placeholder={
+                          COACH_LEGAL_STATUS_OPTIONS.find((o) => o.code === legalStatus)?.idHint ||
+                          'N° SIRET / NINEA'
+                        }
+                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                      />
+                    </div>
+                  </div>
+
+                  <label className="flex items-start gap-3 rounded-xl border border-neutral-200 bg-white p-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={honorabilityAttested}
+                      onChange={(e) => setHonorabilityAttested(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 accent-neutral-900"
+                    />
+                    <span className="text-[11px] text-neutral-700 leading-relaxed">
+                      J’atteste sur l’honneur satisfaire aux conditions d’honorabilité (aucune condamnation incompatible avec l’encadrement sportif et l’accompagnement de mineurs) et disposer d’une carte professionnelle valide.
+                    </span>
+                  </label>
                 </div>
 
                 <div>

@@ -32,13 +32,23 @@ const PARTNER_TYPE_LABELS: Record<'ASC' | 'CAMPUS' | 'LIGUE', string> = {
   LIGUE: 'Ligue / Club',
 };
 
+function isValidPartnersPayload(value: unknown): value is PublicPartnersPayload {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<PublicPartnersPayload>;
+  return (
+    Array.isArray(candidate.partners) &&
+    Array.isArray(candidate.groups) &&
+    Array.isArray(candidate.challenges)
+  );
+}
+
 export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
   const [previewSport, setPreviewSport] = useState<SportCode>('football');
   const activeSport = SPORTS_CONFIG[previewSport];
 
   // Live aggregated partner data (hydrated from cache for instant offline/3G render)
   const [partnerData, setPartnerData] = useState<PublicPartnersPayload | null>(() =>
-    readJsonCache<PublicPartnersPayload>(PUBLIC_PARTNERS_CACHE_KEY)
+    readJsonCache<PublicPartnersPayload>(PUBLIC_PARTNERS_CACHE_KEY, isValidPartnersPayload)
   );
   const [partnerTypeFilter, setPartnerTypeFilter] = useState<'ALL' | 'ASC' | 'CAMPUS' | 'LIGUE'>('ALL');
   const [showPartnerForm, setShowPartnerForm] = useState(false);
@@ -61,27 +71,29 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
   useEffect(() => {
     apiRequest<PublicPartnersPayload>('/api/public/partners', { timeoutMs: 8000 })
       .then((res) => {
-        setPartnerData(res);
-        writeJsonCache(PUBLIC_PARTNERS_CACHE_KEY, res);
+        if (isValidPartnersPayload(res)) {
+          setPartnerData(res);
+          writeJsonCache(PUBLIC_PARTNERS_CACHE_KEY, res);
+        }
       })
       .catch(() => undefined);
   }, []);
 
   const filteredPartners = useMemo(() => {
-    if (!partnerData) return [];
-    if (partnerTypeFilter === 'ALL') return partnerData.partners;
-    return partnerData.partners.filter((p) => p.type === partnerTypeFilter);
+    const partners = Array.isArray(partnerData?.partners) ? partnerData.partners : [];
+    if (partnerTypeFilter === 'ALL') return partners;
+    return partners.filter((p) => p.type === partnerTypeFilter);
   }, [partnerData, partnerTypeFilter]);
 
   const filteredChallenges = useMemo(() => {
-    if (!partnerData) return [];
-    if (partnerTypeFilter === 'ALL') return partnerData.challenges;
-    return partnerData.challenges.filter((c) => c.partner_type === partnerTypeFilter);
+    const challenges = Array.isArray(partnerData?.challenges) ? partnerData.challenges : [];
+    if (partnerTypeFilter === 'ALL') return challenges;
+    return challenges.filter((c) => c.partner_type === partnerTypeFilter);
   }, [partnerData, partnerTypeFilter]);
 
   const totalMembersAggregated = useMemo(() => {
-    if (!partnerData) return 0;
-    return partnerData.partners.reduce((acc, p) => acc + p.members_count, 0);
+    const partners = Array.isArray(partnerData?.partners) ? partnerData.partners : [];
+    return partners.reduce((acc, p) => acc + (p.members_count || 0), 0);
   }, [partnerData]);
 
   const handleSubmitPartnerRequest = async (e: React.FormEvent) => {
@@ -526,8 +538,8 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
                 </p>
                 {partnerData && (
                   <div className="pt-2 flex flex-wrap items-center gap-6 font-mono text-xs tabular-nums text-amber-300">
-                    <span>{partnerData.partners.length} partenaires actifs</span>
-                    <span>{partnerData.groups.length} groupes encadrés</span>
+                    <span>{(partnerData.partners ?? []).length} partenaires actifs</span>
+                    <span>{(partnerData.groups ?? []).length} groupes encadrés</span>
                     <span>{totalMembersAggregated} sportifs rattachés</span>
                   </div>
                 )}
@@ -903,7 +915,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {filteredPartners.map((partner) => {
-                  const partnerGroups = partnerData.groups.filter((g) => g.partner_id === partner.id);
+                  const partnerGroups = (partnerData.groups ?? []).filter((g) => g.partner_id === partner.id);
                   return (
                     <div
                       key={partner.id}

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import compression from 'compression';
@@ -6,6 +7,12 @@ import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { createServer as createViteServer } from 'vite';
 import { db, initSchema, logAccess } from './server/db.ts';
+import {
+  DIPLOMA_UPLOAD_DIR,
+  detectMimeFromMagicBytes,
+  storeCoachDiplomaDocument,
+} from './server/diplomaStudy.ts';
+import { downloadDiplomaFromSupabaseStorage } from './server/supabaseAdmin.ts';
 import { buildDefaultScheduleForAthlete, seedIfEmpty } from './server/seed.ts';
 import {
   checkRateLimit,
@@ -27,7 +34,13 @@ import {
   verifyTokenHash,
 } from './server/security.ts';
 import { evaluateTestValue, SPORTS_CONFIG } from './src/data/sportsConfig.ts';
-import type { AthleteLevel, SportCode, UserRole } from './src/types.ts';
+import {
+  COACH_LEGAL_STATUS_OPTIONS,
+  MAX_DIPLOMA_FILE_BYTES,
+  SPORT_DIPLOMA_FORMATS,
+  type DiplomaTypeCode,
+} from './src/data/sportsDiplomas.ts';
+import type { AdminSystemOverviewPayload, AthleteLevel, CoachDocumentStudyReport, CoachDocumentSummary, SportCode, UserRole } from './src/types.ts';
 
 initSchema();
 seedIfEmpty();
@@ -95,7 +108,13 @@ function attachUser(req: AuthedRequest, _res: Response, next: NextFunction): voi
               u.langue, u.statut, u.is_minor, u.verified
        FROM sessions s
        JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ? AND datetime(s.expires_at) > datetime('now') AND u.statut != 'CLOTURE'`
+       WHERE s.token_hash = ?
+         AND datetime(s.expires_at) > datetime('now')
+         AND u.statut != 'CLOTURE'
+         AND (
+           u.role != 'COACH'
+           OR EXISTS(SELECT 1 FROM coaches c WHERE c.user_id = u.id AND c.verification_status = 'VERIFIE')
+         )`
     )
     .get(tokenHash) as AuthedUserRow | undefined;
 
@@ -221,6 +240,247 @@ function getPublicCoachesList() {
     athlete_monthly_fee_fcfa: number;
     active_athletes_count: number;
   }>;
+}
+
+const DB_FILE_PATH = path.resolve(process.env.DB_PATH || './terrain_plus.db');
+let trafficInsertCount = 0;
+
+function checkCoachAccessGate(userId: number): {
+  blocked: boolean;
+  verificationStatus: 'EN_ATTENTE' | 'VERIFIE' | 'REFUSE';
+  rejectionReason: string | null;
+  message: string;
+} {
+  const coach = db
+    .prepare('SELECT verification_status, rejection_reason FROM coaches WHERE user_id = ?')
+    .get(userId) as
+    | { verification_status: 'EN_ATTENTE' | 'VERIFIE' | 'REFUSE'; rejection_reason: string | null }
+    | undefined;
+
+  if (!coach || coach.verification_status === 'EN_ATTENTE') {
+    return {
+      blocked: true,
+      verificationStatus: 'EN_ATTENTE',
+      rejectionReason: null,
+      message:
+        "Votre dossier et votre diplôme sont actuellement en cours d'étude par l'administrateur Terrain+. Veuillez patienter : votre accès coach sera activé dès validation.",
+    };
+  }
+  if (coach.verification_status === 'REFUSE') {
+    return {
+      blocked: true,
+      verificationStatus: 'REFUSE',
+      rejectionReason: coach.rejection_reason || null,
+      message: coach.rejection_reason
+        ? `Votre dossier coach n'a pas été validé par l'administrateur : ${coach.rejection_reason}`
+        : "Votre dossier coach n'a pas été validé par l'administrateur Terrain+. Contactez l'administration pour soumettre un nouveau justificatif.",
+    };
+  }
+  return {
+    blocked: false,
+    verificationStatus: 'VERIFIE',
+    rejectionReason: null,
+    message: '',
+  };
+}
+
+function normalizeTrafficPathGroup(rawPath: string): string {
+  return rawPath
+    .split('?')[0]
+    .replace(/\/\d+(?=\/|$)/g, '/:id');
+}
+
+function buildAdminSystemOverview(): AdminSystemOverviewPayload {
+  const mem = process.memoryUsage();
+  let dbSizeKb = 0;
+  try {
+    if (fs.existsSync(DB_FILE_PATH)) {
+      dbSizeKb = Math.round(fs.statSync(DB_FILE_PATH).size / 1024);
+    }
+  } catch {
+    dbSizeKb = 0;
+  }
+
+  let uploadsCount = 0;
+  let uploadsSizeKb = 0;
+  try {
+    if (fs.existsSync(DIPLOMA_UPLOAD_DIR)) {
+      const files = fs.readdirSync(DIPLOMA_UPLOAD_DIR);
+      let totalBytes = 0;
+      for (const f of files) {
+        const st = fs.statSync(path.join(DIPLOMA_UPLOAD_DIR, f));
+        if (st.isFile()) {
+          uploadsCount += 1;
+          totalBytes += st.size;
+        }
+      }
+      uploadsSizeKb = Math.round(totalBytes / 1024);
+    }
+  } catch {
+    uploadsCount = 0;
+    uploadsSizeKb = 0;
+  }
+
+  const activeSessionsRow = db
+    .prepare("SELECT COUNT(*) as c FROM sessions WHERE datetime(expires_at) > datetime('now')")
+    .get() as { c: number };
+  const lockedRow = db
+    .prepare("SELECT COUNT(*) as c FROM users WHERE locked_until IS NOT NULL AND datetime(locked_until) > datetime('now')")
+    .get() as { c: number };
+  const unverifiedRow = db
+    .prepare("SELECT COUNT(*) as c FROM users WHERE verified = 0 AND statut != 'CLOTURE'")
+    .get() as { c: number };
+
+  const pendingCoachRow = db
+    .prepare(
+      `SELECT COUNT(*) as c
+       FROM coaches c
+       JOIN users u ON u.id = c.user_id
+       WHERE u.statut != 'CLOTURE' AND c.verification_status = 'EN_ATTENTE'`
+    )
+    .get() as { c: number };
+  const pendingSessionsRow = db
+    .prepare("SELECT COUNT(*) as c FROM sessions_library WHERE validation_status = 'EN_RELECTURE'")
+    .get() as { c: number };
+  const openPainAlertsRow = db
+    .prepare("SELECT COUNT(*) as c FROM alerts WHERE type = 'DOULEUR' AND traitee = 0")
+    .get() as { c: number };
+  const newPartnerReqRow = db
+    .prepare("SELECT COUNT(*) as c FROM partner_requests WHERE statut = 'NOUVELLE'")
+    .get() as { c: number };
+
+  const totalsRow = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM users WHERE statut != 'CLOTURE') as totalUsers,
+         (SELECT COUNT(*) FROM users WHERE role = 'ATHLETE' AND statut != 'CLOTURE') as athletesCount,
+         (SELECT COUNT(*) FROM coaches c JOIN users u ON u.id = c.user_id WHERE u.statut != 'CLOTURE' AND c.verification_status = 'VERIFIE') as coachesVerifiedCount,
+         (SELECT COUNT(*) FROM coaches c JOIN users u ON u.id = c.user_id WHERE u.statut != 'CLOTURE' AND c.verification_status = 'EN_ATTENTE') as coachesPendingCount,
+         (SELECT COUNT(*) FROM scheduled_sessions WHERE completed = 1) as completedSessionsCount,
+         (SELECT COUNT(*) FROM evaluations) as evaluationsCount,
+         (SELECT COUNT(*) FROM groups) as groupsCount,
+         (SELECT COUNT(*) FROM challenges) as challengesCount`
+    )
+    .get() as Record<string, number>;
+
+  const traffic24h = db
+    .prepare(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN datetime(created_at) >= datetime('now', '-1 hour') THEN 1 ELSE 0 END) as lastHour,
+         AVG(duration_ms) as avgLatencyMs,
+         SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as errorsCount,
+         SUM(CASE WHEN status_code IN (401, 403, 429) THEN 1 ELSE 0 END) as authBlocks24h,
+         SUM(bytes_out) as bytesOut
+       FROM system_traffic_logs
+       WHERE datetime(created_at) >= datetime('now', '-24 hours')`
+    )
+    .get() as {
+    total: number;
+    lastHour: number | null;
+    avgLatencyMs: number | null;
+    errorsCount: number | null;
+    authBlocks24h: number | null;
+    bytesOut: number | null;
+  };
+
+  const hourlyRaw = db
+    .prepare(
+      `SELECT strftime('%H:00', created_at) as hour,
+              COUNT(*) as requests,
+              SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as errors,
+              AVG(duration_ms) as avgLatencyMs
+       FROM system_traffic_logs
+       WHERE datetime(created_at) >= datetime('now', '-24 hours')
+       GROUP BY strftime('%Y-%m-%d %H', created_at)
+       ORDER BY strftime('%Y-%m-%d %H', created_at) ASC`
+    )
+    .all() as Array<{ hour: string; requests: number; errors: number | null; avgLatencyMs: number | null }>;
+
+  const topRoutes = db
+    .prepare(
+      `SELECT method, path_group, COUNT(*) as hits,
+              ROUND(AVG(duration_ms), 1) as avg_ms,
+              SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as errors
+       FROM system_traffic_logs
+       WHERE datetime(created_at) >= datetime('now', '-24 hours')
+       GROUP BY method, path_group
+       ORDER BY hits DESC
+       LIMIT 12`
+    )
+    .all() as Array<{ method: string; path_group: string; hits: number; avg_ms: number; errors: number }>;
+
+  const byRole = db
+    .prepare(
+      `SELECT COALESCE(user_role, 'PUBLIC') as role, COUNT(*) as requests
+       FROM system_traffic_logs
+       WHERE datetime(created_at) >= datetime('now', '-24 hours')
+       GROUP BY COALESCE(user_role, 'PUBLIC')
+       ORDER BY requests DESC`
+    )
+    .all() as Array<{ role: string; requests: number }>;
+
+  const recentLogs = db
+    .prepare(
+      `SELECT id, method, full_path, status_code, duration_ms,
+              COALESCE(user_role, 'PUBLIC') as user_role, bytes_out, created_at
+       FROM system_traffic_logs
+       ORDER BY id DESC
+       LIMIT 45`
+    )
+    .all() as AdminSystemOverviewPayload['traffic']['recentLogs'];
+
+  const total24 = traffic24h.total || 0;
+  const err24 = traffic24h.errorsCount || 0;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    system: {
+      uptimeSeconds: Math.round(process.uptime()),
+      nodeVersion: process.version,
+      memoryRssMb: Math.round(mem.rss / (1024 * 1024)),
+      memoryHeapMb: Math.round(mem.heapUsed / (1024 * 1024)),
+      dbSizeKb,
+      uploadsCount,
+      uploadsSizeKb,
+      activeSessionsCount: activeSessionsRow.c,
+      lockedAccountsCount: lockedRow.c,
+      unverifiedAccountsCount: unverifiedRow.c,
+    },
+    queues: {
+      pendingCoachDossiers: pendingCoachRow.c,
+      pendingSessionsReview: pendingSessionsRow.c,
+      openPainAlerts: openPainAlertsRow.c,
+      newPartnerRequests: newPartnerReqRow.c,
+    },
+    platformTotals: {
+      totalUsers: totalsRow.totalUsers || 0,
+      athletesCount: totalsRow.athletesCount || 0,
+      coachesVerifiedCount: totalsRow.coachesVerifiedCount || 0,
+      coachesPendingCount: totalsRow.coachesPendingCount || 0,
+      completedSessionsCount: totalsRow.completedSessionsCount || 0,
+      evaluationsCount: totalsRow.evaluationsCount || 0,
+      groupsCount: totalsRow.groupsCount || 0,
+      challengesCount: totalsRow.challengesCount || 0,
+    },
+    traffic: {
+      requestsLast24h: total24,
+      requestsLastHour: traffic24h.lastHour || 0,
+      avgLatencyMs: Math.round(traffic24h.avgLatencyMs || 0),
+      errorRatePct: total24 > 0 ? Number(((err24 / total24) * 100).toFixed(1)) : 0,
+      authBlocks24h: traffic24h.authBlocks24h || 0,
+      bandwidthOutKb24h: Math.round((traffic24h.bytesOut || 0) / 1024),
+      hourlySeries: hourlyRaw.map((h) => ({
+        hour: h.hour,
+        requests: h.requests,
+        errors: h.errors || 0,
+        avgLatencyMs: Math.round(h.avgLatencyMs || 0),
+      })),
+      topRoutes,
+      byRole,
+      recentLogs,
+    },
+  };
 }
 
 function buildAthleteWorkspace(athleteUserId: number) {
@@ -502,6 +762,7 @@ async function startServer(): Promise<void> {
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
   app.use(compression({ threshold: 512 }));
+  app.use('/api/auth/register', express.json({ limit: '5mb' }));
   app.use(express.json({ limit: '512kb' }));
 
   app.use((req, res, next) => {
@@ -511,7 +772,7 @@ async function startServer(): Promise<void> {
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'"
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; frame-src 'self' blob:; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'"
     );
     if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -531,6 +792,54 @@ async function startServer(): Promise<void> {
 
   app.use('/api', verifySameOrigin);
   app.use(attachUser);
+
+  // HTTP/API traffic telemetry middleware
+  app.use('/api', (req: AuthedRequest, res: Response, next: NextFunction) => {
+    const startNs = process.hrtime.bigint();
+    res.on('finish', () => {
+      try {
+        const durationMs = Math.max(0, Math.round(Number(process.hrtime.bigint() - startNs) / 1_000_000));
+        const fullPath = req.originalUrl.split('?')[0].slice(0, 180);
+        const pathGroup = normalizeTrafficPathGroup(fullPath);
+        const ipRaw = req.ip || 'local';
+        const ipHash = crypto.createHash('sha256').update(ipRaw).digest('hex').slice(0, 12);
+        const bytesOutHeader = res.getHeader('content-length');
+        const bytesOut = typeof bytesOutHeader === 'number'
+          ? bytesOutHeader
+          : typeof bytesOutHeader === 'string'
+            ? parseInt(bytesOutHeader, 10) || 0
+            : 0;
+
+        db.prepare(
+          `INSERT INTO system_traffic_logs (
+            method, path_group, full_path, status_code, duration_ms, user_role, user_id, ip_hash, bytes_out
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          req.method,
+          pathGroup,
+          fullPath,
+          res.statusCode,
+          durationMs,
+          req.authUser?.role || 'PUBLIC',
+          req.authUser?.id || null,
+          ipHash,
+          bytesOut
+        );
+
+        trafficInsertCount += 1;
+        if (trafficInsertCount % 150 === 0) {
+          db.prepare("DELETE FROM system_traffic_logs WHERE datetime(created_at) < datetime('now', '-7 days')").run();
+          db.prepare(
+            `DELETE FROM system_traffic_logs
+             WHERE id NOT IN (SELECT id FROM system_traffic_logs ORDER BY id DESC LIMIT 5000)`
+          ).run();
+        }
+      } catch {
+        // Ignore telemetry write error to never disrupt API responses
+      }
+    });
+    next();
+  });
 
   // ---------------- AUTH ROUTES ----------------
   app.get('/api/auth/me', (req: AuthedRequest, res: Response) => {
@@ -582,6 +891,20 @@ async function startServer(): Promise<void> {
       const coachPlan = rawCoachPlan === 'COACH_PRO' ? 'COACH_PRO' : 'MARKETPLACE';
       const confirmCoachTerms = Boolean(body.confirm_coach_plan ?? body.confirm_coach_platform_fee);
 
+      const diplomaTypeRaw = sanitizeText(body.diploma_type, 50).toUpperCase() as DiplomaTypeCode;
+      const issuingOrganism = sanitizeText(body.issuing_organism, 120);
+      const diplomaNumber = sanitizeText(body.diploma_number, 60);
+      const issueYear = Number(body.issue_year);
+      const diplomaFile = (body.diploma_file || null) as { name?: unknown; base64?: unknown } | null;
+
+      const proCardNumber = sanitizeText(body.pro_card_number, 60);
+      const proCardExpiry = sanitizeText(body.pro_card_expiry, 20);
+      const rcProInsurer = sanitizeText(body.rc_pro_insurer, 100);
+      const rcProPolicyNumber = sanitizeText(body.rc_pro_policy_number, 60);
+      const legalStatusRaw = sanitizeText(body.legal_status, 40).toUpperCase();
+      const businessRegNumber = sanitizeText(body.business_reg_number, 60);
+      const honorabilityAttested = Boolean(body.honorability_attested);
+
       const age = computeAge(date_naissance);
       if (age < 18 || age > 90) {
         res.status(400).json({ error: 'Un coach doit être majeur (18 ans minimum).' });
@@ -591,6 +914,70 @@ async function startServer(): Promise<void> {
         res.status(400).json({ error: 'Spécialité, qualification et zone d’intervention sont obligatoires pour un coach.' });
         return;
       }
+      if (!Object.prototype.hasOwnProperty.call(SPORT_DIPLOMA_FORMATS, diplomaTypeRaw)) {
+        res.status(400).json({ error: 'Veuillez sélectionner un format officiel de diplôme sportif.' });
+        return;
+      }
+      if (!issuingOrganism || issuingOrganism.length < 2 || !diplomaNumber || diplomaNumber.length < 4) {
+        res.status(400).json({ error: 'Organisme émetteur et numéro de diplôme ou licence requis.' });
+        return;
+      }
+      const currentYear = new Date().getFullYear();
+      if (!Number.isInteger(issueYear) || issueYear < 1980 || issueYear > currentYear) {
+        res.status(400).json({ error: `Année d'obtention invalide (attendue entre 1980 et ${currentYear}).` });
+        return;
+      }
+      if (!proCardNumber || proCardNumber.length < 4) {
+        res.status(400).json({ error: "Le numéro de carte professionnelle d'éducateur sportif est obligatoire." });
+        return;
+      }
+      const proCardExpiryDate = proCardExpiry ? new Date(proCardExpiry) : null;
+      if (!proCardExpiryDate || Number.isNaN(proCardExpiryDate.getTime()) || proCardExpiryDate.getTime() <= Date.now()) {
+        res.status(400).json({ error: 'La date de validité de la carte professionnelle doit être valide et non expirée.' });
+        return;
+      }
+      if (!rcProInsurer || rcProInsurer.length < 2 || !rcProPolicyNumber || rcProPolicyNumber.length < 4) {
+        res.status(400).json({ error: 'L’assureur et le numéro de police RC Pro sont obligatoires.' });
+        return;
+      }
+      if (!COACH_LEGAL_STATUS_OPTIONS.some((o) => o.code === legalStatusRaw)) {
+        res.status(400).json({ error: 'Veuillez sélectionner un statut juridique d’exercice valide.' });
+        return;
+      }
+      if (!businessRegNumber || businessRegNumber.length < 5) {
+        res.status(400).json({ error: 'Le numéro SIRET, NINEA, RCCM ou RNA est obligatoire (5 caractères min.).' });
+        return;
+      }
+      if (!honorabilityAttested) {
+        res.status(400).json({ error: "L'attestation sur l'honneur d'honorabilité (casier judiciaire vierge) est obligatoire." });
+        return;
+      }
+      if (!diplomaFile || typeof diplomaFile.base64 !== 'string' || !diplomaFile.base64.trim()) {
+        res.status(400).json({
+          error: 'Le dépôt du justificatif de diplôme (PDF, JPG, PNG ou WEBP, max 3 Mo) est obligatoire.',
+        });
+        return;
+      }
+
+      const rawBase64 = diplomaFile.base64.includes(',')
+        ? diplomaFile.base64.split(',').slice(1).join(',')
+        : diplomaFile.base64;
+      const fileBuffer = Buffer.from(rawBase64.replace(/\s+/g, ''), 'base64');
+      if (fileBuffer.length < 400 || fileBuffer.length > MAX_DIPLOMA_FILE_BYTES) {
+        res.status(400).json({
+          error: 'Le fichier diplôme est invalide ou dépasse la limite autorisée de 3 Mo.',
+        });
+        return;
+      }
+      const detectedMime = detectMimeFromMagicBytes(fileBuffer);
+      if (!detectedMime) {
+        res.status(400).json({
+          error: 'Format binaire non reconnu. Veuillez uploader un véritable fichier PDF, JPG, PNG ou WEBP.',
+        });
+        return;
+      }
+      const originalFilename = sanitizeText(diplomaFile.name, 120) || 'diplome_coach';
+
       if (!consentNonMedical || !confirmCoachTerms) {
         res.status(400).json({
           error: 'La confirmation des conditions Coach Terrain+ et de la charte non médicale est obligatoire.',
@@ -620,28 +1007,70 @@ async function startServer(): Promise<void> {
         db.prepare(
           `INSERT INTO coaches (
             user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
-            platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa, verification_status
-          ) VALUES (?, ?, ?, ?, ?, 5000, 'ACTIF_1000', ?, ?, ?, 'EN_ATTENTE')`
-        ).run(userId, specialite, qualification, zone, monthlyFee, coachPlan, commissionPct, athletePayout);
+            platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa, verification_status,
+            pro_card_number, pro_card_expiry, rc_pro_insurer, rc_pro_policy_number,
+            legal_status, business_reg_number, honorability_attested
+          ) VALUES (?, ?, ?, ?, ?, 5000, 'ACTIF_1000', ?, ?, ?, 'EN_ATTENTE', ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          userId,
+          specialite,
+          qualification,
+          zone,
+          monthlyFee,
+          coachPlan,
+          commissionPct,
+          athletePayout,
+          proCardNumber,
+          proCardExpiry,
+          rcProInsurer,
+          rcProPolicyNumber,
+          legalStatusRaw,
+          businessRegNumber,
+          honorabilityAttested ? 1 : 0
+        );
 
         const insConsent = db.prepare('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)');
         insConsent.run(userId, 'NON_MEDICAL', 'v1.0');
         insConsent.run(userId, `COACH_PLAN_${coachPlan}`, 'v2.0');
+        insConsent.run(userId, 'COACH_HONORABILITY', 'v1.0');
 
-        return userId;
+        const docRes = storeCoachDiplomaDocument({
+          coachUserId: userId,
+          diplomaType: diplomaTypeRaw,
+          issuingOrganism,
+          diplomaNumber,
+          issueYear,
+          specialite,
+          qualification,
+          originalFilename,
+          buffer: fileBuffer,
+          proCardNumber,
+          proCardExpiry,
+          rcProInsurer,
+          rcProPolicyNumber,
+          legalStatus: legalStatusRaw,
+          businessRegNumber,
+          honorabilityAttested,
+        });
+
+        logAccess(userId, 'COACH', null, 'DEPOT_DIPLOME_COACH', `doc:${docRes.docId}:${docRes.studyStatus}`);
+
+        return { userId, docRes };
       });
 
-      const userId = txCoach();
+      const { userId, docRes } = txCoach();
       res.status(201).json({
         userId,
         email,
         telephone,
         role: 'COACH',
         coach_plan: coachPlan,
+        studyStatus: docRes.studyStatus,
+        studyScore: docRes.studyScore,
         message:
           coachPlan === 'COACH_PRO'
-            ? 'Compte Coach Pro créé (3 000 FCFA / mois · 0 % commission). Validez le code OTP puis votre profil sera vérifié par un administrateur.'
-            : 'Compte Coach Marketplace créé gratuitement (0 FCFA fixe · 4 000 F/athlète). Validez le code OTP puis votre profil sera vérifié par un administrateur.',
+            ? 'Dossier Coach Pro déposé (3 000 FCFA / mois · 0 % commission). Validez votre code OTP ; votre compte restera ensuite en étude jusqu’à validation de votre diplôme par l’administrateur.'
+            : 'Dossier Coach Marketplace déposé (0 FCFA fixe · 4 000 F/athlète). Validez votre code OTP ; votre compte restera ensuite en étude jusqu’à validation de votre diplôme par l’administrateur.',
         ...(IS_PRODUCTION ? {} : { demoVerificationCode: otp }),
       });
       return;
@@ -868,6 +1297,29 @@ async function startServer(): Promise<void> {
       return;
     }
 
+    if (user.role === 'COACH') {
+      const gate = checkCoachAccessGate(user.id);
+      if (gate.blocked) {
+        db.prepare(
+          `UPDATE users
+           SET verified = 1, otp_code_hash = NULL, otp_expires_at = NULL, otp_attempts = 0
+           WHERE id = ?`
+        ).run(user.id);
+        logAccess(user.id, 'COACH', null, 'INSCRIPTION_COACH_EN_ETUDE', `verification:${gate.verificationStatus}`);
+        res.json({
+          user: null,
+          pendingAdminReview: true,
+          verificationStatus: gate.verificationStatus,
+          rejectionReason: gate.rejectionReason,
+          message:
+            gate.verificationStatus === 'EN_ATTENTE'
+              ? "Contact vérifié avec succès. Votre diplôme et votre dossier sont maintenant en cours d'étude par l'administrateur Terrain+. Veuillez patienter avant de vous connecter."
+              : gate.message,
+        });
+        return;
+      }
+    }
+
     db.prepare(
       `UPDATE users
        SET verified = 1, statut = 'ACTIF', otp_code_hash = NULL, otp_expires_at = NULL, otp_attempts = 0
@@ -966,6 +1418,20 @@ async function startServer(): Promise<void> {
       return;
     }
 
+    if (user.role === 'COACH') {
+      const gate = checkCoachAccessGate(user.id);
+      if (gate.blocked) {
+        logAccess(user.id, 'COACH', null, 'CONNEXION_BLOQUEE_DOSSIER', `verification:${gate.verificationStatus}`);
+        res.status(403).json({
+          error: gate.message,
+          pendingAdminReview: true,
+          verificationStatus: gate.verificationStatus,
+          rejectionReason: gate.rejectionReason,
+        });
+        return;
+      }
+    }
+
     const sessionToken = createSessionForUser(req, res, user.id);
     res.json({ user: mapUserPublic(user), sessionToken });
   });
@@ -1034,17 +1500,30 @@ async function startServer(): Promise<void> {
       return;
     }
 
+    const coachGate = user.role === 'COACH' ? checkCoachAccessGate(user.id) : null;
+
     db.prepare(
       `UPDATE users
        SET verified = 1,
-           statut = CASE WHEN statut = 'INSCRIT' THEN 'ACTIF' ELSE statut END,
+           statut = CASE WHEN statut = 'INSCRIT' AND ? = 0 THEN 'ACTIF' ELSE statut END,
            otp_code_hash = NULL,
            otp_expires_at = NULL,
            otp_attempts = 0,
            failed_login_attempts = 0,
            locked_until = NULL
        WHERE id = ?`
-    ).run(user.id);
+    ).run(coachGate?.blocked ? 1 : 0, user.id);
+
+    if (coachGate?.blocked) {
+      logAccess(user.id, 'COACH', null, 'CONNEXION_OTP_BLOQUEE_DOSSIER', `verification:${coachGate.verificationStatus}`);
+      res.status(403).json({
+        error: coachGate.message,
+        pendingAdminReview: true,
+        verificationStatus: coachGate.verificationStatus,
+        rejectionReason: coachGate.rejectionReason,
+      });
+      return;
+    }
 
     const sessionToken = createSessionForUser(req, res, user.id);
     const refreshed = db
@@ -2016,15 +2495,85 @@ async function startServer(): Promise<void> {
       )
       .all();
 
-    const coaches = db
+    const coachesRaw = db
       .prepare(
         `SELECT u.id, u.nom, u.prenom, u.email, u.telephone, u.statut, u.verified,
-                c.specialite, c.qualification, c.zone, c.coach_plan, c.verification_status
+                c.specialite, c.qualification, c.zone, c.coach_plan, c.verification_status, c.rejection_reason,
+                c.pro_card_number, c.pro_card_expiry, c.rc_pro_insurer, c.rc_pro_policy_number,
+                c.legal_status, c.business_reg_number, c.honorability_attested
          FROM users u JOIN coaches c ON c.user_id = u.id
          WHERE u.role = 'COACH' AND u.statut != 'CLOTURE'
-         ORDER BY CASE WHEN c.verification_status = 'EN_ATTENTE' THEN 0 ELSE 1 END, u.id DESC`
+         ORDER BY CASE WHEN c.verification_status = 'EN_ATTENTE' THEN 0 WHEN c.verification_status = 'REFUSE' THEN 1 ELSE 2 END, u.id DESC`
       )
-      .all();
+      .all() as Array<Record<string, unknown>>;
+
+    const docRows = db
+      .prepare(
+        `SELECT cd.*, (ur.prenom || ' ' || ur.nom) as reviewed_by_nom
+         FROM coach_documents cd
+         LEFT JOIN users ur ON ur.id = cd.reviewed_by_user_id
+         ORDER BY cd.id DESC`
+      )
+      .all() as Array<{
+      id: number;
+      coach_user_id: number;
+      diploma_type: string;
+      issuing_organism: string;
+      diploma_number: string;
+      issue_year: number;
+      original_filename: string;
+      mime_type: string;
+      file_size_bytes: number;
+      sha256_hash: string;
+      study_score: number;
+      study_status: 'CONFORME_PRE_ETUDE' | 'A_VERIFIER' | 'ANOMALIE';
+      study_report_json: string;
+      admin_review_note: string | null;
+      reviewed_by_nom: string | null;
+      reviewed_at: string | null;
+      uploaded_at: string;
+    }>;
+
+    const latestDocByCoach = new Map<number, CoachDocumentSummary>();
+    for (const d of docRows) {
+      if (!latestDocByCoach.has(d.coach_user_id)) {
+        let parsedReport: CoachDocumentStudyReport = {
+          formatLabel: d.diploma_type,
+          detectedMime: d.mime_type,
+          isDuplicateHash: false,
+          checks: [],
+        };
+        try {
+          parsedReport = JSON.parse(d.study_report_json) as CoachDocumentStudyReport;
+        } catch {
+          // keep fallback
+        }
+        latestDocByCoach.set(d.coach_user_id, {
+          id: d.id,
+          coach_user_id: d.coach_user_id,
+          diploma_type: d.diploma_type,
+          issuing_organism: d.issuing_organism,
+          diploma_number: d.diploma_number,
+          issue_year: d.issue_year,
+          original_filename: d.original_filename,
+          mime_type: d.mime_type,
+          file_size_bytes: d.file_size_bytes,
+          sha256_hash: d.sha256_hash,
+          study_score: d.study_score,
+          study_status: d.study_status,
+          study_report: parsedReport,
+          admin_review_note: d.admin_review_note,
+          reviewed_by_nom: d.reviewed_by_nom,
+          reviewed_at: d.reviewed_at,
+          uploaded_at: d.uploaded_at,
+        });
+      }
+    }
+
+    const coaches = coachesRaw.map((c) => ({
+      ...c,
+      document: latestDocByCoach.get(Number(c.id)) || null,
+    }));
 
     const sessions = db
       .prepare(
@@ -2074,7 +2623,49 @@ async function startServer(): Promise<void> {
       .prepare('SELECT * FROM partner_requests ORDER BY id DESC LIMIT 40')
       .all();
 
-    res.json({ users, coaches, sessions, auditLogs, partners, groups, challenges, partnerRequests });
+    const systemOverview = buildAdminSystemOverview();
+
+    res.json({ users, coaches, sessions, auditLogs, partners, groups, challenges, partnerRequests, systemOverview });
+  });
+
+  app.get('/api/admin/system-overview', requireAuth, requireRole('ADMIN'), (_req: AuthedRequest, res: Response) => {
+    res.json(buildAdminSystemOverview());
+  });
+
+  app.get('/api/admin/coach-documents/:docId/file', requireAuth, requireRole('ADMIN'), async (req: AuthedRequest, res: Response) => {
+    const docId = Number(req.params.docId);
+    if (!Number.isInteger(docId) || docId <= 0) {
+      res.status(400).json({ error: 'Identifiant de document invalide.' });
+      return;
+    }
+    const doc = db
+      .prepare('SELECT id, coach_user_id, original_filename, stored_filename, mime_type FROM coach_documents WHERE id = ?')
+      .get(docId) as
+      | { id: number; coach_user_id: number; original_filename: string; stored_filename: string; mime_type: string }
+      | undefined;
+
+    if (!doc) {
+      res.status(404).json({ error: 'Document introuvable.' });
+      return;
+    }
+
+    const safeFile = path.basename(doc.stored_filename);
+    const fullPath = path.join(DIPLOMA_UPLOAD_DIR, safeFile);
+    let buf: Buffer | null = fs.existsSync(fullPath) ? fs.readFileSync(fullPath) : null;
+    if (!buf) {
+      buf = await downloadDiplomaFromSupabaseStorage(safeFile);
+    }
+    if (!buf) {
+      res.status(404).json({ error: 'Fichier physique introuvable sur le serveur.' });
+      return;
+    }
+
+    logAccess(req.authUser!.id, 'ADMIN', doc.coach_user_id, 'CONSULTATION_DIPLOME', `doc:${doc.id}`);
+    res.setHeader('Content-Type', doc.mime_type);
+    res.setHeader('Content-Disposition', `inline; filename="${doc.original_filename.replace(/"/g, '')}"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(buf);
   });
 
   app.post('/api/admin/partners', requireAuth, requireRole('ADMIN'), (req: AuthedRequest, res: Response) => {
@@ -2211,25 +2802,60 @@ async function startServer(): Promise<void> {
 
   app.patch('/api/admin/coaches/:coachUserId/verification', requireAuth, requireRole('ADMIN'), (req: AuthedRequest, res: Response) => {
     const coachUserId = Number(req.params.coachUserId);
-    const verificationStatus = sanitizeText((req.body as Record<string, unknown>).verification_status, 20).toUpperCase();
+    const body = (req.body || {}) as Record<string, unknown>;
+    const verificationStatus = sanitizeText(body.verification_status, 20).toUpperCase();
+    const adminReviewNote = sanitizeText(body.admin_review_note, 300) || null;
+    const rejectionReasonInput = sanitizeText(body.rejection_reason, 240);
+
     if (!Number.isInteger(coachUserId) || coachUserId <= 0 || !['VERIFIE', 'EN_ATTENTE', 'REFUSE'].includes(verificationStatus)) {
       res.status(400).json({ error: 'Statut de vérification coach invalide.' });
       return;
     }
+
+    const nextRejectionReason =
+      verificationStatus === 'REFUSE'
+        ? rejectionReasonInput || 'Justificatif ou diplôme non conforme aux critères Terrain+.'
+        : null;
+
     const upd = db
-      .prepare('UPDATE coaches SET verification_status = ? WHERE user_id = ?')
-      .run(verificationStatus, coachUserId);
+      .prepare('UPDATE coaches SET verification_status = ?, rejection_reason = ? WHERE user_id = ?')
+      .run(verificationStatus, nextRejectionReason, coachUserId);
     if (upd.changes === 0) {
       res.status(404).json({ error: 'Profil coach introuvable.' });
       return;
     }
-    if (verificationStatus === 'REFUSE') {
-      db.prepare("UPDATE assignments SET statut = 'TERMINE', date_fin = date('now') WHERE coach_user_id = ? AND statut = 'ACTIF'").run(
+
+    if (verificationStatus === 'VERIFIE') {
+      db.prepare("UPDATE users SET statut = 'ACTIF' WHERE id = ? AND role = 'COACH' AND statut = 'INSCRIT'").run(
         coachUserId
       );
+    } else {
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(coachUserId);
+      db.prepare("UPDATE users SET statut = 'INSCRIT' WHERE id = ? AND role = 'COACH' AND statut = 'ACTIF'").run(
+        coachUserId
+      );
+      if (verificationStatus === 'REFUSE') {
+        db.prepare("UPDATE assignments SET statut = 'TERMINE', date_fin = date('now') WHERE coach_user_id = ? AND statut = 'ACTIF'").run(
+          coachUserId
+        );
+      }
     }
+
+    const latestDoc = db
+      .prepare('SELECT id FROM coach_documents WHERE coach_user_id = ? ORDER BY id DESC LIMIT 1')
+      .get(coachUserId) as { id: number } | undefined;
+    if (latestDoc) {
+      db.prepare(
+        `UPDATE coach_documents
+         SET admin_review_note = COALESCE(?, admin_review_note),
+             reviewed_by_user_id = ?,
+             reviewed_at = datetime('now')
+         WHERE id = ?`
+      ).run(adminReviewNote || nextRejectionReason, req.authUser!.id, latestDoc.id);
+    }
+
     logAccess(req.authUser!.id, 'ADMIN', coachUserId, 'VERIFICATION_COACH', verificationStatus);
-    res.json({ ok: true, verification_status: verificationStatus });
+    res.json({ ok: true, verification_status: verificationStatus, rejection_reason: nextRejectionReason });
   });
 
   app.patch('/api/admin/sessions/:sessionId/review', requireAuth, requireRole('ADMIN'), (req: AuthedRequest, res: Response) => {

@@ -45,8 +45,14 @@ function ScreenFallback() {
   );
 }
 
+function isValidAuthUser(value: unknown): value is AuthUser {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<AuthUser>;
+  return typeof candidate.id === 'number' && typeof candidate.role === 'string' && typeof candidate.email === 'string';
+}
+
 export default function App() {
-  const [user, setUser] = useState<AuthUser | null>(() => readJsonCache<AuthUser>(CACHED_USER_KEY));
+  const [user, setUser] = useState<AuthUser | null>(() => readJsonCache<AuthUser>(CACHED_USER_KEY, isValidAuthUser));
   const [authModal, setAuthModal] = useState<{
     mode: 'login' | 'register';
     sport?: SportCode;

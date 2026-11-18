@@ -582,9 +582,13 @@ export const MinisterWorkspace: React.FC<{
 }> = ({ onLoggedOut, onSessionExpired }) => {
   const [section, setSection] = useState<MinisterSection>('synthese');
   const [data, setData] = useState<MinisterOverviewPayload | null>(() =>
-    readJsonCache<MinisterOverviewPayload>(MINISTER_OVERVIEW_CACHE_KEY)
+    readJsonCache<MinisterOverviewPayload>(
+      MINISTER_OVERVIEW_CACHE_KEY,
+      (v): v is MinisterOverviewPayload =>
+        Boolean(v && typeof v === 'object' && typeof (v as MinisterOverviewPayload).kpis?.totalAthletes === 'number' && Array.isArray((v as MinisterOverviewPayload).bySport))
+    )
   );
-  const [loading, setLoading] = useState(() => !readJsonCache<MinisterOverviewPayload>(MINISTER_OVERVIEW_CACHE_KEY));
+  const [loading, setLoading] = useState(!data);
   const [error, setError] = useState<string | null>(null);
 
   const loadMinister = useCallback(async () => {

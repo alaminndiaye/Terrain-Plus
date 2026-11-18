@@ -387,4 +387,116 @@ export interface MinisterOverviewPayload {
   };
 }
 
+export interface CoachDocumentStudyCheck {
+  id: string;
+  label: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface CoachDocumentStudyReport {
+  formatLabel: string;
+  detectedMime: string;
+  isDuplicateHash: boolean;
+  checks: CoachDocumentStudyCheck[];
+}
+
+export interface CoachComplianceInfo {
+  pro_card_number: string | null;
+  pro_card_expiry: string | null;
+  rc_pro_insurer: string | null;
+  rc_pro_policy_number: string | null;
+  legal_status: string | null;
+  business_reg_number: string | null;
+  honorability_attested: boolean;
+}
+
+export interface CoachDocumentSummary {
+  id: number;
+  coach_user_id: number;
+  diploma_type: string;
+  issuing_organism: string;
+  diploma_number: string;
+  issue_year: number;
+  original_filename: string;
+  mime_type: string;
+  file_size_bytes: number;
+  sha256_hash: string;
+  study_score: number;
+  study_status: 'CONFORME_PRE_ETUDE' | 'A_VERIFIER' | 'ANOMALIE';
+  study_report: CoachDocumentStudyReport;
+  admin_review_note: string | null;
+  reviewed_by_nom: string | null;
+  reviewed_at: string | null;
+  uploaded_at: string;
+}
+
+export interface AdminSystemOverviewPayload {
+  generatedAt: string;
+  system: {
+    uptimeSeconds: number;
+    nodeVersion: string;
+    memoryRssMb: number;
+    memoryHeapMb: number;
+    dbSizeKb: number;
+    uploadsCount: number;
+    uploadsSizeKb: number;
+    activeSessionsCount: number;
+    lockedAccountsCount: number;
+    unverifiedAccountsCount: number;
+  };
+  queues: {
+    pendingCoachDossiers: number;
+    pendingSessionsReview: number;
+    openPainAlerts: number;
+    newPartnerRequests: number;
+  };
+  platformTotals: {
+    totalUsers: number;
+    athletesCount: number;
+    coachesVerifiedCount: number;
+    coachesPendingCount: number;
+    completedSessionsCount: number;
+    evaluationsCount: number;
+    groupsCount: number;
+    challengesCount: number;
+  };
+  traffic: {
+    requestsLast24h: number;
+    requestsLastHour: number;
+    avgLatencyMs: number;
+    errorRatePct: number;
+    authBlocks24h: number;
+    bandwidthOutKb24h: number;
+    hourlySeries: Array<{
+      hour: string;
+      requests: number;
+      errors: number;
+      avgLatencyMs: number;
+    }>;
+    topRoutes: Array<{
+      method: string;
+      path_group: string;
+      hits: number;
+      avg_ms: number;
+      errors: number;
+    }>;
+    byRole: Array<{
+      role: string;
+      requests: number;
+    }>;
+    recentLogs: Array<{
+      id: number;
+      method: string;
+      full_path: string;
+      status_code: number;
+      duration_ms: number;
+      user_role: string;
+      bytes_out: number;
+      created_at: string;
+    }>;
+  };
+}
+
+
 

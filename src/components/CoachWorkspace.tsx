@@ -68,11 +68,15 @@ export const CoachWorkspace: React.FC<{
 }> = ({ onLoggedOut, onSessionExpired }) => {
   const [tab, setTab] = useState<CoachTab>('athletes');
   const [overview, setOverview] = useState<CoachOverviewResponse | null>(() =>
-    readJsonCache<CoachOverviewResponse>(COACH_OVERVIEW_CACHE_KEY)
+    readJsonCache<CoachOverviewResponse>(
+      COACH_OVERVIEW_CACHE_KEY,
+      (v): v is CoachOverviewResponse =>
+        Boolean(v && typeof v === 'object' && Array.isArray((v as CoachOverviewResponse).athletes))
+    )
   );
   const [selectedAthlete, setSelectedAthlete] = useState<AthleteWorkspacePayload | null>(null);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(() => !readJsonCache<CoachOverviewResponse>(COACH_OVERVIEW_CACHE_KEY));
+  const [loading, setLoading] = useState(!overview);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Athlete dossier interactive states

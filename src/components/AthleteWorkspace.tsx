@@ -18,11 +18,11 @@ import {
   LayoutDashboard,
   Lock,
   LogOut,
-  Maximize2,
   Play,
   ShieldCheck,
   Trash2,
   User,
+  Video,
   WifiOff,
   X,
 } from 'lucide-react';
@@ -66,6 +66,7 @@ import type {
   SportCode,
 } from '../types';
 import { GuidedSessionPlayer } from './GuidedSessionPlayer';
+import { ExerciseVideoGuide } from './ExerciseVideoGuide';
 import { GuidedTourModal } from './GuidedTourModal';
 import { PainReportModal } from './PainReportModal';
 import { PWAInstallButton } from './PWAControls';
@@ -126,7 +127,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 }) => {
   const isOnline = useOnlineStatus();
   const [cachedInit] = useState<AthleteWorkspacePayload | null>(() =>
-    readJsonCache<AthleteWorkspacePayload>(WORKSPACE_CACHE_KEY)
+    readJsonCache<AthleteWorkspacePayload>(
+      WORKSPACE_CACHE_KEY,
+      (v): v is AthleteWorkspacePayload =>
+        Boolean(v && typeof v === 'object' && Array.isArray((v as AthleteWorkspacePayload).schedule) && (v as AthleteWorkspacePayload).user)
+    )
   );
   const [tab, setTab] = useState<AthleteTab>('dashboard');
   const [data, setData] = useState<AthleteWorkspacePayload | null>(cachedInit);
@@ -164,6 +169,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   // Technical fiches & freemium plan states
   const [ficheCategoryFilter, setFicheCategoryFilter] = useState<'Toutes' | TechniqueCategory>('Toutes');
   const [selectedFicheModal, setSelectedFicheModal] = useState<TechniqueFiche | null>(null);
+  const [ficheModalMode, setFicheModalMode] = useState<'video' | 'photo'>('video');
+  const [videoPreviewSession, setVideoPreviewSession] = useState<{
+    session: SessionTemplate;
+    stepIdx: number;
+  } | null>(null);
   const [upgradePrompt, setUpgradePrompt] = useState<{ title: string; reason: string } | null>(null);
 
   // Profile form states
@@ -606,6 +616,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       });
       return;
     }
+    setFicheModalMode('video');
     setSelectedFicheModal(fiche);
   };
 
@@ -2255,19 +2266,39 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           </p>
                         </div>
 
-                        <div className="flex items-center justify-between gap-2 pt-3 border-t border-neutral-100">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleOfflineSession(sess)}
-                            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium min-h-[40px] ${
-                              cachedOffline
-                                ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                                : 'border-neutral-300 text-neutral-700 hover:bg-neutral-50'
-                            }`}
-                          >
-                            <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
-                            <span>{cachedOffline ? 'Disponible hors ligne' : 'Télécharger hors ligne'}</span>
-                          </button>
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-neutral-100">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleOfflineSession(sess)}
+                              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium min-h-[40px] ${
+                                cachedOffline
+                                  ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                                  : 'border-neutral-300 text-neutral-700 hover:bg-neutral-50'
+                              }`}
+                            >
+                              <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
+                              <span>{cachedOffline ? 'Disponible hors ligne' : 'Hors ligne'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isLockedProgression) {
+                                  setUpgradePrompt({
+                                    title: 'Guides vidéo Progression+',
+                                    reason: 'Débloquez les vidéos guidées de cette séance avec Progression+ (2 000 FCFA / mois).',
+                                  });
+                                  return;
+                                }
+                                setVideoPreviewSession({ session: sess, stepIdx: 0 });
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs font-medium text-neutral-800 hover:bg-neutral-50 min-h-[40px]"
+                            >
+                              <Video className="h-4 w-4" aria-hidden="true" />
+                              <span>Guides vidéo</span>
+                            </button>
+                          </div>
 
                           <button
                             type="button"
@@ -2374,8 +2405,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                 </>
                               ) : (
                                 <>
-                                  <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
-                                  <span>Agrandir le repère visuel</span>
+                                  <Video className="h-3.5 w-3.5" aria-hidden="true" />
+                                  <span>Voir la vidéo guidée & posture</span>
                                 </>
                               )}
                             </button>
@@ -3343,8 +3374,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       )}
 
       {selectedFicheModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white border border-neutral-200 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl bg-white border border-neutral-200 overflow-hidden my-auto">
             <div className="flex items-center justify-between gap-4 border-b border-neutral-200 px-5 py-3.5">
               <div>
                 <div className="text-[11px] font-semibold text-neutral-500">
@@ -3361,17 +3392,136 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
-            <div className="bg-white p-4 sm:p-6 flex items-center justify-center">
-              <img
-                src={selectedFicheModal.imageUrl}
-                alt={selectedFicheModal.titre}
-                decoding="async"
-                referrerPolicy="no-referrer"
-                className="max-h-[60vh] w-auto object-contain"
-              />
+            <div className="px-5 pt-3 flex items-center justify-between gap-2">
+              <div className="inline-flex items-center gap-1 rounded-xl bg-neutral-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setFicheModalMode('video')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[34px] ${
+                    ficheModalMode === 'video' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                  }`}
+                >
+                  Vidéo guidée
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFicheModalMode('photo')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[34px] ${
+                    ficheModalMode === 'photo' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                  }`}
+                >
+                  Planche anatomique
+                </button>
+              </div>
+              <span className="text-[11px] text-neutral-500">Vitesse réglable (0.75x à 1.25x)</span>
+            </div>
+            <div className="bg-white p-4 sm:p-5">
+              {ficheModalMode === 'video' ? (
+                <ExerciseVideoGuide
+                  exerciseName={selectedFicheModal.titre}
+                  accentHex={sportTheme.accentHex}
+                  theme="light"
+                />
+              ) : (
+                <div className="flex items-center justify-center">
+                  <img
+                    src={selectedFicheModal.imageUrl}
+                    alt={selectedFicheModal.titre}
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                    className="max-h-[56vh] w-auto object-contain"
+                  />
+                </div>
+              )}
             </div>
             <div className="border-t border-neutral-200 bg-neutral-50 px-5 py-3.5 text-xs text-neutral-700 leading-relaxed">
               {selectedFicheModal.caption}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {videoPreviewSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl bg-white border border-neutral-200 overflow-hidden my-auto">
+            <div className="flex items-center justify-between gap-4 border-b border-neutral-200 px-5 py-3.5">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold text-neutral-500">
+                  Guides vidéo · {videoPreviewSession.session.titre}
+                </div>
+                <h3 className="text-base font-semibold text-neutral-900 truncate">
+                  {videoPreviewSession.session.exercises[videoPreviewSession.stepIdx]?.nom}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVideoPreviewSession(null)}
+                aria-label="Fermer les guides vidéo"
+                className="rounded-lg border border-neutral-200 p-2 text-neutral-600 hover:bg-neutral-50 min-h-[40px] min-w-[40px] flex items-center justify-center"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 space-y-4">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                {videoPreviewSession.session.exercises.map((ex, idx) => (
+                  <button
+                    key={ex.id}
+                    type="button"
+                    onClick={() => setVideoPreviewSession({ ...videoPreviewSession, stepIdx: idx })}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap min-h-[36px] ${
+                      videoPreviewSession.stepIdx === idx
+                        ? 'bg-neutral-900 text-white'
+                        : 'border border-neutral-200 bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
+                    }`}
+                  >
+                    {idx + 1}. {ex.nom}
+                  </button>
+                ))}
+              </div>
+
+              {videoPreviewSession.session.exercises[videoPreviewSession.stepIdx] && (
+                <>
+                  <ExerciseVideoGuide
+                    exerciseName={videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].nom}
+                    accentHex={sportTheme.accentHex}
+                    theme="light"
+                  />
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5 text-xs text-neutral-700 space-y-1">
+                    <div className="font-semibold text-neutral-900">
+                      Consigne Terrain+ ({data.user.langue === 'wo' ? 'Wolof & Français' : 'Français'})
+                    </div>
+                    <p>
+                      {data.user.langue === 'wo'
+                        ? videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].consigneWo
+                        : videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].consigneFr}
+                    </p>
+                  </div>
+                </>
+              )}
+
+              <div className="flex items-center justify-between gap-3 pt-2 border-t border-neutral-200">
+                <button
+                  type="button"
+                  onClick={() => setVideoPreviewSession(null)}
+                  className="rounded-xl border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-50 min-h-[40px]"
+                >
+                  Fermer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = videoPreviewSession.session;
+                    setVideoPreviewSession(null);
+                    handleLaunchLibrarySession(target);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white min-h-[40px] ${sportTheme.accentBgClass} ${sportTheme.accentHoverBgClass}`}
+                >
+                  <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span>Démarrer cette séance</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

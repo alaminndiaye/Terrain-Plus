@@ -16,6 +16,7 @@ import { playTone, speakCue, stopSpeech } from '../lib/audioCues';
 import { queueOfflineCompletion } from '../lib/offlineCache';
 import { SPORTS_CONFIG } from '../data/sportsConfig';
 import { getExerciseVisual } from '../data/exerciseMedia';
+import { ExerciseVideoGuide } from './ExerciseVideoGuide';
 import type { SessionTemplate } from '../types';
 
 interface GuidedSessionPlayerProps {
@@ -46,6 +47,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
   const [variant, setVariant] = useState<VariantMode>('standard');
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [cueLang, setCueLang] = useState<'fr' | 'wo'>(defaultLangue);
+  const [visualMode, setVisualMode] = useState<'video' | 'photo'>('video');
 
   const [fatigue, setFatigue] = useState(5);
   const [difficulte, setDifficulte] = useState(5);
@@ -336,16 +338,71 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
               </div>
 
               {phase === 'rest' ? (
-                <div className="space-y-1">
-                  <p className="text-lg font-medium text-emerald-300">Respirez et relâchez les appuis</p>
-                  <p className="text-sm text-neutral-400">
-                    À suivre : {session.exercises[stepIdx + 1]?.nom}
-                  </p>
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-lg font-medium text-emerald-300">Respirez et relâchez les appuis</p>
+                    <p className="text-sm text-neutral-400">
+                      À suivre : {session.exercises[stepIdx + 1]?.nom}
+                    </p>
+                  </div>
+                  {session.exercises[stepIdx + 1] && (
+                    <div className="mx-auto max-w-md text-left">
+                      <ExerciseVideoGuide
+                        exerciseName={session.exercises[stepIdx + 1].nom}
+                        accentHex={sportTheme.accentHex}
+                        theme="dark"
+                        compact
+                        showCues={false}
+                      />
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <h3 className="text-2xl font-semibold text-white">{currentEx?.nom}</h3>
-                  {currentVisual && !ecoMode ? (
+                  <div className="space-y-1">
+                    <h3 className="text-2xl font-semibold text-white">{currentEx?.nom}</h3>
+                    {currentEx && (
+                      <div className="text-xs font-mono tabular-nums text-neutral-400">
+                        {currentEx.mode === 'repetitions' && currentEx.repetitions
+                          ? `Objectif : ${currentEx.repetitions} répétitions`
+                          : `Effort guidé : ${currentEx.dureeSec} s`}
+                      </div>
+                    )}
+                  </div>
+
+                  {currentVisual && (
+                    <div className="inline-flex items-center gap-1 rounded-xl bg-neutral-900 p-1 border border-neutral-800">
+                      <button
+                        type="button"
+                        onClick={() => setVisualMode('video')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium min-h-[36px] ${
+                          visualMode === 'video' ? 'bg-white text-neutral-950 font-semibold' : 'text-neutral-300'
+                        }`}
+                      >
+                        Vidéo guidée
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setVisualMode('photo')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium min-h-[36px] ${
+                          visualMode === 'photo' ? 'bg-white text-neutral-950 font-semibold' : 'text-neutral-300'
+                        }`}
+                      >
+                        Planche anatomique
+                      </button>
+                    </div>
+                  )}
+
+                  {visualMode === 'video' || !currentVisual ? (
+                    <div className="mx-auto max-w-lg">
+                      <ExerciseVideoGuide
+                        exerciseName={currentEx?.nom || ''}
+                        accentHex={sportTheme.accentHex}
+                        theme="dark"
+                        syncPlaying={running}
+                      />
+                    </div>
+                  ) : currentVisual && !ecoMode ? (
                     <div className="mx-auto max-w-sm rounded-2xl border border-neutral-800 bg-white p-2.5 text-neutral-900">
                       <img
                         src={currentVisual.imageUrl}
@@ -358,11 +415,11 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                         {currentVisual.label}
                       </div>
                     </div>
-                  ) : currentVisual && ecoMode ? (
+                  ) : (
                     <div className="text-[11px] text-neutral-400">
-                      Fiche visuelle masquée (mode éco données actif)
+                      Planche photo masquée (mode éco données actif) — basculez sur « Vidéo guidée » (0 Ko réseau).
                     </div>
-                  ) : null}
+                  )}
                   <p className="text-base text-neutral-200 leading-relaxed max-w-xl mx-auto">
                     {cueLang === 'wo' ? currentEx?.consigneWo : currentEx?.consigneFr}
                   </p>
