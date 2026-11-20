@@ -23,6 +23,24 @@ interface AuthModalProps {
   onAuthenticated: (user: AuthUser, isNewRegistration: boolean) => void;
 }
 
+interface CoachDossierPrefill {
+  specialite: string;
+  qualification: string;
+  zone: string;
+  pro_card_number: string | null;
+  pro_card_expiry: string | null;
+  rc_pro_insurer: string | null;
+  rc_pro_policy_number: string | null;
+  legal_status: string | null;
+  business_reg_number: string | null;
+  honorability_attested: boolean;
+  diploma_type: DiplomaTypeCode | null;
+  issuing_organism: string | null;
+  diploma_number: string | null;
+  issue_year: number | null;
+  original_filename: string | null;
+}
+
 export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode,
   preselectedSport = 'football',
@@ -32,7 +50,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onOpenPartners,
   onAuthenticated,
 }) => {
-  const [mode, setMode] = useState<'login' | 'register' | 'verify'>(initialMode);
+  const [mode, setMode] = useState<'login' | 'register' | 'verify' | 'forgot' | 'resubmit'>(initialMode);
   const [loginMethod, setLoginMethod] = useState<'password' | 'otp'>('password');
   const [regAccountType, setRegAccountType] = useState<'athlete' | 'coach'>(initialRole);
 
@@ -43,6 +61,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [otpRequested, setOtpRequested] = useState(false);
   const [demoHintCode, setDemoHintCode] = useState<string | null>(null);
   const [accountNotFound, setAccountNotFound] = useState(false);
+
+  // Forgot password states
+  const [resetOtpRequested, setResetOtpRequested] = useState(false);
+  const [resetCode, setResetCode] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
 
   // Available coaches for athlete selection (5 000 FCFA / mois)
   const [availableCoaches, setAvailableCoaches] = useState<PublicCoachOption[]>([]);
@@ -103,7 +127,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     message: string;
     status: 'EN_ATTENTE' | 'REFUSE';
     reason?: string | null;
+    resubmitToken?: string;
+    coachDossier?: CoachDossierPrefill;
   } | null>(null);
+  const [resubmitToken, setResubmitToken] = useState<string | null>(null);
+  const [existingDiplomaFilename, setExistingDiplomaFilename] = useState<string | null>(null);
 
   const [verifyIdentifier, setVerifyIdentifier] = useState('');
   const [verifyCode, setVerifyCode] = useState('');
@@ -171,6 +199,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           message: err.message,
           status: err.payload.verificationStatus === 'REFUSE' ? 'REFUSE' : 'EN_ATTENTE',
           reason: typeof err.payload.rejectionReason === 'string' ? err.payload.rejectionReason : null,
+          resubmitToken: typeof err.payload.resubmitToken === 'string' ? err.payload.resubmitToken : undefined,
+          coachDossier: (err.payload.coachDossier as CoachDossierPrefill | undefined) || undefined,
         });
       } else if (err instanceof ApiError && err.payload.accountNotFound) {
         setAccountNotFound(true);
@@ -227,10 +257,174 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           message: err.message,
           status: err.payload.verificationStatus === 'REFUSE' ? 'REFUSE' : 'EN_ATTENTE',
           reason: typeof err.payload.rejectionReason === 'string' ? err.payload.rejectionReason : null,
+          resubmitToken: typeof err.payload.resubmitToken === 'string' ? err.payload.resubmitToken : undefined,
+          coachDossier: (err.payload.coachDossier as CoachDossierPrefill | undefined) || undefined,
         });
       } else {
         setError(err instanceof Error ? err.message : 'Code invalide.');
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenForgotPassword = () => {
+    setError(null);
+    setPendingReviewNotice(null);
+    setAccountNotFound(false);
+    setResetOtpRequested(false);
+    setResetCode('');
+    setResetNewPassword('');
+    setResetConfirmPassword('');
+    setDemoHintCode(null);
+    setMode('forgot');
+  };
+
+  const handleRequestResetOtp = async () => {
+    if (!identifier.trim()) {
+      setError('Entrez votre adresse email ou numéro +221.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setAccountNotFound(false);
+    try {
+      const res = await apiRequest<{ demoOtpCode?: string }>('/api/auth/request-otp', {
+        method: 'POST',
+        body: JSON.stringify({ identifier }),
+      });
+      setResetOtpRequested(true);
+      setDemoHintCode(res.demoOtpCode || null);
+    } catch (err) {
+      if (err instanceof ApiError && err.payload.accountNotFound) {
+        setAccountNotFound(true);
+      }
+      setError(err instanceof Error ? err.message : 'Impossible de générer un code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (resetNewPassword !== resetConfirmPassword) {
+      setError('Les deux mots de passe ne correspondent pas.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setPendingReviewNotice(null);
+    try {
+      const res = await apiRequest<{ user: AuthUser; sessionToken?: string }>('/api/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          identifier,
+          code: resetCode,
+          new_password: resetNewPassword,
+        }),
+      });
+      if (res.sessionToken) setSessionToken(res.sessionToken);
+      onAuthenticated(res.user, false);
+    } catch (err) {
+      if (err instanceof ApiError && err.payload.pendingAdminReview) {
+        setPendingReviewNotice({
+          message: err.message,
+          status: err.payload.verificationStatus === 'REFUSE' ? 'REFUSE' : 'EN_ATTENTE',
+          reason: typeof err.payload.rejectionReason === 'string' ? err.payload.rejectionReason : null,
+          resubmitToken: typeof err.payload.resubmitToken === 'string' ? err.payload.resubmitToken : undefined,
+          coachDossier: (err.payload.coachDossier as CoachDossierPrefill | undefined) || undefined,
+        });
+        setPassword('');
+        setMode('login');
+      } else {
+        setError(err instanceof Error ? err.message : 'Impossible de réinitialiser le mot de passe.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startCoachResubmit = () => {
+    if (!pendingReviewNotice?.resubmitToken) return;
+    const d = pendingReviewNotice.coachDossier;
+    if (d) {
+      if (d.specialite) setCoachSpecialite(d.specialite);
+      if (d.qualification) setCoachQualification(d.qualification);
+      if (d.zone) setCoachZone(d.zone);
+      if (d.diploma_type && Object.prototype.hasOwnProperty.call(SPORT_DIPLOMA_FORMATS, d.diploma_type)) {
+        setDiplomaType(d.diploma_type);
+      }
+      if (d.issuing_organism) setIssuingOrganism(d.issuing_organism);
+      if (d.diploma_number) setDiplomaNumber(d.diploma_number);
+      if (d.issue_year) setIssueYear(String(d.issue_year));
+      if (d.pro_card_number) setProCardNumber(d.pro_card_number);
+      if (d.pro_card_expiry) setProCardExpiry(d.pro_card_expiry);
+      if (d.rc_pro_insurer) setRcProInsurer(d.rc_pro_insurer);
+      if (d.rc_pro_policy_number) setRcProPolicyNumber(d.rc_pro_policy_number);
+      if (
+        d.legal_status &&
+        COACH_LEGAL_STATUS_OPTIONS.some((opt) => opt.code === d.legal_status)
+      ) {
+        setLegalStatus(d.legal_status as CoachLegalStatusCode);
+      }
+      if (d.business_reg_number) setBusinessRegNumber(d.business_reg_number);
+      setHonorabilityAttested(Boolean(d.honorability_attested));
+      setExistingDiplomaFilename(d.original_filename || null);
+    }
+    setDiplomaFile(null);
+    setResubmitToken(pendingReviewNotice.resubmitToken);
+    setError(null);
+    setMode('resubmit');
+  };
+
+  const handleCoachResubmitSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resubmitToken) {
+      setError('Session de resoumission expirée. Reconnectez-vous pour relancer la correction.');
+      return;
+    }
+    if (!honorabilityAttested) {
+      setError("Veuillez cocher l'attestation sur l'honneur d'honorabilité.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiRequest<{ message: string }>('/api/auth/coach-resubmit', {
+        method: 'POST',
+        body: JSON.stringify({
+          resubmit_token: resubmitToken,
+          specialite: coachSpecialite,
+          qualification: coachQualification,
+          zone: coachZone,
+          diploma_type: diplomaType,
+          issuing_organism: issuingOrganism,
+          diploma_number: diplomaNumber,
+          issue_year: Number(issueYear),
+          pro_card_number: proCardNumber,
+          pro_card_expiry: proCardExpiry,
+          rc_pro_insurer: rcProInsurer,
+          rc_pro_policy_number: rcProPolicyNumber,
+          legal_status: legalStatus,
+          business_reg_number: businessRegNumber,
+          honorability_attested: honorabilityAttested,
+          diploma_file: diplomaFile
+            ? {
+                name: diplomaFile.name,
+                base64: diplomaFile.base64,
+              }
+            : null,
+        }),
+      });
+      setResubmitToken(null);
+      setPendingReviewNotice({
+        status: 'EN_ATTENTE',
+        reason: null,
+        message: res.message,
+      });
+      setMode('login');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossible de resoumettre le dossier.');
     } finally {
       setLoading(false);
     }
@@ -410,6 +604,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         pendingAdminReview?: boolean;
         verificationStatus?: 'EN_ATTENTE' | 'REFUSE';
         rejectionReason?: string | null;
+        resubmitToken?: string;
+        coachDossier?: CoachDossierPrefill;
         message?: string;
       }>('/api/auth/verify', {
         method: 'POST',
@@ -420,6 +616,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setPendingReviewNotice({
           status: res.verificationStatus === 'REFUSE' ? 'REFUSE' : 'EN_ATTENTE',
           reason: res.rejectionReason || null,
+          resubmitToken: res.resubmitToken,
+          coachDossier: res.coachDossier,
           message:
             res.message ||
             "Votre dossier et votre diplôme sont en cours d'étude par l'administrateur Terrain+. Veuillez patienter avant de vous connecter.",
@@ -457,9 +655,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 overflow-y-auto">
-      <div className="w-full max-w-xl rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl my-auto">
-        <div className="flex items-center justify-between gap-4 border-b border-neutral-200 pb-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+      <div className="w-full max-w-xl rounded-3xl obsidian-card-glow p-6 shadow-2xl my-auto text-[#F5F7F1]">
+        <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] pb-4">
           <div className="flex items-center gap-3">
             <img
               src="/brand/terrain-mark.png"
@@ -467,33 +665,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               referrerPolicy="no-referrer"
               className="h-8 w-8 rounded-lg object-contain shrink-0"
             />
-            <h2 className="font-display text-lg font-bold text-neutral-900">
+            <h2 className="font-display text-lg font-bold text-[#F5F7F1]">
               {mode === 'login'
                 ? 'Connexion sécurisée Terrain+'
-                : mode === 'verify'
-                  ? 'Validation du compte'
-                  : regAccountType === 'coach'
-                    ? 'Inscription Coach Prépa'
-                    : 'Inscription Jeune Sportif'}
+                : mode === 'forgot'
+                  ? 'Réinitialiser le mot de passe'
+                  : mode === 'resubmit'
+                    ? 'Corriger mon dossier Coach'
+                    : mode === 'verify'
+                      ? 'Validation du compte'
+                      : regAccountType === 'coach'
+                        ? 'Inscription Coach Prépa'
+                        : 'Inscription Jeune Sportif'}
             </h2>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-[#8E9784] hover:bg-white/[0.08] hover:text-[#F5F7F1]"
             aria-label="Fermer"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {pendingReviewNotice && (
+        {pendingReviewNotice && mode !== 'resubmit' && (
           <div
-            className={`mt-4 rounded-xl border p-4 space-y-3 ${
+            className={`mt-4 rounded-2xl border p-4 space-y-3 ${
               pendingReviewNotice.status === 'REFUSE'
-                ? 'border-red-300 bg-red-50 text-red-900'
-                : 'border-amber-300 bg-amber-50 text-amber-950'
+                ? 'border-red-400/35 bg-red-950/55 text-red-100'
+                : 'border-amber-400/35 bg-amber-950/45 text-amber-100'
             }`}
           >
             <div className="flex items-start gap-2.5">
@@ -504,13 +706,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     ? 'Dossier coach non validé par l’administrateur'
                     : 'Dossier coach en cours d’étude par l’administrateur'}
                 </div>
-                <p className="text-xs leading-relaxed">{pendingReviewNotice.message}</p>
+                <p className="text-xs leading-relaxed opacity-90">{pendingReviewNotice.message}</p>
                 {pendingReviewNotice.reason && (
                   <p className="text-xs font-medium pt-1">Motif : {pendingReviewNotice.reason}</p>
                 )}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 pt-1">
+              {pendingReviewNotice.status === 'REFUSE' && pendingReviewNotice.resubmitToken && (
+                <button
+                  type="button"
+                  onClick={startCoachResubmit}
+                  className="rounded-full bg-red-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-red-500 min-h-[38px]"
+                >
+                  Corriger et resoumettre mon dossier
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -518,14 +729,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setMode('login');
                   setError(null);
                 }}
-                className="rounded-lg bg-neutral-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-neutral-800 min-h-[38px]"
+                className="rounded-full bg-[#C8F62D] px-3.5 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[38px]"
               >
                 Compris, fermer cet avis
               </button>
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-lg border border-neutral-300 bg-white px-3.5 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-50 min-h-[38px]"
+                className="rounded-full border border-white/15 bg-[#181D15] px-3.5 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-[#22291E] min-h-[38px]"
               >
                 Revenir à l’accueil
               </button>
@@ -534,13 +745,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {error && (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800 space-y-2.5">
+          <div className="mt-4 rounded-2xl border border-red-400/35 bg-red-950/55 px-3.5 py-3 text-sm text-red-100 space-y-2.5">
             <div>{error}</div>
             {accountNotFound && mode === 'login' && (
               <button
                 type="button"
                 onClick={switchToCreateFromMissingAccount}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-neutral-800 min-h-[38px]"
+                className="inline-flex items-center gap-1.5 rounded-full bg-[#C8F62D] px-3.5 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[38px]"
               >
                 <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>Créer un compte maintenant</span>
@@ -551,11 +762,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {mode === 'login' && (
           <div className="mt-5 space-y-5">
-            <p className="text-xs text-neutral-600 leading-relaxed">
+            <p className="text-xs text-[#B4BCA9] leading-relaxed">
               Par sécurité, saisissez vos identifiants personnels. Si aucun compte n’est trouvé, vous serez invité à créer un compte Terrain+.
             </p>
 
-            <div className="inline-flex w-full rounded-xl bg-neutral-100 p-1">
+            <div className="inline-flex w-full rounded-2xl border border-white/[0.08] bg-[#181D15] p-1">
               <button
                 type="button"
                 onClick={() => {
@@ -563,8 +774,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setError(null);
                   setAccountNotFound(false);
                 }}
-                className={`flex-1 rounded-lg py-2 text-xs font-semibold min-h-[38px] ${
-                  loginMethod === 'password' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                className={`flex-1 rounded-xl py-2 text-xs font-semibold min-h-[38px] transition-colors ${
+                  loginMethod === 'password' ? 'bg-[#C8F62D] text-[#080A07]' : 'text-[#B4BCA9] hover:text-[#F5F7F1]'
                 }`}
               >
                 Mot de passe
@@ -576,8 +787,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setError(null);
                   setAccountNotFound(false);
                 }}
-                className={`flex-1 rounded-lg py-2 text-xs font-semibold min-h-[38px] ${
-                  loginMethod === 'otp' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                className={`flex-1 rounded-xl py-2 text-xs font-semibold min-h-[38px] transition-colors ${
+                  loginMethod === 'otp' ? 'bg-[#C8F62D] text-[#080A07]' : 'text-[#B4BCA9] hover:text-[#F5F7F1]'
                 }`}
               >
                 Code à usage unique
@@ -587,7 +798,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {loginMethod === 'password' ? (
               <form onSubmit={handlePasswordLogin} className="space-y-4">
                 <div>
-                  <label htmlFor="login-id" className="block text-xs font-medium text-neutral-700 mb-1.5">
+                  <label htmlFor="login-id" className="block text-xs font-medium text-[#B4BCA9] mb-1.5">
                     Adresse email ou téléphone (+221) *
                   </label>
                   <input
@@ -600,13 +811,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       if (accountNotFound) setAccountNotFound(false);
                     }}
                     placeholder="Ex: moussa.diop@terrainplus.sn ou +221771001122"
-                    className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm min-h-[44px]"
+                    className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3.5 py-2.5 text-sm min-h-[44px]"
                   />
                 </div>
                 <div>
-                  <label htmlFor="login-pwd" className="block text-xs font-medium text-neutral-700 mb-1.5">
-                    Mot de passe *
-                  </label>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <label htmlFor="login-pwd" className="block text-xs font-medium text-[#B4BCA9]">
+                      Mot de passe *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleOpenForgotPassword}
+                      className="text-xs font-medium text-[#C8F62D] hover:underline"
+                    >
+                      Mot de passe oublié ?
+                    </button>
+                  </div>
                   <input
                     id="login-pwd"
                     type="password"
@@ -614,13 +834,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Saisissez votre mot de passe"
-                    className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm min-h-[44px]"
+                    className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3.5 py-2.5 text-sm min-h-[44px]"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-50 min-h-[44px]"
+                  className="w-full rounded-full bg-[#C8F62D] py-3 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[44px]"
                 >
                   {loading ? 'Vérification...' : 'Se connecter'}
                 </button>
@@ -628,7 +848,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             ) : (
               <form onSubmit={handleOtpLogin} className="space-y-4">
                 <div>
-                  <label htmlFor="otp-id" className="block text-xs font-medium text-neutral-700 mb-1.5">
+                  <label htmlFor="otp-id" className="block text-xs font-medium text-[#B4BCA9] mb-1.5">
                     Email ou téléphone (+221) *
                   </label>
                   <div className="flex gap-2">
@@ -642,13 +862,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         if (accountNotFound) setAccountNotFound(false);
                       }}
                       placeholder="+221771001122"
-                      className="flex-1 rounded-xl border border-neutral-300 px-3.5 py-2.5 text-sm min-h-[44px]"
+                      className="flex-1 rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3.5 py-2.5 text-sm min-h-[44px]"
                     />
                     <button
                       type="button"
                       onClick={handleRequestOtp}
                       disabled={loading}
-                      className="rounded-xl border border-neutral-300 px-3.5 py-2 text-xs font-semibold text-neutral-900 hover:bg-neutral-50 min-h-[44px] whitespace-nowrap"
+                      className="rounded-xl border border-white/15 bg-[#181D15] px-3.5 py-2 text-xs font-semibold text-[#F5F7F1] hover:bg-[#22291E] min-h-[44px] whitespace-nowrap"
                     >
                       Envoyer code
                     </button>
@@ -656,19 +876,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
 
                 {demoHintCode && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 flex flex-wrap items-center justify-between gap-3">
+                  <div className="rounded-2xl border border-[#C8F62D]/35 bg-[#C8F62D]/10 p-3.5 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <div className="text-xs font-medium text-emerald-900">
+                      <div className="text-xs font-medium text-[#E7FAC4]">
                         Code OTP visible (version prototype)
                       </div>
-                      <div className="mt-1 font-mono text-2xl font-bold tracking-[0.2em] tabular-nums text-emerald-950">
+                      <div className="mt-1 font-mono text-2xl font-bold tracking-[0.2em] tabular-nums text-[#C8F62D]">
                         {demoHintCode}
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => setOtpCode(demoHintCode)}
-                      className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 min-h-[38px]"
+                      className="rounded-full bg-[#C8F62D] px-3.5 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[38px]"
                     >
                       Utiliser ce code
                     </button>
@@ -678,7 +898,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {otpRequested && (
                   <>
                     <div>
-                      <label htmlFor="otp-code" className="block text-xs font-medium text-neutral-700 mb-1.5">
+                      <label htmlFor="otp-code" className="block text-xs font-medium text-[#B4BCA9] mb-1.5">
                         Saisissez le code OTP à 6 chiffres
                       </label>
                       <input
@@ -690,13 +910,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         value={otpCode}
                         onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                         placeholder="000000"
-                        className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 font-mono text-base tracking-[0.2em] tabular-nums min-h-[44px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3.5 py-2.5 font-mono text-base tracking-[0.2em] tabular-nums min-h-[44px]"
                       />
                     </div>
                     <button
                       type="submit"
                       disabled={loading}
-                      className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-semibold text-white hover:bg-neutral-800 min-h-[44px]"
+                      className="w-full rounded-full bg-[#C8F62D] py-3 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[44px]"
                     >
                       {loading ? 'Connexion...' : 'Valider et me connecter'}
                     </button>
@@ -705,7 +925,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </form>
             )}
 
-            <div className="border-t border-neutral-200 pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-neutral-600">
+            <div className="border-t border-white/[0.08] pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#B4BCA9]">
               <span>
                 Pas encore de compte ?{' '}
                 <button
@@ -715,7 +935,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     setAccountNotFound(false);
                     setError(null);
                   }}
-                  className="font-semibold text-neutral-900 underline"
+                  className="font-semibold text-[#F5F7F1] underline"
                 >
                   Créer un compte
                 </button>
@@ -724,7 +944,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <button
                   type="button"
                   onClick={onOpenPartners}
-                  className="inline-flex items-center gap-1 font-medium text-emerald-800 hover:underline"
+                  className="inline-flex items-center gap-1 font-medium text-[#C8F62D] hover:underline"
                 >
                   <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>Espace Partenaire (ASC / Campus)</span>
@@ -737,19 +957,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {mode === 'register' && (
           <div className="mt-5 space-y-5">
             {/* Role selector for registration */}
-            <div className="grid grid-cols-2 gap-2 rounded-xl bg-neutral-100 p-1">
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/[0.08] bg-[#181D15] p-1">
               <button
                 type="button"
                 onClick={() => {
                   setRegAccountType('athlete');
                   setError(null);
                 }}
-                className={`rounded-lg px-3 py-2 text-left transition-colors min-h-[44px] ${
-                  regAccountType === 'athlete' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                className={`rounded-xl px-3 py-2 text-left transition-colors min-h-[44px] ${
+                  regAccountType === 'athlete' ? 'bg-[#C8F62D] text-[#080A07]' : 'text-[#B4BCA9] hover:text-[#F5F7F1]'
                 }`}
               >
-                <div className="text-xs font-semibold">Jeune Sportif</div>
-                <div className="text-[11px] text-neutral-500">Essentiel 0 F · Progression+ · Coach</div>
+                <div className="text-xs font-bold">Jeune Sportif</div>
+                <div className={`text-[11px] ${regAccountType === 'athlete' ? 'text-[#080A07]/75' : 'text-[#8E9784]'}`}>
+                  Essentiel 0 F · Progression+ · Coach
+                </div>
               </button>
               <button
                 type="button"
@@ -757,24 +979,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setRegAccountType('coach');
                   setError(null);
                 }}
-                className={`rounded-lg px-3 py-2 text-left transition-colors min-h-[44px] ${
-                  regAccountType === 'coach' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                className={`rounded-xl px-3 py-2 text-left transition-colors min-h-[44px] ${
+                  regAccountType === 'coach' ? 'bg-[#C8F62D] text-[#080A07]' : 'text-[#B4BCA9] hover:text-[#F5F7F1]'
                 }`}
               >
-                <div className="text-xs font-semibold">Coach Prépa</div>
-                <div className="text-[11px] text-neutral-500">Inscription gratuite · 0 FCFA</div>
+                <div className="text-xs font-bold">Coach Prépa</div>
+                <div className={`text-[11px] ${regAccountType === 'coach' ? 'text-[#080A07]/75' : 'text-[#8E9784]'}`}>
+                  Inscription gratuite · 0 FCFA
+                </div>
               </button>
             </div>
 
             {onOpenPartners && (
-              <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="text-neutral-600">
+              <div className="rounded-xl border border-white/[0.08] bg-[#181D15] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="text-[#B4BCA9]">
                   Vous représentez une ASC, un Campus ou une Ligue ?
                 </span>
                 <button
                   type="button"
                   onClick={onOpenPartners}
-                  className="font-semibold text-[#0D3B2A] underline hover:text-neutral-900"
+                  className="font-semibold text-[#C8F62D] underline hover:text-[#D7FA59]"
                 >
                   Inscrire un partenaire
                 </button>
@@ -783,7 +1007,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             {regAccountType === 'athlete' ? (
               <form onSubmit={handleAthleteRegisterSubmit} className="space-y-5">
-                <div className="flex items-center justify-between text-xs text-neutral-500">
+                <div className="flex items-center justify-between text-xs text-[#8E9784]">
                   <span>
                     {regStep === 1
                       ? '1. Choix du sport'
@@ -791,12 +1015,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         ? '2. Identité et profil physique'
                         : '3. Privilège Jeunes & sécurité'}
                   </span>
-                  <span className="font-mono tabular-nums">Étape {regStep}/3</span>
+                  <span className="font-mono tabular-nums text-[#C8F62D]">Étape {regStep}/3</span>
                 </div>
 
                 {regStep === 1 && (
                   <div className="space-y-3">
-                    <p className="text-sm text-neutral-600">
+                    <p className="text-sm text-[#B4BCA9]">
                       Votre sport adapte votre interface, vos tests physiques et votre programme (100 % gratuit).
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -808,17 +1032,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                             key={code}
                             type="button"
                             onClick={() => setSportCode(code)}
-                            className={`flex items-center justify-between rounded-xl border p-3.5 text-left transition-colors min-h-[60px] ${
+                            className={`flex items-center justify-between rounded-2xl border p-3.5 text-left transition-colors min-h-[60px] ${
                               selected
-                                ? 'border-neutral-900 bg-neutral-50'
-                                : 'border-neutral-200 hover:border-neutral-300'
+                                ? 'border-[#C8F62D] bg-[#C8F62D]/10'
+                                : 'border-white/[0.08] bg-[#181D15] hover:border-white/20'
                             }`}
                           >
                             <div>
-                              <div className="text-sm font-semibold text-neutral-900">{sp.nom}</div>
-                              <div className="text-xs text-neutral-500 mt-0.5">{sp.subtitle}</div>
+                              <div className="text-sm font-semibold text-[#F5F7F1]">{sp.nom}</div>
+                              <div className="text-xs text-[#8E9784] mt-0.5">{sp.subtitle}</div>
                             </div>
-                            {selected && <Check className="h-5 w-5 text-neutral-900 shrink-0" />}
+                            {selected && <Check className="h-5 w-5 text-[#C8F62D] shrink-0" />}
                           </button>
                         );
                       })}
@@ -826,7 +1050,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <button
                       type="button"
                       onClick={() => setRegStep(2)}
-                      className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-semibold text-white hover:bg-neutral-800 min-h-[44px]"
+                      className="w-full rounded-full bg-[#C8F62D] py-3 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[44px]"
                     >
                       Continuer avec {SPORTS_CONFIG[sportCode].nom}
                     </button>
@@ -837,64 +1061,64 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   <div className="space-y-3.5">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Prénom *</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Prénom *</label>
                         <input
                           type="text"
                           required
                           value={prenom}
                           onChange={(e) => setPrenom(e.target.value)}
-                          className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Nom *</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Nom *</label>
                         <input
                           type="text"
                           required
                           value={nom}
                           onChange={(e) => setNom(e.target.value)}
-                          className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                         />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Téléphone (+221) *</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Téléphone (+221) *</label>
                         <input
                           type="tel"
                           required
                           value={telephone}
                           onChange={(e) => setTelephone(e.target.value)}
                           placeholder="+221771234567"
-                          className="w-full rounded-xl border border-neutral-300 px-3 py-2 font-mono text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 font-mono text-sm min-h-[44px]"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Adresse email *</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Adresse email *</label>
                         <input
                           type="email"
                           required
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                         />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Date de naissance *</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Date de naissance *</label>
                         <input
                           type="date"
                           required
                           value={dateNaissance}
                           onChange={(e) => setDateNaissance(e.target.value)}
-                          className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Poids (kg) *</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Poids (kg) *</label>
                         <input
                           type="number"
                           step="0.1"
@@ -903,29 +1127,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           required
                           value={poidsKg}
                           onChange={(e) => setPoidsKg(e.target.value)}
-                          className="w-full rounded-xl border border-neutral-300 px-3 py-2 font-mono text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 font-mono text-sm min-h-[44px]"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Taille (cm)</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Taille (cm)</label>
                         <input
                           type="number"
                           min={110}
                           max={230}
                           value={tailleCm}
                           onChange={(e) => setTailleCm(e.target.value)}
-                          className="w-full rounded-xl border border-neutral-300 px-3 py-2 font-mono text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 font-mono text-sm min-h-[44px]"
                         />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Niveau *</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Niveau *</label>
                         <select
                           value={niveau}
                           onChange={(e) => setNiveau(e.target.value as AthleteLevel)}
-                          className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                         >
                           <option value="debutant">Débutant</option>
                           <option value="intermediaire">Intermédiaire</option>
@@ -933,11 +1157,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Poste / Rôle</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Poste / Rôle</label>
                         <select
                           value={poste}
                           onChange={(e) => setPoste(e.target.value)}
-                          className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                         >
                           <option value="">Non précisé</option>
                           {SPORTS_CONFIG[sportCode].positions.map((pos) => (
@@ -948,11 +1172,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-neutral-700 mb-1">Langue consignes</label>
+                        <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Langue consignes</label>
                         <select
                           value={langue}
                           onChange={(e) => setLangue(e.target.value as 'fr' | 'wo')}
-                          className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm min-h-[44px]"
+                          className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                         >
                           <option value="fr">Français</option>
                           <option value="wo">Wolof + Français</option>
@@ -961,7 +1185,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
                         Mot de passe (8 caractères min., lettres et chiffres) *
                       </label>
                       <input
@@ -971,7 +1195,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         required
                         value={regPassword}
                         onChange={(e) => setRegPassword(e.target.value)}
-                        className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                       />
                     </div>
 
@@ -979,7 +1203,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setRegStep(1)}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 min-h-[44px]"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-[#181D15] px-4 py-2.5 text-sm font-medium text-[#F5F7F1] hover:bg-[#22291E] min-h-[44px]"
                       >
                         <ArrowLeft className="h-4 w-4" />
                         <span>Retour</span>
@@ -1001,7 +1225,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           setError(null);
                           setRegStep(3);
                         }}
-                        className="rounded-xl bg-neutral-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-neutral-800 min-h-[44px]"
+                        className="rounded-full bg-[#C8F62D] px-6 py-2.5 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[44px]"
                       >
                         Étape suivante
                       </button>
@@ -1012,12 +1236,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {regStep === 3 && (
                   <div className="space-y-4">
                     {/* 3-Tier Freemium Athlete Plan Selection */}
-                    <div className="rounded-xl border border-neutral-200 bg-[#F7F7F5] p-4 space-y-3">
+                    <div className="rounded-2xl obsidian-inset p-4 space-y-3">
                       <div>
-                        <div className="text-xs font-semibold text-neutral-900">
+                        <div className="text-xs font-semibold text-[#F5F7F1]">
                           Choisissez votre formule d’entraînement
                         </div>
-                        <p className="text-[11px] text-neutral-600 mt-0.5">
+                        <p className="text-[11px] text-[#B4BCA9] mt-0.5">
                           Toutes vos bases sportives et le signalement douleur sont gratuits à vie. Vous pouvez faire évoluer votre formule à tout moment.
                         </p>
                       </div>
@@ -1032,15 +1256,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           }}
                           className={`rounded-xl border p-3 text-left transition-colors ${
                             selectedPlanTier === 'ESSENTIEL'
-                              ? 'border-neutral-900 bg-white'
-                              : 'border-neutral-200 bg-white/60 hover:bg-white'
+                              ? 'border-[#C8F62D] bg-[#C8F62D]/10'
+                              : 'border-white/[0.08] bg-[#121610] hover:border-white/20'
                           }`}
                         >
                           <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-semibold text-neutral-900">Essentiel</span>
-                            <span className="font-mono text-xs font-bold text-emerald-800">0 F</span>
+                            <span className="text-xs font-semibold text-[#F5F7F1]">Essentiel</span>
+                            <span className="font-mono text-xs font-bold text-[#C8F62D]">0 F</span>
                           </div>
-                          <div className="mt-1 text-[11px] text-neutral-600">
+                          <div className="mt-1 text-[11px] text-[#B4BCA9]">
                             Programme, séances FR/Wolof, 2 téléchargements hors ligne.
                           </div>
                         </button>
@@ -1054,15 +1278,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           }}
                           className={`rounded-xl border p-3 text-left transition-colors ${
                             selectedPlanTier === 'PROGRESSION'
-                              ? 'border-amber-600 bg-amber-50/70'
-                              : 'border-neutral-200 bg-white/60 hover:bg-white'
+                              ? 'border-orange-400 bg-orange-400/10'
+                              : 'border-white/[0.08] bg-[#121610] hover:border-white/20'
                           }`}
                         >
                           <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-semibold text-neutral-900">Progression+</span>
-                            <span className="font-mono text-xs font-bold text-amber-800">1 500 F</span>
+                            <span className="text-xs font-semibold text-[#F5F7F1]">Progression+</span>
+                            <span className="font-mono text-xs font-bold text-orange-300">1 500 F</span>
                           </div>
-                          <div className="mt-1 text-[11px] text-neutral-600">
+                          <div className="mt-1 text-[11px] text-[#B4BCA9]">
                             Cycles spécialisés, hors-ligne illimité & bilans comparés.
                           </div>
                         </button>
@@ -1078,15 +1302,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           }}
                           className={`rounded-xl border p-3 text-left transition-colors ${
                             selectedPlanTier === 'COACH_PRIVE'
-                              ? 'border-[#0D3B2A] bg-emerald-50/60'
-                              : 'border-neutral-200 bg-white/60 hover:bg-white'
+                              ? 'border-[#C8F62D] bg-[#C8F62D]/10'
+                              : 'border-white/[0.08] bg-[#121610] hover:border-white/20'
                           }`}
                         >
                           <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-semibold text-neutral-900">Suivi Coach</span>
-                            <span className="font-mono text-xs font-bold text-[#0D3B2A]">5 000 F</span>
+                            <span className="text-xs font-semibold text-[#F5F7F1]">Suivi Coach</span>
+                            <span className="font-mono text-xs font-bold text-[#C8F62D]">5 000 F</span>
                           </div>
-                          <div className="mt-1 text-[11px] text-neutral-600">
+                          <div className="mt-1 text-[11px] text-[#B4BCA9]">
                             Progression+ inclus + coach personnel qui ajuste vos séances.
                           </div>
                         </button>
@@ -1098,10 +1322,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                             <button
                               type="button"
                               onClick={() => setBillingCycle('MENSUEL')}
-                              className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium ${
+                              className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold ${
                                 billingCycle === 'MENSUEL'
-                                  ? 'border-neutral-900 bg-white text-neutral-900'
-                                  : 'border-neutral-200 text-neutral-600'
+                                  ? 'border-orange-400 bg-orange-400/15 text-[#F5F7F1]'
+                                  : 'border-white/10 text-[#B4BCA9]'
                               }`}
                             >
                               1 500 FCFA / mois
@@ -1109,24 +1333,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                             <button
                               type="button"
                               onClick={() => setBillingCycle('TRIMESTRIEL')}
-                              className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium ${
+                              className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold ${
                                 billingCycle === 'TRIMESTRIEL'
-                                  ? 'border-neutral-900 bg-white text-neutral-900'
-                                  : 'border-neutral-200 text-neutral-600'
+                                  ? 'border-orange-400 bg-orange-400/15 text-[#F5F7F1]'
+                                  : 'border-white/10 text-[#B4BCA9]'
                               }`}
                             >
                               4 000 FCFA / trimestre (-11 %)
                             </button>
                           </div>
-                          <label className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-white p-3 cursor-pointer">
+                          <label className="flex items-start gap-2.5 rounded-xl border border-orange-400/30 bg-[#121610] p-3 cursor-pointer">
                             <input
                               type="checkbox"
                               checked={confirmPlanChoice}
                               onChange={(e) => setConfirmPlanChoice(e.target.checked)}
-                              className="mt-0.5 h-4 w-4 accent-amber-600"
+                              className="mt-0.5 h-4 w-4 accent-[#C8F62D]"
                             />
-                            <span className="text-[11px] text-neutral-700 leading-relaxed">
-                              Je confirme la formule <strong>Progression+</strong> ({billingCycle === 'TRIMESTRIEL' ? '4 000 FCFA / trimestre' : '1 500 FCFA / mois'}), résiliable à tout moment.
+                            <span className="text-[11px] text-[#B4BCA9] leading-relaxed">
+                              Je confirme la formule <strong className="text-[#F5F7F1]">Progression+</strong> ({billingCycle === 'TRIMESTRIEL' ? '4 000 FCFA / trimestre' : '1 500 FCFA / mois'}), résiliable à tout moment.
                             </span>
                           </label>
                         </div>
@@ -1134,13 +1358,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                       {selectedPlanTier === 'COACH_PRIVE' && (
                         <div className="space-y-2.5 pt-1">
-                          <div className="text-xs font-medium text-neutral-800">
+                          <div className="text-xs font-medium text-[#F5F7F1]">
                             Choisissez votre Coach Prépa (5 000 FCFA / mois · 80 % reversés au coach) :
                           </div>
                           {loadingCoaches ? (
-                            <div className="text-xs text-neutral-500">Chargement des coachs disponibles...</div>
+                            <div className="text-xs text-[#8E9784]">Chargement des coachs disponibles...</div>
                           ) : availableCoaches.length === 0 ? (
-                            <div className="text-xs text-amber-800">
+                            <div className="text-xs text-amber-300">
                               Aucun coach vérifié disponible pour l’instant. Choisissez Essentiel ou Progression+ pour commencer.
                             </div>
                           ) : (
@@ -1154,23 +1378,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                                     onClick={() => setSelectedCoachId(c.id)}
                                     className={`w-full rounded-xl border p-3 text-left flex items-center justify-between gap-3 ${
                                       isChosen
-                                        ? 'border-neutral-900 bg-white'
-                                        : 'border-neutral-200 bg-white/70 hover:bg-white'
+                                        ? 'border-[#C8F62D] bg-[#C8F62D]/10'
+                                        : 'border-white/[0.08] bg-[#121610] hover:border-white/20'
                                     }`}
                                   >
                                     <div className="min-w-0">
-                                      <div className="text-xs font-semibold text-neutral-900">
+                                      <div className="text-xs font-semibold text-[#F5F7F1]">
                                         {c.prenom} {c.nom} · {c.zone}
                                       </div>
-                                      <div className="text-[11px] text-neutral-600 truncate">
+                                      <div className="text-[11px] text-[#8E9784] truncate">
                                         {c.specialite} · {c.qualification}
                                       </div>
                                     </div>
                                     <div className="text-right shrink-0">
-                                      <div className="font-mono text-xs font-bold text-[#0D3B2A]">
+                                      <div className="font-mono text-xs font-bold text-[#C8F62D]">
                                         {c.athlete_monthly_fee_fcfa.toLocaleString('fr-FR')} F/mois
                                       </div>
-                                      {isChosen && <Check className="h-4 w-4 text-neutral-900 ml-auto mt-0.5" />}
+                                      {isChosen && <Check className="h-4 w-4 text-[#C8F62D] ml-auto mt-0.5" />}
                                     </div>
                                   </button>
                                 );
@@ -1179,15 +1403,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           )}
 
                           {selectedCoachId && (
-                            <label className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-white p-3 cursor-pointer">
+                            <label className="flex items-start gap-2.5 rounded-xl border border-[#C8F62D]/30 bg-[#121610] p-3 cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={confirmPlanChoice}
                                 onChange={(e) => setConfirmPlanChoice(e.target.checked)}
-                                className="mt-0.5 h-4 w-4 accent-[#0D3B2A]"
+                                className="mt-0.5 h-4 w-4 accent-[#C8F62D]"
                               />
-                              <span className="text-[11px] text-neutral-700 leading-relaxed">
-                                Je confirme mon choix de suivi coach Privilège Jeunes à <strong>5 000 FCFA / mois</strong> (inclut tous les modules Progression+, résiliable à tout moment).
+                              <span className="text-[11px] text-[#B4BCA9] leading-relaxed">
+                                Je confirme mon choix de suivi coach Privilège Jeunes à <strong className="text-[#F5F7F1]">5 000 FCFA / mois</strong> (inclut tous les modules Progression+, résiliable à tout moment).
                               </span>
                             </label>
                           )}
@@ -1196,8 +1420,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </div>
 
                     {isMinor && (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-                        <div className="text-xs font-semibold text-amber-900">
+                      <div className="rounded-2xl border border-amber-400/35 bg-amber-950/45 p-4 space-y-3">
+                        <div className="text-xs font-semibold text-amber-200">
                           Athlète mineur : accord d’un responsable légal obligatoire (visibilité privée par défaut)
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1207,7 +1431,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                             placeholder="Nom complet du parent / tuteur"
                             value={parentalName}
                             onChange={(e) => setParentalName(e.target.value)}
-                            className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm min-h-[44px]"
+                            className="rounded-xl border border-amber-400/30 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                           />
                           <input
                             type="tel"
@@ -1215,32 +1439,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                             placeholder="+22177..."
                             value={parentalPhone}
                             onChange={(e) => setParentalPhone(e.target.value)}
-                            className="rounded-xl border border-amber-300 bg-white px-3 py-2 font-mono text-sm min-h-[44px]"
+                            className="rounded-xl border border-amber-400/30 bg-[#181D15] text-[#F5F7F1] px-3 py-2 font-mono text-sm min-h-[44px]"
                           />
                         </div>
                       </div>
                     )}
 
-                    <label className="flex items-start gap-3 rounded-xl border border-neutral-200 p-3.5 cursor-pointer">
+                    <label className="flex items-start gap-3 rounded-xl border border-white/[0.08] bg-[#181D15] p-3.5 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={consentSensible}
                         onChange={(e) => setConsentSensible(e.target.checked)}
-                        className="mt-1 h-4 w-4 accent-neutral-900"
+                        className="mt-1 h-4 w-4 accent-[#C8F62D]"
                       />
-                      <span className="text-xs text-neutral-700 leading-relaxed">
+                      <span className="text-xs text-[#B4BCA9] leading-relaxed">
                         J’accepte la collecte minimale de mes données de suivi physique (poids, évaluations, ressenti, douleurs), accessibles uniquement à moi et au coach que je choisis, sans partage commercial.
                       </span>
                     </label>
 
-                    <label className="flex items-start gap-3 rounded-xl border border-neutral-200 p-3.5 cursor-pointer">
+                    <label className="flex items-start gap-3 rounded-xl border border-white/[0.08] bg-[#181D15] p-3.5 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={consentNonMedical}
                         onChange={(e) => setConsentNonMedical(e.target.checked)}
-                        className="mt-1 h-4 w-4 accent-neutral-900"
+                        className="mt-1 h-4 w-4 accent-[#C8F62D]"
                       />
-                      <span className="text-xs text-neutral-700 leading-relaxed">
+                      <span className="text-xs text-[#B4BCA9] leading-relaxed">
                         J’ai compris que Terrain+ propose une préparation physique générale et ne remplace ni un coach diplômé en présentiel ni un avis médical. En cas de douleur, j’arrête la pratique et consulte un professionnel de santé.
                       </span>
                     </label>
@@ -1249,7 +1473,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setRegStep(2)}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 min-h-[44px]"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-[#181D15] px-4 py-2.5 text-sm font-medium text-[#F5F7F1] hover:bg-[#22291E] min-h-[44px]"
                       >
                         <ArrowLeft className="h-4 w-4" />
                         <span>Retour</span>
@@ -1257,7 +1481,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       <button
                         type="submit"
                         disabled={loading}
-                        className="rounded-xl bg-neutral-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-50 min-h-[44px]"
+                        className="rounded-full bg-[#C8F62D] px-6 py-2.5 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[44px]"
                       >
                         {loading ? 'Création...' : 'Créer et recevoir le code'}
                       </button>
@@ -1268,47 +1492,47 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             ) : (
               /* Coach Registration Form (Zero-Friction Marketplace 0 FCFA vs Coach Pro) */
               <form onSubmit={handleCoachRegisterSubmit} className="space-y-4">
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 space-y-2.5">
+                <div className="rounded-2xl border border-[#C8F62D]/30 bg-[#C8F62D]/[0.07] p-3.5 space-y-2.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-semibold text-emerald-950">
+                    <span className="text-xs font-semibold text-[#F5F7F1]">
                       Choisissez votre modèle Coach Prépa
                     </span>
-                    <span className="font-mono text-xs font-bold text-emerald-900">0 FCFA à l’entrée</span>
+                    <span className="font-mono text-xs font-bold text-[#C8F62D]">0 FCFA à l’entrée</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setCoachPlan('MARKETPLACE')}
-                      className={`rounded-lg border p-2.5 text-left ${
+                      className={`rounded-xl border p-2.5 text-left ${
                         coachPlan === 'MARKETPLACE'
-                          ? 'border-neutral-900 bg-white'
-                          : 'border-emerald-200 bg-white/60 hover:bg-white'
+                          ? 'border-[#C8F62D] bg-[#121610]'
+                          : 'border-white/10 bg-[#121610]/60 hover:border-white/25'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-1 text-xs font-semibold text-neutral-900">
+                      <div className="flex items-center justify-between gap-1 text-xs font-semibold text-[#F5F7F1]">
                         <span>Marketplace</span>
-                        <span className="font-mono text-emerald-800">0 F / mois</span>
+                        <span className="font-mono text-[#C8F62D]">0 F / mois</span>
                       </div>
-                      <p className="mt-1 text-[11px] text-neutral-600">
-                        Inscription gratuite. Vous percevez <strong>4 000 F (80 %)</strong> par athlète suivi.
+                      <p className="mt-1 text-[11px] text-[#B4BCA9]">
+                        Inscription gratuite. Vous percevez <strong className="text-[#F5F7F1]">4 000 F (80 %)</strong> par athlète suivi.
                       </p>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setCoachPlan('COACH_PRO')}
-                      className={`rounded-lg border p-2.5 text-left ${
+                      className={`rounded-xl border p-2.5 text-left ${
                         coachPlan === 'COACH_PRO'
-                          ? 'border-[#0D3B2A] bg-white'
-                          : 'border-emerald-200 bg-white/60 hover:bg-white'
+                          ? 'border-[#C8F62D] bg-[#121610]'
+                          : 'border-white/10 bg-[#121610]/60 hover:border-white/25'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-1 text-xs font-semibold text-neutral-900">
+                      <div className="flex items-center justify-between gap-1 text-xs font-semibold text-[#F5F7F1]">
                         <span>Coach Pro</span>
-                        <span className="font-mono text-[#0D3B2A]">3 000 F / mois</span>
+                        <span className="font-mono text-[#C8F62D]">3 000 F / mois</span>
                       </div>
-                      <p className="mt-1 text-[11px] text-neutral-600">
-                        Licence fixe à <strong>0 % commission</strong> : vous conservez 5 000 F / athlète.
+                      <p className="mt-1 text-[11px] text-[#B4BCA9]">
+                        Licence fixe à <strong className="text-[#F5F7F1]">0 % commission</strong> : vous conservez 5 000 F / athlète.
                       </p>
                     </button>
                   </div>
@@ -1316,79 +1540,79 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Prénom *</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Prénom *</label>
                     <input
                       type="text"
                       required
                       value={prenom}
                       onChange={(e) => setPrenom(e.target.value)}
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Nom *</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Nom *</label>
                     <input
                       type="text"
                       required
                       value={nom}
                       onChange={(e) => setNom(e.target.value)}
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Téléphone (+221) *</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Téléphone (+221) *</label>
                     <input
                       type="tel"
                       required
                       value={telephone}
                       onChange={(e) => setTelephone(e.target.value)}
                       placeholder="+221771234567"
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2 font-mono text-sm min-h-[44px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 font-mono text-sm min-h-[44px]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Adresse email *</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Adresse email *</label>
                     <input
                       type="email"
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Date de naissance (18+) *</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Date de naissance (18+) *</label>
                     <input
                       type="date"
                       required
                       value={coachDateNaissance}
                       onChange={(e) => setCoachDateNaissance(e.target.value)}
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Zone / Ville *</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Zone / Ville *</label>
                     <input
                       type="text"
                       required
                       value={coachZone}
                       onChange={(e) => setCoachZone(e.target.value)}
                       placeholder="Ex: Dakar, Thiès"
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Langue</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Langue</label>
                     <select
                       value={langue}
                       onChange={(e) => setLangue(e.target.value as 'fr' | 'wo')}
-                      className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm min-h-[44px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                     >
                       <option value="fr">Français</option>
                       <option value="wo">Wolof + Français</option>
@@ -1398,44 +1622,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Spécialité sportive *</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Spécialité sportive *</label>
                     <input
                       type="text"
                       required
                       value={coachSpecialite}
                       onChange={(e) => setCoachSpecialite(e.target.value)}
                       placeholder="Ex: Football & Prépa athlétique"
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Intitulé de qualification *</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Intitulé de qualification *</label>
                     <input
                       type="text"
                       required
                       value={coachQualification}
                       onChange={(e) => setCoachQualification(e.target.value)}
                       placeholder="Ex: Licence C CAF / Licence STAPS"
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                     />
                   </div>
                 </div>
 
                 {/* Official Sport Diploma Format & Document Study Upload */}
-                <div className="rounded-xl border border-neutral-200 bg-[#F7F7F5] p-4 space-y-3">
+                <div className="rounded-2xl obsidian-inset p-4 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="text-xs font-semibold text-neutral-900">
+                      <div className="text-xs font-semibold text-[#F5F7F1]">
                         Diplôme officiel & étude documentaire (obligatoire avant activation)
                       </div>
-                      <p className="text-[11px] text-neutral-600 mt-0.5">
+                      <p className="text-[11px] text-[#8E9784] mt-0.5">
                         Votre document est pré-analysé puis vérifié par l’administrateur avant votre première connexion.
                       </p>
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">Format du diplôme sportif *</label>
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Format du diplôme sportif *</label>
                     <select
                       value={diplomaType}
                       onChange={(e) => {
@@ -1446,7 +1670,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           setIssuingOrganism(spec.acceptedOrganisms[0]);
                         }
                       }}
-                      className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs min-h-[42px]"
+                      className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 text-xs min-h-[42px]"
                     >
                       {SPORT_DIPLOMA_LIST.map((spec) => (
                         <option key={spec.code} value={spec.code}>
@@ -1454,7 +1678,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         </option>
                       ))}
                     </select>
-                    <p className="mt-1 text-[11px] text-neutral-500">
+                    <p className="mt-1 text-[11px] text-[#8E9784]">
                       {SPORT_DIPLOMA_FORMATS[diplomaType].summary} Organismes :{' '}
                       {SPORT_DIPLOMA_FORMATS[diplomaType].acceptedOrganisms.join(', ')}.
                     </p>
@@ -1462,29 +1686,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">Organisme émetteur *</label>
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Organisme émetteur *</label>
                       <input
                         type="text"
                         required
                         value={issuingOrganism}
                         onChange={(e) => setIssuingOrganism(e.target.value)}
                         placeholder="Ex: FSF / INSEPS"
-                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs min-h-[40px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 text-xs min-h-[40px]"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">N° de diplôme / licence *</label>
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">N° de diplôme / licence *</label>
                       <input
                         type="text"
                         required
                         value={diplomaNumber}
                         onChange={(e) => setDiplomaNumber(e.target.value)}
                         placeholder="CAF-C-SN-2024-0815"
-                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">Année d’obtention *</label>
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Année d’obtention *</label>
                       <input
                         type="number"
                         required
@@ -1492,24 +1716,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         max={new Date().getFullYear()}
                         value={issueYear}
                         onChange={(e) => setIssueYear(e.target.value)}
-                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
                       />
                     </div>
                   </div>
-                  <p className="text-[11px] font-mono text-neutral-500">
+                  <p className="text-[11px] font-mono text-[#8E9784]">
                     {SPORT_DIPLOMA_FORMATS[diplomaType].formatExample}
                   </p>
 
                   <div>
-                    <label className="block text-xs font-medium text-neutral-700 mb-1">
+                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
                       Copie scannée ou PDF du diplôme (PDF, JPG, PNG ou WEBP · max 3 Mo) *
                     </label>
-                    <label className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-neutral-300 bg-white px-3.5 py-3 cursor-pointer hover:border-neutral-900">
-                      <span className="flex items-center gap-2.5 min-w-0 text-xs text-neutral-700">
+                    <label className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-white/20 bg-[#121610] px-3.5 py-3 cursor-pointer hover:border-[#C8F62D]/60">
+                      <span className="flex items-center gap-2.5 min-w-0 text-xs text-[#B4BCA9]">
                         {diplomaFile ? (
-                          <FileText className="h-4 w-4 text-emerald-700 shrink-0" aria-hidden="true" />
+                          <FileText className="h-4 w-4 text-[#C8F62D] shrink-0" aria-hidden="true" />
                         ) : (
-                          <Upload className="h-4 w-4 text-neutral-500 shrink-0" aria-hidden="true" />
+                          <Upload className="h-4 w-4 text-[#8E9784] shrink-0" aria-hidden="true" />
                         )}
                         <span className="truncate">
                           {diplomaFile
@@ -1517,7 +1741,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                             : 'Sélectionner votre diplôme ou attestation fédérale'}
                         </span>
                       </span>
-                      <span className="text-[11px] font-semibold text-neutral-900 shrink-0">
+                      <span className="text-[11px] font-semibold text-[#C8F62D] shrink-0">
                         {diplomaFile ? 'Changer' : 'Parcourir'}
                       </span>
                       <input
@@ -1531,19 +1755,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
 
                 {/* Regulatory Compliance: Carte Pro, RC Pro, Legal Status & Honorability */}
-                <div className="rounded-xl border border-neutral-200 bg-[#F7F7F5] p-4 space-y-3">
+                <div className="rounded-2xl obsidian-inset p-4 space-y-3">
                   <div>
-                    <div className="text-xs font-semibold text-neutral-900">
+                    <div className="text-xs font-semibold text-[#F5F7F1]">
                       Conformité réglementaire d’exercice (Éducateur sportif)
                     </div>
-                    <p className="text-[11px] text-neutral-600 mt-0.5">
+                    <p className="text-[11px] text-[#8E9784] mt-0.5">
                       Carte professionnelle (renouvellement 5 ans), assurance RC Pro et immatriculation juridique obligatoires pour encadrer contre rémunération.
                     </p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
                         N° Carte professionnelle *
                       </label>
                       <input
@@ -1552,11 +1776,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         value={proCardNumber}
                         onChange={(e) => setProCardNumber(e.target.value)}
                         placeholder="Ex: CPRO-SN-2025-1104"
-                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
                         Validité carte pro (5 ans) *
                       </label>
                       <input
@@ -1564,14 +1788,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         required
                         value={proCardExpiry}
                         onChange={(e) => setProCardExpiry(e.target.value)}
-                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
                         Assureur RC Pro *
                       </label>
                       <input
@@ -1580,11 +1804,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         value={rcProInsurer}
                         onChange={(e) => setRcProInsurer(e.target.value)}
                         placeholder="Ex: AXA, Allianz, Amsa Sport"
-                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs min-h-[40px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 text-xs min-h-[40px]"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
                         N° Police RC Pro *
                       </label>
                       <input
@@ -1593,20 +1817,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         value={rcProPolicyNumber}
                         onChange={(e) => setRcProPolicyNumber(e.target.value)}
                         placeholder="Ex: RCP-2025-88412"
-                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
                         Statut juridique *
                       </label>
                       <select
                         value={legalStatus}
                         onChange={(e) => setLegalStatus(e.target.value as CoachLegalStatusCode)}
-                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs min-h-[40px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 text-xs min-h-[40px]"
                       >
                         {COACH_LEGAL_STATUS_OPTIONS.map((opt) => (
                           <option key={opt.code} value={opt.code}>
@@ -1616,7 +1840,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-neutral-700 mb-1">
+                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
                         Immatriculation (SIRET / NINEA / RNA) *
                       </label>
                       <input
@@ -1628,26 +1852,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           COACH_LEGAL_STATUS_OPTIONS.find((o) => o.code === legalStatus)?.idHint ||
                           'N° SIRET / NINEA'
                         }
-                        className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 font-mono text-xs min-h-[40px]"
+                        className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
                       />
                     </div>
                   </div>
 
-                  <label className="flex items-start gap-3 rounded-xl border border-neutral-200 bg-white p-3 cursor-pointer">
+                  <label className="flex items-start gap-3 rounded-xl border border-white/[0.08] bg-[#121610] p-3 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={honorabilityAttested}
                       onChange={(e) => setHonorabilityAttested(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 accent-neutral-900"
+                      className="mt-0.5 h-4 w-4 accent-[#C8F62D]"
                     />
-                    <span className="text-[11px] text-neutral-700 leading-relaxed">
+                    <span className="text-[11px] text-[#B4BCA9] leading-relaxed">
                       J’atteste sur l’honneur satisfaire aux conditions d’honorabilité (aucune condamnation incompatible avec l’encadrement sportif et l’accompagnement de mineurs) et disposer d’une carte professionnelle valide.
                     </span>
                   </label>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-neutral-700 mb-1">
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
                     Mot de passe (8 caractères min., lettres et chiffres) *
                   </label>
                   <input
@@ -1657,38 +1881,38 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     required
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
-                    className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm min-h-[44px]"
+                    className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
                   />
                 </div>
 
-                <label className="flex items-start gap-3 rounded-xl border border-neutral-200 p-3 cursor-pointer">
+                <label className="flex items-start gap-3 rounded-xl border border-white/[0.08] bg-[#181D15] p-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={confirmCoachPlan}
                     onChange={(e) => setConfirmCoachPlan(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 accent-neutral-900"
+                    className="mt-0.5 h-4 w-4 accent-[#C8F62D]"
                   />
-                  <span className="text-xs text-neutral-700 leading-relaxed">
+                  <span className="text-xs text-[#B4BCA9] leading-relaxed">
                     {coachPlan === 'COACH_PRO' ? (
                       <>
-                        Je choisis la licence <strong>Coach Pro (3 000 FCFA / mois)</strong> avec 0 % de commission sur mes athlètes suivis.
+                        Je choisis la licence <strong className="text-[#F5F7F1]">Coach Pro (3 000 FCFA / mois)</strong> avec 0 % de commission sur mes athlètes suivis.
                       </>
                     ) : (
                       <>
-                        J’active mon profil <strong>Coach Marketplace (0 FCFA / mois fixe)</strong> et accepte le partage 80 % Coach (4 000 F) / 20 % Terrain+ (1 000 F) par élève actif.
+                        J’active mon profil <strong className="text-[#F5F7F1]">Coach Marketplace (0 FCFA / mois fixe)</strong> et accepte le partage 80 % Coach (4 000 F) / 20 % Terrain+ (1 000 F) par élève actif.
                       </>
                     )}
                   </span>
                 </label>
 
-                <label className="flex items-start gap-3 rounded-xl border border-neutral-200 p-3 cursor-pointer">
+                <label className="flex items-start gap-3 rounded-xl border border-white/[0.08] bg-[#181D15] p-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={coachConsentNonMedical}
                     onChange={(e) => setCoachConsentNonMedical(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 accent-neutral-900"
+                    className="mt-0.5 h-4 w-4 accent-[#C8F62D]"
                   />
-                  <span className="text-xs text-neutral-700 leading-relaxed">
+                  <span className="text-xs text-[#B4BCA9] leading-relaxed">
                     Je m’engage à respecter la charte éthique Terrain+ : encadrement non médical, protection stricte des mineurs et orientation médicale immédiate en cas de douleur signalée.
                   </span>
                 </label>
@@ -1696,7 +1920,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-50 min-h-[44px]"
+                  className="w-full rounded-full bg-[#C8F62D] py-3 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[44px]"
                 >
                   {loading
                     ? 'Création du compte Coach...'
@@ -1707,7 +1931,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </form>
             )}
 
-            <div className="text-center text-xs text-neutral-600 pt-2 border-t border-neutral-100">
+            <div className="text-center text-xs text-[#B4BCA9] pt-2 border-t border-white/[0.08]">
               Déjà inscrit ?{' '}
               <button
                 type="button"
@@ -1716,7 +1940,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setError(null);
                   setAccountNotFound(false);
                 }}
-                className="font-semibold text-neutral-900 underline"
+                className="font-semibold text-[#C8F62D] underline"
               >
                 Se connecter
               </button>
@@ -1726,41 +1950,41 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {mode === 'verify' && (
           <form onSubmit={handleVerifyAccount} className="mt-5 space-y-4">
-            <div className="flex items-start gap-2.5 text-sm text-neutral-700">
-              <ShieldCheck className="h-5 w-5 text-emerald-700 shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="flex items-start gap-2.5 text-sm text-[#B4BCA9]">
+              <ShieldCheck className="h-5 w-5 text-[#C8F62D] shrink-0 mt-0.5" aria-hidden="true" />
               <span>
-                Compte créé pour <span className="font-semibold text-neutral-900">{verifyIdentifier}</span>. Saisissez le code OTP à 6 chiffres pour activer votre accès et vous connecter directement.
+                Compte créé pour <span className="font-semibold text-[#F5F7F1]">{verifyIdentifier}</span>. Saisissez le code OTP à 6 chiffres pour activer votre accès et vous connecter directement.
               </span>
             </div>
 
             {demoHintCode ? (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="rounded-2xl border border-[#C8F62D]/35 bg-[#C8F62D]/10 p-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs font-medium text-emerald-900">
+                  <div className="text-xs font-medium text-[#E7FAC4]">
                     Code OTP visible (environnement de démonstration)
                   </div>
-                  <div className="mt-1 font-mono text-2xl font-bold tracking-[0.22em] tabular-nums text-emerald-950">
+                  <div className="mt-1 font-mono text-2xl font-bold tracking-[0.22em] tabular-nums text-[#C8F62D]">
                     {demoHintCode}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setVerifyCode(demoHintCode)}
-                  className="rounded-lg border border-emerald-300 bg-white px-3.5 py-2 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 min-h-[40px]"
+                  className="rounded-full bg-[#C8F62D] px-3.5 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
                 >
                   Utiliser ce code
                 </button>
               </div>
             ) : (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 flex items-center justify-between gap-3">
-                <span className="text-xs text-amber-900">
+              <div className="rounded-2xl border border-amber-400/35 bg-amber-950/45 p-3.5 flex items-center justify-between gap-3">
+                <span className="text-xs text-amber-100">
                   Saisissez le code envoyé à votre contact enregistré (valable 15 minutes).
                 </span>
                 <button
                   type="button"
                   onClick={handleResendVerifyOtp}
                   disabled={loading}
-                  className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100 min-h-[36px] shrink-0"
+                  className="rounded-full border border-amber-300/40 bg-[#181D15] px-3 py-1.5 text-xs font-semibold text-amber-200 hover:bg-[#22291E] min-h-[36px] shrink-0"
                 >
                   Renvoyer un code
                 </button>
@@ -1768,7 +1992,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             )}
 
             <div>
-              <label htmlFor="verify-code" className="block text-xs font-medium text-neutral-700 mb-1.5">
+              <label htmlFor="verify-code" className="block text-xs font-medium text-[#B4BCA9] mb-1.5">
                 Saisissez le code OTP à 6 chiffres
               </label>
               <input
@@ -1781,14 +2005,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 value={verifyCode}
                 onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="000000"
-                className="w-full rounded-xl border border-neutral-300 px-3.5 py-2.5 font-mono text-base tracking-[0.2em] tabular-nums min-h-[44px]"
+                className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3.5 py-2.5 font-mono text-base tracking-[0.2em] tabular-nums min-h-[44px]"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-50 min-h-[44px]"
+              className="w-full rounded-full bg-[#C8F62D] py-3 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[44px]"
             >
               {loading ? 'Validation et connexion...' : 'Valider et me connecter'}
             </button>
@@ -1798,7 +2022,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 type="button"
                 onClick={handleResendVerifyOtp}
                 disabled={loading}
-                className="inline-flex items-center gap-1.5 font-medium text-neutral-700 hover:text-neutral-900 min-h-[36px]"
+                className="inline-flex items-center gap-1.5 font-medium text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[36px]"
               >
                 <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>Générer un nouveau code</span>
@@ -1809,9 +2033,392 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setMode('login');
                   setError(null);
                 }}
-                className="font-medium text-neutral-600 underline hover:text-neutral-900 min-h-[36px]"
+                className="font-medium text-[#8E9784] underline hover:text-[#F5F7F1] min-h-[36px]"
               >
                 Retour à la connexion
+              </button>
+            </div>
+          </form>
+        )}
+
+        {mode === 'forgot' && (
+          <form onSubmit={handleResetPasswordSubmit} className="mt-5 space-y-4">
+            <p className="text-xs text-[#B4BCA9] leading-relaxed">
+              Saisissez votre adresse email ou votre numéro +221 pour recevoir un code OTP à 6 chiffres et choisir un nouveau mot de passe.
+            </p>
+
+            <div>
+              <label htmlFor="forgot-id" className="block text-xs font-medium text-[#B4BCA9] mb-1.5">
+                Adresse email ou téléphone (+221) *
+              </label>
+              <div className="flex gap-2">
+                <input
+                  id="forgot-id"
+                  type="text"
+                  required
+                  value={identifier}
+                  onChange={(e) => {
+                    setIdentifier(e.target.value);
+                    if (accountNotFound) setAccountNotFound(false);
+                  }}
+                  placeholder="Ex: moussa.diop@terrainplus.sn ou +221771001122"
+                  className="flex-1 rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3.5 py-2.5 text-sm min-h-[44px]"
+                />
+                <button
+                  type="button"
+                  onClick={handleRequestResetOtp}
+                  disabled={loading}
+                  className="rounded-xl border border-white/15 bg-[#181D15] px-3.5 py-2 text-xs font-semibold text-[#F5F7F1] hover:bg-[#22291E] min-h-[44px] whitespace-nowrap"
+                >
+                  {resetOtpRequested ? 'Renvoyer code' : 'Envoyer code'}
+                </button>
+              </div>
+            </div>
+
+            {demoHintCode && (
+              <div className="rounded-2xl border border-[#C8F62D]/35 bg-[#C8F62D]/10 p-3.5 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-medium text-[#E7FAC4]">
+                    Code OTP de réinitialisation
+                  </div>
+                  <div className="mt-1 font-mono text-2xl font-bold tracking-[0.2em] tabular-nums text-[#C8F62D]">
+                    {demoHintCode}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setResetCode(demoHintCode)}
+                  className="rounded-full bg-[#C8F62D] px-3.5 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[38px]"
+                >
+                  Utiliser ce code
+                </button>
+              </div>
+            )}
+
+            {resetOtpRequested && (
+              <>
+                <div>
+                  <label htmlFor="forgot-code" className="block text-xs font-medium text-[#B4BCA9] mb-1.5">
+                    Code OTP à 6 chiffres *
+                  </label>
+                  <input
+                    id="forgot-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    maxLength={6}
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3.5 py-2.5 font-mono text-base tracking-[0.2em] tabular-nums min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="forgot-pwd" className="block text-xs font-medium text-[#B4BCA9] mb-1.5">
+                    Nouveau mot de passe (8 caractères min., lettres et chiffres) *
+                  </label>
+                  <input
+                    id="forgot-pwd"
+                    type="password"
+                    required
+                    minLength={8}
+                    maxLength={128}
+                    value={resetNewPassword}
+                    onChange={(e) => setResetNewPassword(e.target.value)}
+                    placeholder="Saisissez un nouveau mot de passe"
+                    className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3.5 py-2.5 text-sm min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="forgot-pwd-confirm" className="block text-xs font-medium text-[#B4BCA9] mb-1.5">
+                    Confirmer le nouveau mot de passe *
+                  </label>
+                  <input
+                    id="forgot-pwd-confirm"
+                    type="password"
+                    required
+                    minLength={8}
+                    maxLength={128}
+                    value={resetConfirmPassword}
+                    onChange={(e) => setResetConfirmPassword(e.target.value)}
+                    placeholder="Confirmez le nouveau mot de passe"
+                    className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3.5 py-2.5 text-sm min-h-[44px]"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-full bg-[#C8F62D] py-3 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[44px]"
+                >
+                  {loading ? 'Réinitialisation...' : 'Réinitialiser et me connecter'}
+                </button>
+              </>
+            )}
+
+            <div className="border-t border-white/[0.08] pt-3 text-center text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('login');
+                  setError(null);
+                  setDemoHintCode(null);
+                }}
+                className="font-medium text-[#B4BCA9] underline hover:text-[#F5F7F1]"
+              >
+                Retour à la connexion
+              </button>
+            </div>
+          </form>
+        )}
+
+        {mode === 'resubmit' && (
+          <form onSubmit={handleCoachResubmitSubmit} className="mt-5 space-y-4">
+            {pendingReviewNotice?.reason && (
+              <div className="rounded-2xl border border-red-400/35 bg-red-950/55 px-3.5 py-3 text-xs text-red-100">
+                <div className="font-semibold">Motif du refus précédent :</div>
+                <p className="mt-1 leading-relaxed">{pendingReviewNotice.reason}</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Spécialité sportive *</label>
+                <input
+                  type="text"
+                  required
+                  value={coachSpecialite}
+                  onChange={(e) => setCoachSpecialite(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Qualification *</label>
+                <input
+                  type="text"
+                  required
+                  value={coachQualification}
+                  onChange={(e) => setCoachQualification(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Zone / Ville *</label>
+                <input
+                  type="text"
+                  required
+                  value={coachZone}
+                  onChange={(e) => setCoachZone(e.target.value)}
+                  className="w-full rounded-xl border border-white/15 bg-[#181D15] text-[#F5F7F1] px-3 py-2 text-sm min-h-[44px]"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl obsidian-inset p-4 space-y-3">
+              <div className="text-xs font-semibold text-[#F5F7F1]">
+                Diplôme sportif et justificatif
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Format du diplôme sportif *</label>
+                <select
+                  value={diplomaType}
+                  onChange={(e) => {
+                    const next = e.target.value as DiplomaTypeCode;
+                    setDiplomaType(next);
+                    const spec = SPORT_DIPLOMA_FORMATS[next];
+                    if (spec?.acceptedOrganisms[0]) {
+                      setIssuingOrganism(spec.acceptedOrganisms[0]);
+                    }
+                  }}
+                  className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 text-xs min-h-[42px]"
+                >
+                  {SPORT_DIPLOMA_LIST.map((spec) => (
+                    <option key={spec.code} value={spec.code}>
+                      {spec.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Organisme émetteur *</label>
+                  <input
+                    type="text"
+                    required
+                    value={issuingOrganism}
+                    onChange={(e) => setIssuingOrganism(e.target.value)}
+                    className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 text-xs min-h-[40px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">N° de diplôme / licence *</label>
+                  <input
+                    type="text"
+                    required
+                    value={diplomaNumber}
+                    onChange={(e) => setDiplomaNumber(e.target.value)}
+                    className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Année d’obtention *</label>
+                  <input
+                    type="number"
+                    required
+                    min={1980}
+                    max={new Date().getFullYear()}
+                    value={issueYear}
+                    onChange={(e) => setIssueYear(e.target.value)}
+                    className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
+                  Remplacer le justificatif (optionnel si votre document actuel est déjà conforme)
+                </label>
+                <label className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-white/20 bg-[#121610] px-3.5 py-3 cursor-pointer hover:border-[#C8F62D]/60">
+                  <span className="flex items-center gap-2.5 min-w-0 text-xs text-[#B4BCA9]">
+                    {diplomaFile ? (
+                      <FileText className="h-4 w-4 text-[#C8F62D] shrink-0" aria-hidden="true" />
+                    ) : (
+                      <Upload className="h-4 w-4 text-[#8E9784] shrink-0" aria-hidden="true" />
+                    )}
+                    <span className="truncate">
+                      {diplomaFile
+                        ? `${diplomaFile.name} (${Math.max(1, Math.round(diplomaFile.sizeBytes / 1024))} Ko)`
+                        : existingDiplomaFilename
+                          ? `Document conservé : ${existingDiplomaFilename}`
+                          : 'Sélectionner un nouveau PDF, JPG, PNG ou WEBP'}
+                    </span>
+                  </span>
+                  <span className="text-[11px] font-semibold text-[#C8F62D] shrink-0">
+                    {diplomaFile ? 'Changer' : 'Remplacer'}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                    onChange={handleDiplomaFileChange}
+                    className="sr-only"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-2xl obsidian-inset p-4 space-y-3">
+              <div className="text-xs font-semibold text-[#F5F7F1]">
+                Conformité réglementaire (Carte pro, RC Pro, Statut)
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">N° Carte professionnelle *</label>
+                  <input
+                    type="text"
+                    required
+                    value={proCardNumber}
+                    onChange={(e) => setProCardNumber(e.target.value)}
+                    className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Validité carte pro *</label>
+                  <input
+                    type="date"
+                    required
+                    value={proCardExpiry}
+                    onChange={(e) => setProCardExpiry(e.target.value)}
+                    className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Assureur RC Pro *</label>
+                  <input
+                    type="text"
+                    required
+                    value={rcProInsurer}
+                    onChange={(e) => setRcProInsurer(e.target.value)}
+                    className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 text-xs min-h-[40px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">N° Police RC Pro *</label>
+                  <input
+                    type="text"
+                    required
+                    value={rcProPolicyNumber}
+                    onChange={(e) => setRcProPolicyNumber(e.target.value)}
+                    className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Statut juridique *</label>
+                  <select
+                    value={legalStatus}
+                    onChange={(e) => setLegalStatus(e.target.value as CoachLegalStatusCode)}
+                    className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 text-xs min-h-[40px]"
+                  >
+                    {COACH_LEGAL_STATUS_OPTIONS.map((opt) => (
+                      <option key={opt.code} value={opt.code}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Immatriculation (SIRET / NINEA / RNA) *</label>
+                  <input
+                    type="text"
+                    required
+                    value={businessRegNumber}
+                    onChange={(e) => setBusinessRegNumber(e.target.value)}
+                    className="w-full rounded-xl border border-white/15 bg-[#121610] text-[#F5F7F1] px-3 py-2 font-mono text-xs min-h-[40px]"
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-start gap-3 rounded-xl border border-white/[0.08] bg-[#121610] p-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={honorabilityAttested}
+                  onChange={(e) => setHonorabilityAttested(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-[#C8F62D]"
+                />
+                <span className="text-[11px] text-[#B4BCA9] leading-relaxed">
+                  Je confirme l’exactitude des pièces corrigées et maintiens mon attestation sur l’honneur d’honorabilité.
+                </span>
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('login');
+                  setError(null);
+                }}
+                className="rounded-full border border-white/15 bg-[#181D15] px-4 py-2.5 text-sm font-medium text-[#F5F7F1] hover:bg-[#22291E] min-h-[44px]"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 rounded-full bg-[#C8F62D] px-5 py-2.5 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[44px]"
+              >
+                {loading ? 'Envoi du dossier corrigé...' : 'Resoumettre mon dossier pour étude'}
               </button>
             </div>
           </form>

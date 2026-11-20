@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import {
   ACCEPTED_DIPLOMA_MIME_TYPES,
@@ -9,10 +10,13 @@ import {
   type DiplomaTypeCode,
 } from '../src/data/sportsDiplomas.ts';
 import type { CoachDocumentStudyCheck, CoachDocumentStudyReport } from '../src/types.ts';
-import { db } from './db.ts';
+import { getDefaultDbExecutor, type DbExecutor } from './db.ts';
 import { uploadDiplomaToSupabaseStorage } from './supabaseAdmin.ts';
 
-export const DIPLOMA_UPLOAD_DIR = path.resolve(process.env.DIPLOMA_UPLOAD_DIR || './uploads/coach-diplomas');
+export const DIPLOMA_UPLOAD_DIR = path.resolve(
+  process.env.DIPLOMA_UPLOAD_DIR ||
+    (process.env.VERCEL ? path.join(os.tmpdir(), 'terrain-plus-diplomas') : './uploads/coach-diplomas')
+);
 
 export function ensureUploadDir(): void {
   if (!fs.existsSync(DIPLOMA_UPLOAD_DIR)) {
@@ -82,28 +86,29 @@ export interface DiplomaStudyInput {
   honorabilityAttested?: boolean;
 }
 
-export function evaluateDiplomaDocument(
+export async function evaluateDiplomaDocument(
   input: Omit<DiplomaStudyInput, 'coachUserId' | 'buffer'> & {
     detectedMime: string | null;
     fileSizeBytes: number;
     sha256Hash: string;
     excludeCoachUserId?: number;
-  }
-): {
+  },
+  executor: DbExecutor = getDefaultDbExecutor()
+): Promise<{
   score: number;
   status: 'CONFORME_PRE_ETUDE' | 'A_VERIFIER' | 'ANOMALIE';
   report: CoachDocumentStudyReport;
-} {
+}> {
   const spec = SPORT_DIPLOMA_FORMATS[input.diplomaType];
   const currentYear = new Date().getFullYear();
 
-  const duplicateRow = db
-    .prepare(
-      `SELECT coach_user_id FROM coach_documents
-       WHERE sha256_hash = ? AND coach_user_id != ?
-       LIMIT 1`
-    )
-    .get(input.sha256Hash, input.excludeCoachUserId ?? -1) as { coach_user_id: number } | undefined;
+  const duplicateRow = await executor.get<{ coach_user_id: number }>(
+    `SELECT coach_user_id FROM coach_documents
+     WHERE sha256_hash = ? AND coach_user_id != ?
+     LIMIT 1`,
+    input.sha256Hash,
+    input.excludeCoachUserId ?? -1
+  );
 
   const isFormatValid = Boolean(
     input.detectedMime && (ACCEPTED_DIPLOMA_MIME_TYPES as readonly string[]).includes(input.detectedMime)
@@ -261,11 +266,14 @@ export function evaluateDiplomaDocument(
   };
 }
 
-export function storeCoachDiplomaDocument(input: DiplomaStudyInput): {
+export async function storeCoachDiplomaDocument(
+  input: DiplomaStudyInput,
+  executor: DbExecutor = getDefaultDbExecutor()
+): Promise<{
   docId: number;
   studyScore: number;
   studyStatus: 'CONFORME_PRE_ETUDE' | 'A_VERIFIER' | 'ANOMALIE';
-} {
+}> {
   const detectedMime = detectMimeFromMagicBytes(input.buffer);
   if (!detectedMime) {
     throw new Error('Format de document refusé : envoyez un véritable fichier PDF, JPG, PNG ou WEBP.');
@@ -275,58 +283,144 @@ export function storeCoachDiplomaDocument(input: DiplomaStudyInput): {
   }
 
   const sha256Hash = crypto.createHash('sha256').update(input.buffer).digest('hex');
-  const { score, status, report } = evaluateDiplomaDocument({
-    diplomaType: input.diplomaType,
-    issuingOrganism: input.issuingOrganism,
-    diplomaNumber: input.diplomaNumber,
-    issueYear: input.issueYear,
-    specialite: input.specialite,
-    qualification: input.qualification,
-    originalFilename: input.originalFilename,
-    detectedMime,
-    fileSizeBytes: input.buffer.length,
-    sha256Hash,
-    excludeCoachUserId: input.coachUserId,
-    proCardNumber: input.proCardNumber,
-    proCardExpiry: input.proCardExpiry,
-    rcProInsurer: input.rcProInsurer,
-    rcProPolicyNumber: input.rcProPolicyNumber,
-    legalStatus: input.legalStatus,
-    businessRegNumber: input.businessRegNumber,
-    honorabilityAttested: input.honorabilityAttested,
-  });
+  const { score, status, report } = await evaluateDiplomaDocument(
+    {
+      diplomaType: input.diplomaType,
+      issuingOrganism: input.issuingOrganism,
+      diplomaNumber: input.diplomaNumber,
+      issueYear: input.issueYear,
+      specialite: input.specialite,
+      qualification: input.qualification,
+      originalFilename: input.originalFilename,
+      detectedMime,
+      fileSizeBytes: input.buffer.length,
+      sha256Hash,
+      excludeCoachUserId: input.coachUserId,
+      proCardNumber: input.proCardNumber,
+      proCardExpiry: input.proCardExpiry,
+      rcProInsurer: input.rcProInsurer,
+      rcProPolicyNumber: input.rcProPolicyNumber,
+      legalStatus: input.legalStatus,
+      businessRegNumber: input.businessRegNumber,
+      honorabilityAttested: input.honorabilityAttested,
+    },
+    executor
+  );
 
-  ensureUploadDir();
   const safeExt = extensionForMime(detectedMime);
   const storedFilename = `coach_${input.coachUserId}_${Date.now()}_${crypto.randomBytes(6).toString('hex')}${safeExt}`;
-  fs.writeFileSync(path.join(DIPLOMA_UPLOAD_DIR, storedFilename), input.buffer);
-  void uploadDiplomaToSupabaseStorage(storedFilename, input.buffer, detectedMime);
+
+  // Upload durably to Supabase Storage when configured, plus local cache write best-effort
+  await uploadDiplomaToSupabaseStorage(storedFilename, input.buffer, detectedMime);
+  try {
+    ensureUploadDir();
+    fs.writeFileSync(path.join(DIPLOMA_UPLOAD_DIR, storedFilename), input.buffer);
+  } catch {
+    // Ignore local disk write error on read-only serverless filesystems if Supabase Storage is used
+  }
 
   const safeOriginal = path.basename(input.originalFilename || `diplome${safeExt}`).replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
 
-  const res = db
-    .prepare(
-      `INSERT INTO coach_documents (
-        coach_user_id, diploma_type, issuing_organism, diploma_number, issue_year,
-        original_filename, stored_filename, mime_type, file_size_bytes, sha256_hash,
-        study_score, study_status, study_report_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      input.coachUserId,
-      input.diplomaType,
-      input.issuingOrganism,
-      input.diplomaNumber,
-      input.issueYear,
-      safeOriginal,
-      storedFilename,
-      detectedMime,
-      input.buffer.length,
-      sha256Hash,
-      score,
-      status,
-      JSON.stringify(report)
-    );
+  const res = await executor.run(
+    `INSERT INTO coach_documents (
+      coach_user_id, diploma_type, issuing_organism, diploma_number, issue_year,
+      original_filename, stored_filename, mime_type, file_size_bytes, sha256_hash,
+      study_score, study_status, study_report_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    input.coachUserId,
+    input.diplomaType,
+    input.issuingOrganism,
+    input.diplomaNumber,
+    input.issueYear,
+    safeOriginal,
+    storedFilename,
+    detectedMime,
+    input.buffer.length,
+    sha256Hash,
+    score,
+    status,
+    JSON.stringify(report)
+  );
+
+  return {
+    docId: Number(res.lastInsertRowid),
+    studyScore: score,
+    studyStatus: status,
+  };
+}
+
+export async function storeCoachDocumentMetadataRevision(
+  input: {
+    coachUserId: number;
+    diplomaType: DiplomaTypeCode;
+    issuingOrganism: string;
+    diplomaNumber: string;
+    issueYear: number;
+    specialite: string;
+    qualification: string;
+    existingOriginalFilename: string;
+    existingStoredFilename: string;
+    existingMimeType: string;
+    existingFileSizeBytes: number;
+    existingSha256Hash: string;
+    proCardNumber?: string | null;
+    proCardExpiry?: string | null;
+    rcProInsurer?: string | null;
+    rcProPolicyNumber?: string | null;
+    legalStatus?: string | null;
+    businessRegNumber?: string | null;
+    honorabilityAttested?: boolean;
+  },
+  executor: DbExecutor = getDefaultDbExecutor()
+): Promise<{
+  docId: number;
+  studyScore: number;
+  studyStatus: 'CONFORME_PRE_ETUDE' | 'A_VERIFIER' | 'ANOMALIE';
+}> {
+  const { score, status, report } = await evaluateDiplomaDocument(
+    {
+      diplomaType: input.diplomaType,
+      issuingOrganism: input.issuingOrganism,
+      diplomaNumber: input.diplomaNumber,
+      issueYear: input.issueYear,
+      specialite: input.specialite,
+      qualification: input.qualification,
+      originalFilename: input.existingOriginalFilename,
+      detectedMime: input.existingMimeType,
+      fileSizeBytes: input.existingFileSizeBytes,
+      sha256Hash: input.existingSha256Hash,
+      excludeCoachUserId: input.coachUserId,
+      proCardNumber: input.proCardNumber,
+      proCardExpiry: input.proCardExpiry,
+      rcProInsurer: input.rcProInsurer,
+      rcProPolicyNumber: input.rcProPolicyNumber,
+      legalStatus: input.legalStatus,
+      businessRegNumber: input.businessRegNumber,
+      honorabilityAttested: input.honorabilityAttested,
+    },
+    executor
+  );
+
+  const res = await executor.run(
+    `INSERT INTO coach_documents (
+      coach_user_id, diploma_type, issuing_organism, diploma_number, issue_year,
+      original_filename, stored_filename, mime_type, file_size_bytes, sha256_hash,
+      study_score, study_status, study_report_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    input.coachUserId,
+    input.diplomaType,
+    input.issuingOrganism,
+    input.diplomaNumber,
+    input.issueYear,
+    input.existingOriginalFilename,
+    input.existingStoredFilename,
+    input.existingMimeType,
+    input.existingFileSizeBytes,
+    input.existingSha256Hash,
+    score,
+    status,
+    JSON.stringify(report)
+  );
 
   return {
     docId: Number(res.lastInsertRowid),

@@ -32,15 +32,20 @@ const AuthModal = lazy(() =>
 
 function ScreenFallback() {
   return (
-    <div className="min-h-screen bg-[#F7F7F5] flex flex-col items-center justify-center gap-3 p-6">
-      <img
-        src="/brand/terrain-logo.png"
-        alt="Terrain+"
-        decoding="async"
-        referrerPolicy="no-referrer"
-        className="h-9 w-auto object-contain"
-      />
-      <div className="text-xs text-neutral-600">Chargement de l’espace Terrain+...</div>
+    <div className="min-h-screen obsidian-ambient flex flex-col items-center justify-center gap-3 p-6">
+      <div className="inline-flex items-center gap-2.5">
+        <img
+          src="/brand/terrain-mark.png"
+          alt="Terrain+"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          className="h-9 w-9 rounded-xl object-contain"
+        />
+        <span className="font-display text-2xl font-bold tracking-tight text-[#F5F7F1]">
+          Terrain<span className="text-[#C8F62D]">+</span>
+        </span>
+      </div>
+      <div className="text-xs text-[#9AA491]">Chargement de l’espace Terrain+...</div>
     </div>
   );
 }

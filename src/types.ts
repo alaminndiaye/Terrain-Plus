@@ -197,6 +197,26 @@ export interface ProgramPlanInfo {
   notes: string | null;
 }
 
+export type CoachVideoSourceType = 'SUPABASE_STORAGE' | 'LOCAL_STORAGE' | 'EXTERNAL_URL';
+
+export interface CoachVideoItem {
+  id: number;
+  coach_user_id: number;
+  coach_nom?: string;
+  sport_code: SportCode;
+  session_id: number | null;
+  session_titre?: string | null;
+  athlete_user_id: number | null;
+  athlete_nom?: string | null;
+  titre: string;
+  description: string | null;
+  source_type: CoachVideoSourceType;
+  mime_type: string | null;
+  file_size_bytes: number;
+  playback_url: string;
+  created_at: string;
+}
+
 export interface AthleteWorkspacePayload {
   user: AuthUser;
   profile: AthleteProfileData;
@@ -205,6 +225,7 @@ export interface AthleteWorkspacePayload {
   program: ProgramPlanInfo | null;
   schedule: ScheduledSession[];
   library: SessionTemplate[];
+  coachVideos?: CoachVideoItem[];
   weights: WeightLog[];
   evaluations: EvaluationRecord[];
   alerts: AlertRecord[];

@@ -7,13 +7,20 @@
 }
 
 @layer base {
+  :root {
+    color-scheme: dark;
+  }
+
   html {
     font-family: var(--font-sans);
+    background-color: #080A07;
+    color: #F5F7F1;
     scroll-behavior: smooth;
   }
 
   h1, h2, h3, h4, .font-display {
     font-family: var(--font-display);
+    letter-spacing: -0.015em;
   }
 
   .tabular-nums {
@@ -21,9 +28,53 @@
   }
 
   *:focus-visible {
-    outline: 2px solid #111827;
+    outline: 2px solid #C8F62D;
     outline-offset: 2px;
   }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    background-color: #161B13;
+    color: #F5F7F1;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #7D8775;
+  }
+}
+
+.obsidian-ambient {
+  background-color: #080A07;
+  background-image:
+    radial-gradient(ellipse 85% 42% at 50% -10%, rgba(190, 242, 100, 0.22), rgba(101, 163, 13, 0.08) 52%, transparent 82%);
+}
+
+.obsidian-card {
+  background-color: #121610;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.obsidian-card-glow {
+  background-color: #121610;
+  background-image: radial-gradient(120% 95% at 15% 0%, rgba(200, 246, 45, 0.14), rgba(18, 22, 16, 0.96) 62%);
+  border: 1px solid rgba(200, 246, 45, 0.2);
+}
+
+.obsidian-inset {
+  background-color: #181D15;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.volt-cta {
+  background-color: #C8F62D;
+  color: #080A07;
+}
+
+.volt-cta:hover {
+  background-color: #D7FA59;
 }
 
 @media (prefers-reduced-motion: reduce) {

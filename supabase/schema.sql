@@ -274,10 +274,37 @@ CREATE TABLE IF NOT EXISTS public.system_traffic_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS public.coach_videos (
+  id BIGSERIAL PRIMARY KEY,
+  coach_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  session_id BIGINT REFERENCES public.sessions_library(id) ON DELETE SET NULL,
+  athlete_user_id BIGINT REFERENCES public.users(id) ON DELETE CASCADE,
+  titre TEXT NOT NULL,
+  description TEXT,
+  source_type TEXT NOT NULL CHECK (source_type IN ('SUPABASE_STORAGE', 'LOCAL_STORAGE', 'EXTERNAL_URL')),
+  storage_path TEXT,
+  external_url TEXT,
+  mime_type TEXT,
+  file_size_bytes BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_traffic_created_at ON public.system_traffic_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_coach_docs_user ON public.coach_documents(coach_user_id);
+CREATE INDEX IF NOT EXISTS idx_coach_videos_coach ON public.coach_videos(coach_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_coach_videos_athlete ON public.coach_videos(athlete_user_id);
+CREATE INDEX IF NOT EXISTS idx_coach_videos_session ON public.coach_videos(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON public.sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_scheduled_athlete ON public.scheduled_sessions(athlete_user_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_coach_statut ON public.assignments(coach_user_id, statut);
+CREATE INDEX IF NOT EXISTS idx_assignments_athlete_statut ON public.assignments(athlete_user_id, statut);
+CREATE INDEX IF NOT EXISTS idx_evaluations_athlete_date ON public.evaluations(athlete_user_id, date DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_coach_comments_eval ON public.coach_comments(evaluation_id);
+CREATE INDEX IF NOT EXISTS idx_alerts_athlete_traitee ON public.alerts(athlete_user_id, traitee);
+CREATE INDEX IF NOT EXISTS idx_group_memberships_group ON public.group_memberships(group_id);
+CREATE INDEX IF NOT EXISTS idx_weight_logs_athlete ON public.weight_logs(athlete_user_id, date, id);
+CREATE INDEX IF NOT EXISTS idx_sessions_library_sport_status ON public.sessions_library(sport_code, validation_status);
 
 -- 7. Sécurité Row Level Security (RLS) : bloque l'accès direct via la clé publique anon
 -- Seul le backend serveur (connexion Postgres / service_role) manipule ces tables.
@@ -288,6 +315,7 @@ ALTER TABLE public.athlete_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.weight_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.coaches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.coach_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.coach_videos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.partners ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.groups ENABLE ROW LEVEL SECURITY;
@@ -303,7 +331,7 @@ ALTER TABLE public.alerts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.access_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_traffic_logs ENABLE ROW LEVEL SECURITY;
 
--- 8. Bucket Supabase Storage privé pour les justificatifs de diplômes coachs
+-- 8. Buckets Supabase Storage privés (diplômes coachs & vidéos de séances <= 15 Mo)
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'coach-diplomas',
@@ -311,5 +339,15 @@ VALUES (
   FALSE,
   3145728,
   ARRAY['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'coach-videos',
+  'coach-videos',
+  FALSE,
+  15728640,
+  ARRAY['video/mp4', 'video/webm', 'video/quicktime']
 )
 ON CONFLICT (id) DO NOTHING;

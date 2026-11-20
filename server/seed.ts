@@ -1,21 +1,30 @@
-import { db } from './db.ts';
+import {
+  dbAll,
+  dbGet,
+  dbRun,
+  dbTransaction,
+  getDefaultDbExecutor,
+  type DbExecutor,
+} from './db.ts';
 import { buildSampleDiplomaPdfBuffer, storeCoachDiplomaDocument } from './diplomaStudy.ts';
 import { hashPassword } from './security.ts';
 
-export function buildDefaultScheduleForAthlete(
+export async function buildDefaultScheduleForAthlete(
   athleteUserId: number,
   sportCode: string,
   niveau: string,
   coachUserId: number | null,
-  objectif: string
-): void {
-  const existingPlan = db
-    .prepare('SELECT id FROM program_plans WHERE athlete_user_id = ?')
-    .get(athleteUserId) as { id: number } | undefined;
+  objectif: string,
+  executor: DbExecutor = getDefaultDbExecutor()
+): Promise<void> {
+  const existingPlan = await executor.get<{ id: number }>(
+    'SELECT id FROM program_plans WHERE athlete_user_id = ?',
+    athleteUserId
+  );
 
   if (existingPlan) {
-    db.prepare('DELETE FROM scheduled_sessions WHERE athlete_user_id = ?').run(athleteUserId);
-    db.prepare('DELETE FROM program_plans WHERE id = ?').run(existingPlan.id);
+    await executor.run('DELETE FROM scheduled_sessions WHERE athlete_user_id = ?', athleteUserId);
+    await executor.run('DELETE FROM program_plans WHERE id = ?', existingPlan.id);
   }
 
   const today = new Date();
@@ -23,32 +32,29 @@ export function buildDefaultScheduleForAthlete(
   const monday = new Date(today);
   monday.setDate(today.getDate() - mondayOffset);
 
-  const planRes = db
-    .prepare(
-      `INSERT INTO program_plans (athlete_user_id, coach_user_id, sport_code, date_debut, duree_semaines, objectif, notes)
-       VALUES (?, ?, ?, ?, 4, ?, ?)`
-    )
-    .run(
-      athleteUserId,
-      coachUserId,
-      sportCode,
-      monday.toISOString().slice(0, 10),
-      objectif,
-      'Programme hebdomadaire progressif sans matériel obligatoire'
-    );
+  const planRes = await executor.run(
+    `INSERT INTO program_plans (athlete_user_id, coach_user_id, sport_code, date_debut, duree_semaines, objectif, notes)
+     VALUES (?, ?, ?, ?, 4, ?, ?)`,
+    athleteUserId,
+    coachUserId,
+    sportCode,
+    monday.toISOString().slice(0, 10),
+    objectif,
+    'Programme hebdomadaire progressif sans matériel obligatoire'
+  );
   const programId = Number(planRes.lastInsertRowid);
 
-  const sessions = db
-    .prepare(
-      `SELECT id, niveau FROM sessions_library
-       WHERE sport_code = ? AND validation_status = 'VALIDEE'
-       ORDER BY CASE WHEN niveau = ? THEN 0 ELSE 1 END, id ASC`
-    )
-    .all(sportCode, niveau) as Array<{ id: number; niveau: string }>;
+  const sessions = await executor.all<{ id: number; niveau: string }>(
+    `SELECT id, niveau FROM sessions_library
+     WHERE sport_code = ? AND validation_status = 'VALIDEE'
+     ORDER BY CASE WHEN niveau = ? THEN 0 ELSE 1 END, id ASC`,
+    sportCode,
+    niveau
+  );
 
-  const fallback = db
-    .prepare(`SELECT id FROM sessions_library WHERE validation_status = 'VALIDEE' LIMIT 3`)
-    .all() as Array<{ id: number }>;
+  const fallback = await executor.all<{ id: number }>(
+    `SELECT id FROM sessions_library WHERE validation_status = 'VALIDEE' LIMIT 3`
+  );
 
   const pool = sessions.length > 0 ? sessions : fallback;
   const trainingDays = [1, 2, 4, 6];
@@ -60,24 +66,30 @@ export function buildDefaultScheduleForAthlete(
     const isTraining = trainingDays.includes(day);
     const picked = isTraining && pool.length > 0 ? pool[(day - 1) % pool.length].id : null;
 
-    db.prepare(
+    await executor.run(
       `INSERT INTO scheduled_sessions (
         program_id, athlete_user_id, session_id, jour_semaine, date_prevue,
         is_rest_day, ajustee_par_coach, completed
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0)`
-    ).run(programId, athleteUserId, picked, day, dateStr, isTraining ? 0 : 1);
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0)`,
+      programId,
+      athleteUserId,
+      picked,
+      day,
+      dateStr,
+      isTraining ? 0 : 1
+    );
   }
 }
 
-function ensureMinisterPilotUser(): void {
-  const existingMinister = db
-    .prepare("SELECT id FROM users WHERE role = 'MINISTRE' OR LOWER(email) = 'ministre@terrainplus.sn' LIMIT 1")
-    .get();
+async function ensureMinisterPilotUser(): Promise<void> {
+  const existingMinister = await dbGet(
+    "SELECT id FROM users WHERE role = 'MINISTRE' OR LOWER(email) = 'ministre@terrainplus.sn' LIMIT 1"
+  );
   if (!existingMinister) {
-    db.prepare(
+    await dbRun(
       `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified)
-       VALUES (?, ?, ?, ?, ?, 'MINISTRE', ?, 'fr', 'ACTIF', 0, 1)`
-    ).run(
+       VALUES (?, ?, ?, ?, ?, 'MINISTRE', ?, 'fr', 'ACTIF', 0, 1)
+       ON CONFLICT DO NOTHING`,
       'Diallo',
       'Cheikh Tidiane',
       '+221776008899',
@@ -88,39 +100,44 @@ function ensureMinisterPilotUser(): void {
   }
 }
 
-function ensureSecondCoachPilot(): void {
-  const existingCoach2 = db
-    .prepare("SELECT id FROM users WHERE LOWER(email) = 'coach.mbaye@terrainplus.sn' LIMIT 1")
-    .get() as { id: number } | undefined;
+async function ensureSecondCoachPilot(): Promise<void> {
+  const existingCoach2 = await dbGet<{ id: number }>(
+    "SELECT id FROM users WHERE LOWER(email) = 'coach.mbaye@terrainplus.sn' LIMIT 1"
+  );
   if (!existingCoach2) {
-    const coach2Id = Number(
-      db
-        .prepare(
-          `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified)
-           VALUES (?, ?, ?, ?, ?, 'COACH', ?, 'fr', 'ACTIF', 0, 1)`
-        )
-        .run('Mbaye', 'Fatou Kiné', '+221774009911', 'coach.mbaye@terrainplus.sn', hashPassword('Coach2026!'), '1995-03-11')
-        .lastInsertRowid
+    const coach2Res = await dbRun(
+      `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified)
+       VALUES (?, ?, ?, ?, ?, 'COACH', ?, 'fr', 'ACTIF', 0, 1)`,
+      'Mbaye',
+      'Fatou Kiné',
+      '+221774009911',
+      'coach.mbaye@terrainplus.sn',
+      hashPassword('Coach2026!'),
+      '1995-03-11'
     );
-    db.prepare(
+    const coach2Id = Number(coach2Res.lastInsertRowid);
+    await dbRun(
       `INSERT INTO coaches (
         user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
         platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa
-      ) VALUES (?, ?, ?, ?, 3000, 5000, ?, 'COACH_PRO', 0, 5000)`
-    ).run(coach2Id, 'Explosivité, détente & prévention articulaire', 'Master STAPS · Préparatrice physique', 'Dakar & Rufisque', 'ACTIF_1000');
+      ) VALUES (?, ?, ?, ?, 3000, 5000, ?, 'COACH_PRO', 0, 5000)`,
+      coach2Id,
+      'Explosivité, détente & prévention articulaire',
+      'Master STAPS · Préparatrice physique',
+      'Dakar & Rufisque',
+      'ACTIF_1000'
+    );
   }
 }
 
-function ensureCoachDocumentsSeeded(): void {
-  const adminRow = db.prepare("SELECT id FROM users WHERE role = 'ADMIN' ORDER BY id ASC LIMIT 1").get() as
-    | { id: number }
-    | undefined;
+async function ensureCoachDocumentsSeeded(): Promise<void> {
+  const adminRow = await dbGet<{ id: number }>("SELECT id FROM users WHERE role = 'ADMIN' ORDER BY id ASC LIMIT 1");
 
-  const coach1 = db
-    .prepare("SELECT id, nom, prenom FROM users WHERE LOWER(email) = 'coach.ndiaye@terrainplus.sn' LIMIT 1")
-    .get() as { id: number; nom: string; prenom: string } | undefined;
+  const coach1 = await dbGet<{ id: number; nom: string; prenom: string }>(
+    "SELECT id, nom, prenom FROM users WHERE LOWER(email) = 'coach.ndiaye@terrainplus.sn' LIMIT 1"
+  );
   if (coach1) {
-    db.prepare(
+    await dbRun(
       `UPDATE coaches
        SET pro_card_number = COALESCE(pro_card_number, ?),
            pro_card_expiry = COALESCE(pro_card_expiry, ?),
@@ -129,8 +146,7 @@ function ensureCoachDocumentsSeeded(): void {
            legal_status = COALESCE(legal_status, ?),
            business_reg_number = COALESCE(business_reg_number, ?),
            honorability_attested = 1
-       WHERE user_id = ?`
-    ).run(
+       WHERE user_id = ?`,
       'CP-MJS-2023-0412',
       '2028-12-31',
       'AXA Sénégal Sport Pro',
@@ -140,14 +156,14 @@ function ensureCoachDocumentsSeeded(): void {
       coach1.id
     );
 
-    const hasDoc1 = db.prepare('SELECT id FROM coach_documents WHERE coach_user_id = ? LIMIT 1').get(coach1.id);
+    const hasDoc1 = await dbGet('SELECT id FROM coach_documents WHERE coach_user_id = ? LIMIT 1', coach1.id);
     if (!hasDoc1) {
       const buf = buildSampleDiplomaPdfBuffer(
         `DIPLOME STAPS & LICENCE FEDERALE - ${coach1.prenom} ${coach1.nom}`,
         'Licence STAPS Entrainement Sportif - Football (INSEPS Dakar)',
         'STAPS-INSEPS-2021-0142'
       );
-      const stored = storeCoachDiplomaDocument({
+      const stored = await storeCoachDiplomaDocument({
         coachUserId: coach1.id,
         diplomaType: 'STAPS_LICENCE_MASTER',
         issuingOrganism: 'INSEPS Dakar',
@@ -166,20 +182,23 @@ function ensureCoachDocumentsSeeded(): void {
         honorabilityAttested: true,
       });
       if (adminRow) {
-        db.prepare(
+        await dbRun(
           `UPDATE coach_documents
            SET admin_review_note = ?, reviewed_by_user_id = ?, reviewed_at = datetime('now', '-10 days')
-           WHERE id = ?`
-        ).run('Diplôme, carte professionnelle et RC Pro vérifiés conformes.', adminRow.id, stored.docId);
+           WHERE id = ?`,
+          'Diplôme, carte professionnelle et RC Pro vérifiés conformes.',
+          adminRow.id,
+          stored.docId
+        );
       }
     }
   }
 
-  const coach2 = db
-    .prepare("SELECT id, nom, prenom FROM users WHERE LOWER(email) = 'coach.mbaye@terrainplus.sn' LIMIT 1")
-    .get() as { id: number; nom: string; prenom: string } | undefined;
+  const coach2 = await dbGet<{ id: number; nom: string; prenom: string }>(
+    "SELECT id, nom, prenom FROM users WHERE LOWER(email) = 'coach.mbaye@terrainplus.sn' LIMIT 1"
+  );
   if (coach2) {
-    db.prepare(
+    await dbRun(
       `UPDATE coaches
        SET pro_card_number = COALESCE(pro_card_number, ?),
            pro_card_expiry = COALESCE(pro_card_expiry, ?),
@@ -188,8 +207,7 @@ function ensureCoachDocumentsSeeded(): void {
            legal_status = COALESCE(legal_status, ?),
            business_reg_number = COALESCE(business_reg_number, ?),
            honorability_attested = 1
-       WHERE user_id = ?`
-    ).run(
+       WHERE user_id = ?`,
       'CP-DRAJES-2024-1180',
       '2029-06-30',
       'Allianz Responsabilité Coach',
@@ -199,14 +217,14 @@ function ensureCoachDocumentsSeeded(): void {
       coach2.id
     );
 
-    const hasDoc2 = db.prepare('SELECT id FROM coach_documents WHERE coach_user_id = ? LIMIT 1').get(coach2.id);
+    const hasDoc2 = await dbGet('SELECT id FROM coach_documents WHERE coach_user_id = ? LIMIT 1', coach2.id);
     if (!hasDoc2) {
       const buf = buildSampleDiplomaPdfBuffer(
         `MASTER STAPS - ${coach2.prenom} ${coach2.nom}`,
         'Master STAPS Preparation Physique & Prevention Articulaire (INSEPS Dakar)',
         'STAPS-INSEPS-2022-0309'
       );
-      const stored = storeCoachDiplomaDocument({
+      const stored = await storeCoachDiplomaDocument({
         coachUserId: coach2.id,
         diplomaType: 'STAPS_LICENCE_MASTER',
         issuingOrganism: 'INSEPS Dakar',
@@ -225,35 +243,39 @@ function ensureCoachDocumentsSeeded(): void {
         honorabilityAttested: true,
       });
       if (adminRow) {
-        db.prepare(
+        await dbRun(
           `UPDATE coach_documents
            SET admin_review_note = ?, reviewed_by_user_id = ?, reviewed_at = datetime('now', '-5 days')
-           WHERE id = ?`
-        ).run('Master STAPS, carte pro et RC Pro validés et conformes.', adminRow.id, stored.docId);
+           WHERE id = ?`,
+          'Master STAPS, carte pro et RC Pro validés et conformes.',
+          adminRow.id,
+          stored.docId
+        );
       }
     }
   }
 
-  let pendingCoach = db
-    .prepare("SELECT id, nom, prenom FROM users WHERE LOWER(email) = 'coach.diop.attente@terrainplus.sn' LIMIT 1")
-    .get() as { id: number; nom: string; prenom: string } | undefined;
+  let pendingCoach = await dbGet<{ id: number; nom: string; prenom: string }>(
+    "SELECT id, nom, prenom FROM users WHERE LOWER(email) = 'coach.diop.attente@terrainplus.sn' LIMIT 1"
+  );
   if (!pendingCoach) {
-    const pendingId = Number(
-      db
-        .prepare(
-          `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified)
-           VALUES (?, ?, ?, ?, ?, 'COACH', ?, 'fr', 'INSCRIT', 0, 1)`
-        )
-        .run('Diop', 'Ousmane', '+221778884411', 'coach.diop.attente@terrainplus.sn', hashPassword('Coach2026!'), '1993-08-24')
-        .lastInsertRowid
+    const pendingRes = await dbRun(
+      `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified)
+       VALUES (?, ?, ?, ?, ?, 'COACH', ?, 'fr', 'INSCRIT', 0, 1)`,
+      'Diop',
+      'Ousmane',
+      '+221778884411',
+      'coach.diop.attente@terrainplus.sn',
+      hashPassword('Coach2026!'),
+      '1993-08-24'
     );
-    db.prepare(
+    const pendingId = Number(pendingRes.lastInsertRowid);
+    await dbRun(
       `INSERT INTO coaches (
         user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
         platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa, verification_status,
         pro_card_number, pro_card_expiry, rc_pro_insurer, rc_pro_policy_number, legal_status, business_reg_number, honorability_attested
-      ) VALUES (?, ?, ?, ?, 0, 5000, 'ACTIF_1000', 'MARKETPLACE', 20, 4000, 'EN_ATTENTE', ?, ?, ?, ?, ?, ?, 1)`
-    ).run(
+      ) VALUES (?, ?, ?, ?, 0, 5000, 'ACTIF_1000', 'MARKETPLACE', 20, 4000, 'EN_ATTENTE', ?, ?, ?, ?, ?, ?, 1)`,
       pendingId,
       'Football & Préparation vitesse terrain',
       'Licence Entraîneur CAF C · FSF',
@@ -267,7 +289,7 @@ function ensureCoachDocumentsSeeded(): void {
     );
     pendingCoach = { id: pendingId, nom: 'Diop', prenom: 'Ousmane' };
   } else {
-    db.prepare(
+    await dbRun(
       `UPDATE coaches
        SET pro_card_number = COALESCE(pro_card_number, ?),
            pro_card_expiry = COALESCE(pro_card_expiry, ?),
@@ -276,8 +298,7 @@ function ensureCoachDocumentsSeeded(): void {
            legal_status = COALESCE(legal_status, ?),
            business_reg_number = COALESCE(business_reg_number, ?),
            honorability_attested = 1
-       WHERE user_id = ?`
-    ).run(
+       WHERE user_id = ?`,
       'CP-MJS-2025-0934',
       '2030-03-15',
       'NSIA Assurances Pro',
@@ -288,16 +309,14 @@ function ensureCoachDocumentsSeeded(): void {
     );
   }
 
-  const hasPendingDoc = db
-    .prepare('SELECT id FROM coach_documents WHERE coach_user_id = ? LIMIT 1')
-    .get(pendingCoach.id);
+  const hasPendingDoc = await dbGet('SELECT id FROM coach_documents WHERE coach_user_id = ? LIMIT 1', pendingCoach.id);
   if (!hasPendingDoc) {
     const buf = buildSampleDiplomaPdfBuffer(
       `ATTESTATION LICENCE CAF C - ${pendingCoach.prenom} ${pendingCoach.nom}`,
       'Federation Senegalaise de Football - DTN / CAF (Specialite Football)',
       'CAF-C-SN-2024-0815'
     );
-    storeCoachDiplomaDocument({
+    await storeCoachDiplomaDocument({
       coachUserId: pendingCoach.id,
       diplomaType: 'LICENCE_CAF_FSF',
       issuingOrganism: 'FSF / DTN Football Sénégal',
@@ -341,27 +360,29 @@ function attachImagesToExerciseJson(rawJson: string): string {
   }
 }
 
-function ensureBusinessModelBackfill(): void {
+async function ensureBusinessModelBackfill(): Promise<void> {
   // Ensure coaches showcase both 0 FCFA Marketplace and Coach Pro (3 000 FCFA / 0% commission)
-  const c1User = db
-    .prepare("SELECT id FROM users WHERE LOWER(email) = 'coach.ndiaye@terrainplus.sn'")
-    .get() as { id: number } | undefined;
+  const c1User = await dbGet<{ id: number }>(
+    "SELECT id FROM users WHERE LOWER(email) = 'coach.ndiaye@terrainplus.sn'"
+  );
   if (c1User) {
-    db.prepare(
+    await dbRun(
       `UPDATE coaches
        SET coach_plan = 'MARKETPLACE', monthly_fee_fcfa = 0, commission_pct = 20, athlete_payout_fcfa = 4000
-       WHERE user_id = ?`
-    ).run(c1User.id);
+       WHERE user_id = ?`,
+      c1User.id
+    );
   }
-  const c2User = db
-    .prepare("SELECT id FROM users WHERE LOWER(email) = 'coach.mbaye@terrainplus.sn'")
-    .get() as { id: number } | undefined;
+  const c2User = await dbGet<{ id: number }>(
+    "SELECT id FROM users WHERE LOWER(email) = 'coach.mbaye@terrainplus.sn'"
+  );
   if (c2User) {
-    db.prepare(
+    await dbRun(
       `UPDATE coaches
        SET coach_plan = 'COACH_PRO', monthly_fee_fcfa = 3000, commission_pct = 0, athlete_payout_fcfa = 5000
-       WHERE user_id = ?`
-    ).run(c2User.id);
+       WHERE user_id = ?`,
+      c2User.id
+    );
   }
 
   // Ensure seeded PROGRESSION sessions exist and existing advanced/intermediate sessions carry access_tier + exercise imageUrls
@@ -371,17 +392,16 @@ function ensureBusinessModelBackfill(): void {
     'Contre-attaque et gainage anti-rotation',
   ];
   for (const title of progressionTitles) {
-    db.prepare("UPDATE sessions_library SET access_tier = 'PROGRESSION' WHERE titre = ?").run(title);
+    await dbRun("UPDATE sessions_library SET access_tier = 'PROGRESSION' WHERE titre = ?", title);
   }
 
-  const allSessions = db.prepare('SELECT id, exercises_json FROM sessions_library').all() as Array<{
-    id: number;
-    exercises_json: string;
-  }>;
+  const allSessions = await dbAll<{ id: number; exercises_json: string }>(
+    'SELECT id, exercises_json FROM sessions_library'
+  );
   for (const s of allSessions) {
     const nextJson = attachImagesToExerciseJson(s.exercises_json);
     if (nextJson !== s.exercises_json) {
-      db.prepare('UPDATE sessions_library SET exercises_json = ? WHERE id = ?').run(nextJson, s.id);
+      await dbRun('UPDATE sessions_library SET exercises_json = ? WHERE id = ?', nextJson, s.id);
     }
   }
 
@@ -500,17 +520,14 @@ function ensureBusinessModelBackfill(): void {
     },
   ];
 
-  const insertExtra = db.prepare(
-    `INSERT INTO sessions_library (
-      sport_code, titre, niveau, duree_min, objectif, prevention_focus,
-      relue_par, validation_status, proposee_par_user_id, access_tier, exercises_json
-    ) VALUES (?, ?, ?, ?, ?, ?, 'Dr. S. Diagne (Médecin du sport)', 'VALIDEE', ?, 'PROGRESSION', ?)`
-  );
-
   for (const item of extraSessions) {
-    const exists = db.prepare('SELECT id FROM sessions_library WHERE titre = ?').get(item.titre);
+    const exists = await dbGet('SELECT id FROM sessions_library WHERE titre = ?', item.titre);
     if (!exists) {
-      insertExtra.run(
+      await dbRun(
+        `INSERT INTO sessions_library (
+          sport_code, titre, niveau, duree_min, objectif, prevention_focus,
+          relue_par, validation_status, proposee_par_user_id, access_tier, exercises_json
+        ) VALUES (?, ?, ?, ?, ?, ?, 'Dr. S. Diagne (Médecin du sport)', 'VALIDEE', ?, 'PROGRESSION', ?)`,
         item.sport,
         item.titre,
         item.niveau,
@@ -524,10 +541,10 @@ function ensureBusinessModelBackfill(): void {
   }
 }
 
-function ensureExpandedSportsLibrary(): void {
-  const coachRow = db
-    .prepare("SELECT id FROM users WHERE role = 'COACH' ORDER BY id ASC LIMIT 1")
-    .get() as { id: number } | undefined;
+async function ensureExpandedSportsLibrary(): Promise<void> {
+  const coachRow = await dbGet<{ id: number }>(
+    "SELECT id FROM users WHERE role = 'COACH' ORDER BY id ASC LIMIT 1"
+  );
   const coachId = coachRow ? coachRow.id : null;
 
   const newSportSessions = [
@@ -767,17 +784,14 @@ function ensureExpandedSportsLibrary(): void {
     },
   ];
 
-  const insertSess = db.prepare(
-    `INSERT INTO sessions_library (
-      sport_code, titre, niveau, duree_min, objectif, prevention_focus,
-      relue_par, validation_status, proposee_par_user_id, access_tier, exercises_json
-    ) VALUES (?, ?, ?, ?, ?, ?, 'Dr. S. Diagne (Médecin du sport)', 'VALIDEE', ?, ?, ?)`
-  );
-
   for (const item of newSportSessions) {
-    const exists = db.prepare('SELECT id FROM sessions_library WHERE titre = ?').get(item.titre);
+    const exists = await dbGet('SELECT id FROM sessions_library WHERE titre = ?', item.titre);
     if (!exists) {
-      insertSess.run(
+      await dbRun(
+        `INSERT INTO sessions_library (
+          sport_code, titre, niveau, duree_min, objectif, prevention_focus,
+          relue_par, validation_status, proposee_par_user_id, access_tier, exercises_json
+        ) VALUES (?, ?, ?, ?, ?, ?, 'Dr. S. Diagne (Médecin du sport)', 'VALIDEE', ?, ?, ?)`,
         item.sport,
         item.titre,
         item.niveau,
@@ -792,20 +806,22 @@ function ensureExpandedSportsLibrary(): void {
   }
 
   // Ensure collective groups exist for Volleyball and Athlétisme
-  const firstPartner = db.prepare('SELECT id FROM partners ORDER BY id ASC LIMIT 1').get() as { id: number } | undefined;
+  const firstPartner = await dbGet<{ id: number }>('SELECT id FROM partners ORDER BY id ASC LIMIT 1');
   if (firstPartner) {
-    const hasVolleyGroup = db.prepare("SELECT id FROM groups WHERE sport_code = 'volleyball' LIMIT 1").get();
+    const hasVolleyGroup = await dbGet("SELECT id FROM groups WHERE sport_code = 'volleyball' LIMIT 1");
     if (!hasVolleyGroup) {
-      db.prepare('INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)').run(
+      await dbRun(
+        'INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)',
         'Collectif Volley Campus Dakar',
         firstPartner.id,
         'Mariama Ndiaye',
         'volleyball'
       );
     }
-    const hasAthGroup = db.prepare("SELECT id FROM groups WHERE sport_code = 'athletisme' LIMIT 1").get();
+    const hasAthGroup = await dbGet("SELECT id FROM groups WHERE sport_code = 'athletisme' LIMIT 1");
     if (!hasAthGroup) {
-      db.prepare('INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)').run(
+      await dbRun(
+        'INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)',
         'Collectif Athlétisme Piste Thiès',
         firstPartner.id,
         'Pape Moussa Fall',
@@ -815,129 +831,172 @@ function ensureExpandedSportsLibrary(): void {
   }
 }
 
-export function seedIfEmpty(): void {
-  const countRow = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number };
-  if (countRow.c > 0) {
-    ensureMinisterPilotUser();
-    ensureSecondCoachPilot();
-    ensureCoachDocumentsSeeded();
-    ensureBusinessModelBackfill();
-    ensureExpandedSportsLibrary();
+export async function seedIfEmpty(): Promise<void> {
+  const countRow = await dbGet<{ c: number }>('SELECT COUNT(*) as c FROM users');
+  if (Number(countRow?.c || 0) > 0) {
+    await ensureMinisterPilotUser();
+    await ensureSecondCoachPilot();
+    await ensureCoachDocumentsSeeded();
+    await ensureBusinessModelBackfill();
+    await ensureExpandedSportsLibrary();
     return;
   }
 
-  const insertPartner = db.prepare(
-    'INSERT INTO partners (nom, type, zone) VALUES (?, ?, ?)'
-  );
-  const pUidt = Number(insertPartner.run('Campus Université Iba Der Thiam', 'CAMPUS', 'Thiès').lastInsertRowid);
-  const pAsc = Number(insertPartner.run('ASC Jaraaf Quartier', 'ASC', 'Dakar').lastInsertRowid);
-  const pUgb = Number(insertPartner.run('Campus UGB Sanar', 'CAMPUS', 'Saint-Louis').lastInsertRowid);
+  await dbTransaction(async (tx) => {
+    const recheck = await tx.get<{ c: number }>('SELECT COUNT(*) as c FROM users');
+    if (Number(recheck?.c || 0) > 0) return;
 
-  const insertGroup = db.prepare(
-    'INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)'
-  );
-  const gFoot = Number(insertGroup.run('Collectif Foot Thiès Campus', pUidt, 'Ousmane Bâ', 'football').lastInsertRowid);
-  const gBasket = Number(insertGroup.run('Collectif Basket Saint-Louis', pUgb, 'Aïssatou Diallo', 'basket').lastInsertRowid);
-  const gHand = Number(insertGroup.run('Collectif Handball Dakar Sud', pAsc, 'Cheikh Mbaye', 'handball').lastInsertRowid);
+    const pUidt = Number(
+      (await tx.run('INSERT INTO partners (nom, type, zone) VALUES (?, ?, ?)', 'Campus Université Iba Der Thiam', 'CAMPUS', 'Thiès')).lastInsertRowid
+    );
+    const pAsc = Number(
+      (await tx.run('INSERT INTO partners (nom, type, zone) VALUES (?, ?, ?)', 'ASC Jaraaf Quartier', 'ASC', 'Dakar')).lastInsertRowid
+    );
+    const pUgb = Number(
+      (await tx.run('INSERT INTO partners (nom, type, zone) VALUES (?, ?, ?)', 'Campus UGB Sanar', 'CAMPUS', 'Saint-Louis')).lastInsertRowid
+    );
 
-  const insertChallenge = db.prepare(
-    'INSERT INTO challenges (partner_id, titre, indicateur, periode, target_sessions, current_sessions) VALUES (?, ?, ?, ?, ?, ?)'
-  );
-  insertChallenge.run(pUidt, 'Défi Régularité Campus Thiès', 'Séances collectives terminées', 'Novembre 2026', 120, 84);
-  insertChallenge.run(pUgb, 'Défi 3 séances par semaine', 'Régularité hebdomadaire du groupe', 'Novembre 2026', 90, 61);
-  insertChallenge.run(pAsc, 'Prépa Saison ASC sans blessure', 'Séances prévention complétées', 'Novembre 2026', 100, 72);
+    const gFoot = Number(
+      (await tx.run('INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)', 'Collectif Foot Thiès Campus', pUidt, 'Ousmane Bâ', 'football')).lastInsertRowid
+    );
+    const gBasket = Number(
+      (await tx.run('INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)', 'Collectif Basket Saint-Louis', pUgb, 'Aïssatou Diallo', 'basket')).lastInsertRowid
+    );
+    const gHand = Number(
+      (await tx.run('INSERT INTO groups (nom, partner_id, captain_name, sport_code) VALUES (?, ?, ?, ?)', 'Collectif Handball Dakar Sud', pAsc, 'Cheikh Mbaye', 'handball')).lastInsertRowid
+    );
 
-  const insertUser = db.prepare(
-    `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`
-  );
+    await tx.run('INSERT INTO challenges (partner_id, titre, indicateur, periode, target_sessions, current_sessions) VALUES (?, ?, ?, ?, ?, ?)', pUidt, 'Défi Régularité Campus Thiès', 'Séances collectives terminées', 'Novembre 2026', 120, 84);
+    await tx.run('INSERT INTO challenges (partner_id, titre, indicateur, periode, target_sessions, current_sessions) VALUES (?, ?, ?, ?, ?, ?)', pUgb, 'Défi 3 séances par semaine', 'Régularité hebdomadaire du groupe', 'Novembre 2026', 90, 61);
+    await tx.run('INSERT INTO challenges (partner_id, titre, indicateur, periode, target_sessions, current_sessions) VALUES (?, ?, ?, ?, ?, ?)', pAsc, 'Prépa Saison ASC sans blessure', 'Séances prévention complétées', 'Novembre 2026', 100, 72);
 
-  const adminId = Number(
-    insertUser.run('Kambaye', 'Ndeye Amy', '+221775006677', 'admin@terrainplus.sn', hashPassword('Admin2026!'), 'ADMIN', '1999-05-14', 'fr', 'ACTIF').lastInsertRowid
-  );
-  const coachId = Number(
-    insertUser.run('Ndiaye', 'Mamadou', '+221774005566', 'coach.ndiaye@terrainplus.sn', hashPassword('Coach2026!'), 'COACH', '1993-08-22', 'fr', 'ACTIF').lastInsertRowid
-  );
-  const coach2Id = Number(
-    insertUser.run('Mbaye', 'Fatou Kiné', '+221774009911', 'coach.mbaye@terrainplus.sn', hashPassword('Coach2026!'), 'COACH', '1995-03-11', 'fr', 'ACTIF').lastInsertRowid
-  );
-  const moussaId = Number(
-    insertUser.run('Diop', 'Moussa', '+221771001122', 'moussa.diop@terrainplus.sn', hashPassword('Terrain2026!'), 'ATHLETE', '2003-03-18', 'fr', 'SUIVI_ACTIF').lastInsertRowid
-  );
-  const awaId = Number(
-    insertUser.run('Fall', 'Awa', '+221772003344', 'awa.fall@terrainplus.sn', hashPassword('Terrain2026!'), 'ATHLETE', '2004-11-09', 'fr', 'SUIVI_ACTIF').lastInsertRowid
-  );
-  const ibrahimaId = Number(
-    insertUser.run('Sarr', 'Ibrahima', '+221773004455', 'ibrahima.sarr@terrainplus.sn', hashPassword('Terrain2026!'), 'ATHLETE', '2002-07-02', 'fr', 'ACTIF').lastInsertRowid
-  );
+    const insertUser = (
+      nom: string,
+      prenom: string,
+      telephone: string,
+      email: string,
+      passwordHash: string,
+      role: string,
+      dob: string,
+      langue: string,
+      statut: string
+    ) =>
+      tx.run(
+        `INSERT INTO users (nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1)`,
+        nom,
+        prenom,
+        telephone,
+        email,
+        passwordHash,
+        role,
+        dob,
+        langue,
+        statut
+      );
 
-  db.prepare(
-    `INSERT INTO coaches (
-      user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
-      platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa
-    ) VALUES (?, ?, ?, ?, 0, 5000, ?, 'MARKETPLACE', 20, 4000)`
-  ).run(coachId, 'Préparation physique sports collectifs', 'Licence STAPS · Préparateur fédéral', 'Thiès & Saint-Louis', 'ACTIF_1000');
+    const adminId = Number((await insertUser('Kambaye', 'Ndeye Amy', '+221775006677', 'admin@terrainplus.sn', hashPassword('Admin2026!'), 'ADMIN', '1999-05-14', 'fr', 'ACTIF')).lastInsertRowid);
+    const coachId = Number((await insertUser('Ndiaye', 'Mamadou', '+221774005566', 'coach.ndiaye@terrainplus.sn', hashPassword('Coach2026!'), 'COACH', '1993-08-22', 'fr', 'ACTIF')).lastInsertRowid);
+    const coach2Id = Number((await insertUser('Mbaye', 'Fatou Kiné', '+221774009911', 'coach.mbaye@terrainplus.sn', hashPassword('Coach2026!'), 'COACH', '1995-03-11', 'fr', 'ACTIF')).lastInsertRowid);
+    const moussaId = Number((await insertUser('Diop', 'Moussa', '+221771001122', 'moussa.diop@terrainplus.sn', hashPassword('Terrain2026!'), 'ATHLETE', '2003-03-18', 'fr', 'SUIVI_ACTIF')).lastInsertRowid);
+    const awaId = Number((await insertUser('Fall', 'Awa', '+221772003344', 'awa.fall@terrainplus.sn', hashPassword('Terrain2026!'), 'ATHLETE', '2004-11-09', 'fr', 'SUIVI_ACTIF')).lastInsertRowid);
+    const ibrahimaId = Number((await insertUser('Sarr', 'Ibrahima', '+221773004455', 'ibrahima.sarr@terrainplus.sn', hashPassword('Terrain2026!'), 'ATHLETE', '2002-07-02', 'fr', 'ACTIF')).lastInsertRowid);
 
-  db.prepare(
-    `INSERT INTO coaches (
-      user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
-      platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa
-    ) VALUES (?, ?, ?, ?, 3000, 5000, ?, 'COACH_PRO', 0, 5000)`
-  ).run(coach2Id, 'Explosivité, détente & prévention articulaire', 'Master STAPS · Préparatrice physique', 'Dakar & Rufisque', 'ACTIF_1000');
+    await tx.run(
+      `INSERT INTO coaches (
+        user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
+        platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa
+      ) VALUES (?, ?, ?, ?, 0, 5000, ?, 'MARKETPLACE', 20, 4000)`,
+      coachId,
+      'Préparation physique sports collectifs',
+      'Licence STAPS · Préparateur fédéral',
+      'Thiès & Saint-Louis',
+      'ACTIF_1000'
+    );
 
-  const insertConsent = db.prepare(
-    'INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)'
-  );
-  for (const uid of [moussaId, awaId, ibrahimaId]) {
-    insertConsent.run(uid, 'DONNEES_SENSIBLES', 'v1.0');
-    insertConsent.run(uid, 'NON_MEDICAL', 'v1.0');
-  }
+    await tx.run(
+      `INSERT INTO coaches (
+        user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
+        platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa
+      ) VALUES (?, ?, ?, ?, 3000, 5000, ?, 'COACH_PRO', 0, 5000)`,
+      coach2Id,
+      'Explosivité, détente & prévention articulaire',
+      'Master STAPS · Préparatrice physique',
+      'Dakar & Rufisque',
+      'ACTIF_1000'
+    );
 
-  db.prepare(
-    `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled, coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at, plan_tier, plan_fee_fcfa, plan_billing_cycle)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIF_5000', 5000, datetime('now', '-15 days'), 'COACH_PRIVE', 5000, 'MENSUEL')`
-  ).run(moussaId, 'football', 'intermediaire', 178, 'Milieu', 'Gagner en explosivité sur 15 m et régularité 4 semaines', 0, 1);
+    for (const uid of [moussaId, awaId, ibrahimaId]) {
+      await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', uid, 'DONNEES_SENSIBLES', 'v1.0');
+      await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', uid, 'NON_MEDICAL', 'v1.0');
+    }
 
-  db.prepare(
-    `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled, coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at, plan_tier, plan_fee_fcfa, plan_billing_cycle)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIF_5000', 5000, datetime('now', '-10 days'), 'COACH_PRIVE', 5000, 'MENSUEL')`
-  ).run(awaId, 'basket', 'intermediaire', 173, 'Meneur', 'Améliorer la détente verticale et protéger les chevilles', 0, 1);
+    await tx.run(
+      `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled, coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at, plan_tier, plan_fee_fcfa, plan_billing_cycle)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIF_5000', 5000, datetime('now', '-15 days'), 'COACH_PRIVE', 5000, 'MENSUEL')`,
+      moussaId,
+      'football',
+      'intermediaire',
+      178,
+      'Milieu',
+      'Gagner en explosivité sur 15 m et régularité 4 semaines',
+      0,
+      1
+    );
 
-  db.prepare(
-    `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled, coach_subscription_status, coach_monthly_fee_fcfa, plan_tier, plan_fee_fcfa, plan_billing_cycle)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'GRATUIT_BASE', 0, 'ESSENTIEL', 0, 'MENSUEL')`
-  ).run(ibrahimaId, 'handball', 'debutant', 181, 'Arrière', 'Renforcer les épaules et tenir la cadence de match', 1, 1);
+    await tx.run(
+      `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled, coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at, plan_tier, plan_fee_fcfa, plan_billing_cycle)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIF_5000', 5000, datetime('now', '-10 days'), 'COACH_PRIVE', 5000, 'MENSUEL')`,
+      awaId,
+      'basket',
+      'intermediaire',
+      173,
+      'Meneur',
+      'Améliorer la détente verticale et protéger les chevilles',
+      0,
+      1
+    );
 
-  db.prepare('INSERT INTO assignments (coach_user_id, athlete_user_id, date_debut, statut) VALUES (?, ?, ?, ?)').run(
-    coachId, moussaId, '2026-10-15', 'ACTIF'
-  );
-  db.prepare('INSERT INTO assignments (coach_user_id, athlete_user_id, date_debut, statut) VALUES (?, ?, ?, ?)').run(
-    coachId, awaId, '2026-10-20', 'ACTIF'
-  );
+    await tx.run(
+      `INSERT INTO athlete_profiles (user_id, sport_code, niveau, taille_cm, poste, objectif, eco_data_mode, notifications_enabled, coach_subscription_status, coach_monthly_fee_fcfa, plan_tier, plan_fee_fcfa, plan_billing_cycle)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'GRATUIT_BASE', 0, 'ESSENTIEL', 0, 'MENSUEL')`,
+      ibrahimaId,
+      'handball',
+      'debutant',
+      181,
+      'Arrière',
+      'Renforcer les épaules et tenir la cadence de match',
+      1,
+      1
+    );
 
-  db.prepare('INSERT INTO group_memberships (user_id, group_id) VALUES (?, ?)').run(moussaId, gFoot);
-  db.prepare('INSERT INTO group_memberships (user_id, group_id) VALUES (?, ?)').run(awaId, gBasket);
-  db.prepare('INSERT INTO group_memberships (user_id, group_id) VALUES (?, ?)').run(ibrahimaId, gHand);
+    await tx.run('INSERT INTO assignments (coach_user_id, athlete_user_id, date_debut, statut) VALUES (?, ?, ?, ?)', coachId, moussaId, '2026-10-15', 'ACTIF');
+    await tx.run('INSERT INTO assignments (coach_user_id, athlete_user_id, date_debut, statut) VALUES (?, ?, ?, ?)', coachId, awaId, '2026-10-20', 'ACTIF');
 
-  const insertWeight = db.prepare(
-    'INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, ?, ?)'
-  );
-  insertWeight.run(moussaId, 71.8, '2026-10-15');
-  insertWeight.run(moussaId, 71.2, '2026-10-29');
-  insertWeight.run(moussaId, 70.6, '2026-11-12');
-  insertWeight.run(awaId, 63.4, '2026-10-20');
-  insertWeight.run(awaId, 63.1, '2026-11-10');
-  insertWeight.run(ibrahimaId, 76.0, '2026-11-01');
+    await tx.run('INSERT INTO group_memberships (user_id, group_id) VALUES (?, ?)', moussaId, gFoot);
+    await tx.run('INSERT INTO group_memberships (user_id, group_id) VALUES (?, ?)', awaId, gBasket);
+    await tx.run('INSERT INTO group_memberships (user_id, group_id) VALUES (?, ?)', ibrahimaId, gHand);
 
-  const insertSession = db.prepare(
-    `INSERT INTO sessions_library (
-      sport_code, titre, niveau, duree_min, objectif, prevention_focus,
-      relue_par, validation_status, proposee_par_user_id, exercises_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
+    await tx.run('INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, ?, ?)', moussaId, 71.8, '2026-10-15');
+    await tx.run('INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, ?, ?)', moussaId, 71.2, '2026-10-29');
+    await tx.run('INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, ?, ?)', moussaId, 70.6, '2026-11-12');
+    await tx.run('INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, ?, ?)', awaId, 63.4, '2026-10-20');
+    await tx.run('INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, ?, ?)', awaId, 63.1, '2026-11-10');
+    await tx.run('INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, ?, ?)', ibrahimaId, 76.0, '2026-11-01');
+
+    const insertSession = {
+      run: (...params: unknown[]) =>
+        tx.run(
+          `INSERT INTO sessions_library (
+            sport_code, titre, niveau, duree_min, objectif, prevention_focus,
+            relue_par, validation_status, proposee_par_user_id, exercises_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ...params
+        ),
+    };
 
   // Football Sessions
-  insertSession.run(
+  await insertSession.run(
     'football',
     'Appuis courts et explosivité terrain',
     'intermediaire',
@@ -995,7 +1054,7 @@ export function seedIfEmpty(): void {
     ])
   );
 
-  insertSession.run(
+  await insertSession.run(
     'football',
     'Endurance intermittente 15-15 sans matériel',
     'debutant',
@@ -1042,7 +1101,7 @@ export function seedIfEmpty(): void {
     ])
   );
 
-  insertSession.run(
+  await insertSession.run(
     'football',
     'Puissance des jambes et stabilité',
     'avance',
@@ -1079,7 +1138,7 @@ export function seedIfEmpty(): void {
   );
 
   // Basket Sessions
-  insertSession.run(
+  await insertSession.run(
     'basket',
     'Détente verticale et réception chevilles',
     'intermediaire',
@@ -1126,7 +1185,7 @@ export function seedIfEmpty(): void {
     ])
   );
 
-  insertSession.run(
+  await insertSession.run(
     'basket',
     'Réactivité premier pas et gainage court',
     'debutant',
@@ -1162,7 +1221,7 @@ export function seedIfEmpty(): void {
     ])
   );
 
-  insertSession.run(
+  await insertSession.run(
     'basket',
     'Plyométrie contrôlée demi-terrain',
     'avance',
@@ -1188,7 +1247,7 @@ export function seedIfEmpty(): void {
   );
 
   // Handball Sessions
-  insertSession.run(
+  await insertSession.run(
     'handball',
     'Solidité des épaules et vitesse courte',
     'debutant',
@@ -1235,7 +1294,7 @@ export function seedIfEmpty(): void {
     ])
   );
 
-  insertSession.run(
+  await insertSession.run(
     'handball',
     'Contre-attaque et gainage anti-rotation',
     'intermediaire',
@@ -1272,7 +1331,7 @@ export function seedIfEmpty(): void {
   );
 
   // Pending review session (so Admin can test content validation gate)
-  insertSession.run(
+  await insertSession.run(
     'handball',
     'Mobilité thoracique et prévention épaule de tir',
     'avance',
@@ -1297,120 +1356,125 @@ export function seedIfEmpty(): void {
     ])
   );
 
-  // Build weekly plans
-  buildDefaultScheduleForAthlete(moussaId, 'football', 'intermediaire', coachId, 'Explosivité et régularité 4 semaines');
-  buildDefaultScheduleForAthlete(awaId, 'basket', 'intermediaire', coachId, 'Détente verticale et protection chevilles');
-  buildDefaultScheduleForAthlete(ibrahimaId, 'handball', 'debutant', null, 'Renforcement épaules et endurance');
+    // Build weekly plans
+    await buildDefaultScheduleForAthlete(moussaId, 'football', 'intermediaire', coachId, 'Explosivité et régularité 4 semaines', tx);
+    await buildDefaultScheduleForAthlete(awaId, 'basket', 'intermediaire', coachId, 'Détente verticale et protection chevilles', tx);
+    await buildDefaultScheduleForAthlete(ibrahimaId, 'handball', 'debutant', null, 'Renforcement épaules et endurance', tx);
 
-  // Mark Day 1 of Moussa as completed and Day 4 as Coach-Adjusted with visible motif
-  const moussaSched = db
-    .prepare('SELECT id, jour_semaine FROM scheduled_sessions WHERE athlete_user_id = ? ORDER BY jour_semaine')
-    .all(moussaId) as Array<{ id: number; jour_semaine: number }>;
+    // Mark Day 1 of Moussa as completed and Day 4 as Coach-Adjusted with visible motif
+    const moussaSched = await tx.all<{ id: number; jour_semaine: number }>(
+      'SELECT id, jour_semaine FROM scheduled_sessions WHERE athlete_user_id = ? ORDER BY jour_semaine',
+      moussaId
+    );
 
-  if (moussaSched[0]) {
-    db.prepare(
-      `UPDATE scheduled_sessions
-       SET completed = 1, ressenti_fatigue = 5, difficulte = 6, qualite_sommeil = 8, completed_at = datetime('now', '-2 days')
-       WHERE id = ?`
-    ).run(moussaSched[0].id);
-  }
-  if (moussaSched[3]) {
-    db.prepare(
-      `UPDATE scheduled_sessions
-       SET ajustee_par_coach = 1,
-           motif_ajustement = 'Allègement de charge avant match ASC de samedi — focus appuis courts',
-           date_ajustement = datetime('now', '-1 day')
-       WHERE id = ?`
-    ).run(moussaSched[3].id);
-  }
+    if (moussaSched[0]) {
+      await tx.run(
+        `UPDATE scheduled_sessions
+         SET completed = 1, ressenti_fatigue = 5, difficulte = 6, qualite_sommeil = 8, completed_at = datetime('now', '-2 days')
+         WHERE id = ?`,
+        moussaSched[0].id
+      );
+    }
+    if (moussaSched[3]) {
+      await tx.run(
+        `UPDATE scheduled_sessions
+         SET ajustee_par_coach = 1,
+             motif_ajustement = 'Allègement de charge avant match ASC de samedi — focus appuis courts',
+             date_ajustement = datetime('now', '-1 day')
+         WHERE id = ?`,
+        moussaSched[3].id
+      );
+    }
 
-  // Evaluations for Moussa (Initial + Periodic)
-  const eval1Id = Number(
-    db
-      .prepare(
-        `INSERT INTO evaluations (athlete_user_id, type, sport_code, date, score_global, results_json)
-         VALUES (?, 'INITIALE', 'football', date('now', '-28 days'), 64, ?)`
-      )
-      .run(
-        moussaId,
-        JSON.stringify([
-          { test_code: 'fb_squats_30s', test_nom: 'Squats en 30 s', valeur: 19, unite: 'répétitions', niveau_obtenu: 'Faible' },
-          { test_code: 'fb_navette_courte', test_nom: 'Course navette courte (6 x 10 m)', valeur: 14.9, unite: 'secondes', niveau_obtenu: 'Moyen' },
-          { test_code: 'fb_gainage_chrono', test_nom: 'Gainage frontal chronométré', valeur: 62, unite: 'secondes', niveau_obtenu: 'Moyen' },
-        ])
+    // Evaluations for Moussa (Initial + Periodic)
+    const eval1Id = Number(
+      (
+        await tx.run(
+          `INSERT INTO evaluations (athlete_user_id, type, sport_code, date, score_global, results_json)
+           VALUES (?, 'INITIALE', 'football', date('now', '-28 days'), 64, ?)`,
+          moussaId,
+          JSON.stringify([
+            { test_code: 'fb_squats_30s', test_nom: 'Squats en 30 s', valeur: 19, unite: 'répétitions', niveau_obtenu: 'Faible' },
+            { test_code: 'fb_navette_courte', test_nom: 'Course navette courte (6 x 10 m)', valeur: 14.9, unite: 'secondes', niveau_obtenu: 'Moyen' },
+            { test_code: 'fb_gainage_chrono', test_nom: 'Gainage frontal chronométré', valeur: 62, unite: 'secondes', niveau_obtenu: 'Moyen' },
+          ])
+        )
       ).lastInsertRowid
-  );
+    );
 
-  const eval2Id = Number(
-    db
-      .prepare(
-        `INSERT INTO evaluations (athlete_user_id, type, sport_code, date, score_global, results_json)
-         VALUES (?, 'PERIODIQUE', 'football', date('now', '-2 days'), 78, ?)`
-      )
-      .run(
-        moussaId,
-        JSON.stringify([
-          { test_code: 'fb_squats_30s', test_nom: 'Squats en 30 s', valeur: 24, unite: 'répétitions', niveau_obtenu: 'Moyen' },
-          { test_code: 'fb_navette_courte', test_nom: 'Course navette courte (6 x 10 m)', valeur: 13.5, unite: 'secondes', niveau_obtenu: 'Bon pour le niveau' },
-          { test_code: 'fb_gainage_chrono', test_nom: 'Gainage frontal chronométré', valeur: 84, unite: 'secondes', niveau_obtenu: 'Moyen' },
-        ])
+    const eval2Id = Number(
+      (
+        await tx.run(
+          `INSERT INTO evaluations (athlete_user_id, type, sport_code, date, score_global, results_json)
+           VALUES (?, 'PERIODIQUE', 'football', date('now', '-2 days'), 78, ?)`,
+          moussaId,
+          JSON.stringify([
+            { test_code: 'fb_squats_30s', test_nom: 'Squats en 30 s', valeur: 24, unite: 'répétitions', niveau_obtenu: 'Moyen' },
+            { test_code: 'fb_navette_courte', test_nom: 'Course navette courte (6 x 10 m)', valeur: 13.5, unite: 'secondes', niveau_obtenu: 'Bon pour le niveau' },
+            { test_code: 'fb_gainage_chrono', test_nom: 'Gainage frontal chronométré', valeur: 84, unite: 'secondes', niveau_obtenu: 'Moyen' },
+          ])
+        )
       ).lastInsertRowid
-  );
+    );
 
-  db.prepare(
-    `INSERT INTO coach_comments (coach_user_id, evaluation_id, texte, date)
-     VALUES (?, ?, ?, datetime('now', '-1 day'))`
-  ).run(
-    coachId,
-    eval1Id,
-    'Bonne base de vitesse sur les appuis courts. On va renforcer l’endurance de force des cuisses sur les 4 prochaines semaines.'
-  );
-  db.prepare(
-    `INSERT INTO coach_comments (coach_user_id, evaluation_id, texte, date)
-     VALUES (?, ?, ?, datetime('now', '-12 hours'))`
-  ).run(
-    coachId,
-    eval2Id,
-    'Net progrès sur la course navette (-1,4 s) et +5 squats en 30 s. Continue la régularité sur le gainage.'
-  );
+    await tx.run(
+      `INSERT INTO coach_comments (coach_user_id, evaluation_id, texte, date)
+       VALUES (?, ?, ?, datetime('now', '-1 day'))`,
+      coachId,
+      eval1Id,
+      'Bonne base de vitesse sur les appuis courts. On va renforcer l’endurance de force des cuisses sur les 4 prochaines semaines.'
+    );
+    await tx.run(
+      `INSERT INTO coach_comments (coach_user_id, evaluation_id, texte, date)
+       VALUES (?, ?, ?, datetime('now', '-12 hours'))`,
+      coachId,
+      eval2Id,
+      'Net progrès sur la course navette (-1,4 s) et +5 squats en 30 s. Continue la régularité sur le gainage.'
+    );
 
-  // Evaluation for Awa
-  db.prepare(
-    `INSERT INTO evaluations (athlete_user_id, type, sport_code, date, score_global, results_json)
-     VALUES (?, 'INITIALE', 'basket', date('now', '-14 days'), 70, ?)`
-  ).run(
-    awaId,
-    JSON.stringify([
-      { test_code: 'bk_saut_vertical', test_nom: 'Saut vertical mesuré au mur', valeur: 41, unite: 'cm', niveau_obtenu: 'Moyen' },
-      { test_code: 'bk_appuis_lateraux', test_nom: 'Appuis latéraux en 20 s', valeur: 11, unite: 'allers-retours', niveau_obtenu: 'Moyen' },
-      { test_code: 'bk_gainage', test_nom: 'Gainage frontal stabilisé', valeur: 68, unite: 'secondes', niveau_obtenu: 'Moyen' },
-    ])
-  );
+    // Evaluation for Awa
+    await tx.run(
+      `INSERT INTO evaluations (athlete_user_id, type, sport_code, date, score_global, results_json)
+       VALUES (?, 'INITIALE', 'basket', date('now', '-14 days'), 70, ?)`,
+      awaId,
+      JSON.stringify([
+        { test_code: 'bk_saut_vertical', test_nom: 'Saut vertical mesuré au mur', valeur: 41, unite: 'cm', niveau_obtenu: 'Moyen' },
+        { test_code: 'bk_appuis_lateraux', test_nom: 'Appuis latéraux en 20 s', valeur: 11, unite: 'allers-retours', niveau_obtenu: 'Moyen' },
+        { test_code: 'bk_gainage', test_nom: 'Gainage frontal stabilisé', valeur: 68, unite: 'secondes', niveau_obtenu: 'Moyen' },
+      ])
+    );
 
-  // Alerts
-  db.prepare(
-    `INSERT INTO alerts (athlete_user_id, type, zone_douleur, intensite, message, date, traitee)
-     VALUES (?, 'RAPPEL', NULL, NULL, 'Prochain bilan coach programmé dans 3 jours — pensez à noter votre poids.', datetime('now', '-1 day'), 0)`
-  ).run(moussaId);
+    // Alerts
+    await tx.run(
+      `INSERT INTO alerts (athlete_user_id, type, zone_douleur, intensite, message, date, traitee)
+       VALUES (?, 'RAPPEL', NULL, NULL, 'Prochain bilan coach programmé dans 3 jours — pensez à noter votre poids.', datetime('now', '-1 day'), 0)`,
+      moussaId
+    );
 
-  db.prepare(
-    `INSERT INTO alerts (athlete_user_id, type, zone_douleur, intensite, message, date, traitee)
-     VALUES (?, 'DOULEUR', 'Cheville droite', 5, 'Légère gêne ressentie à la réception après sauts pogo.', datetime('now', '-4 hours'), 0)`
-  ).run(awaId);
+    await tx.run(
+      `INSERT INTO alerts (athlete_user_id, type, zone_douleur, intensite, message, date, traitee)
+       VALUES (?, 'DOULEUR', 'Cheville droite', 5, 'Légère gêne ressentie à la réception après sauts pogo.', datetime('now', '-4 hours'), 0)`,
+      awaId
+    );
 
-  // Initial Audit log entries
-  db.prepare(
-    `INSERT INTO access_audit_logs (actor_user_id, actor_role, athlete_user_id, action, resource, created_at)
-     VALUES (?, 'COACH', ?, 'CONSULTATION_FICHE', 'evaluations,poids', datetime('now', '-12 hours'))`
-  ).run(coachId, moussaId);
-  db.prepare(
-    `INSERT INTO access_audit_logs (actor_user_id, actor_role, athlete_user_id, action, resource, created_at)
-     VALUES (?, 'ADMIN', ?, 'AFFECTATION_COACH', 'assignments', datetime('now', '-14 days'))`
-  ).run(adminId, moussaId);
+    // Initial Audit log entries
+    await tx.run(
+      `INSERT INTO access_audit_logs (actor_user_id, actor_role, athlete_user_id, action, resource, created_at)
+       VALUES (?, 'COACH', ?, 'CONSULTATION_FICHE', 'evaluations,poids', datetime('now', '-12 hours'))`,
+      coachId,
+      moussaId
+    );
+    await tx.run(
+      `INSERT INTO access_audit_logs (actor_user_id, actor_role, athlete_user_id, action, resource, created_at)
+       VALUES (?, 'ADMIN', ?, 'AFFECTATION_COACH', 'assignments', datetime('now', '-14 days'))`,
+      adminId,
+      moussaId
+    );
+  });
 
-  ensureMinisterPilotUser();
-  ensureSecondCoachPilot();
-  ensureCoachDocumentsSeeded();
-  ensureBusinessModelBackfill();
-  ensureExpandedSportsLibrary();
+  await ensureMinisterPilotUser();
+  await ensureSecondCoachPilot();
+  await ensureCoachDocumentsSeeded();
+  await ensureBusinessModelBackfill();
+  await ensureExpandedSportsLibrary();
 }

@@ -9,8 +9,18 @@ export const WORKSPACE_CACHE_KEYS = [
 
 let memorySessionToken: string | null = null;
 
+function isEmbeddedIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
 export function getSessionToken(): string | null {
   if (memorySessionToken) return memorySessionToken;
+  if (!isEmbeddedIframe()) return null;
   try {
     const stored = window.sessionStorage.getItem(SESSION_TOKEN_KEY);
     if (stored) {
@@ -25,6 +35,16 @@ export function getSessionToken(): string | null {
 
 export function setSessionToken(token: string | null | undefined): void {
   if (!token) return;
+  if (!isEmbeddedIframe()) {
+    // In direct top-level browsing (e.g. Vercel), rely on the HttpOnly cookie instead of persisting tokens in Web Storage
+    memorySessionToken = null;
+    try {
+      window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    } catch {
+      // Ignore storage access errors
+    }
+    return;
+  }
   memorySessionToken = token;
   try {
     window.sessionStorage.setItem(SESSION_TOKEN_KEY, token);

@@ -26,13 +26,21 @@ export function generateSecureToken(): string {
 }
 
 const EPHEMERAL_RUNTIME_SECRET = crypto.randomBytes(32).toString('hex');
-if (!process.env.SESSION_SECRET && process.env.NODE_ENV === 'production') {
-  console.warn('[SECURITY] SESSION_SECRET manquant en production : clé éphémère générée au démarrage.');
+if (!process.env.SESSION_SECRET && (process.env.NODE_ENV === 'production' || process.env.VERCEL)) {
+  console.warn('[SECURITY] SESSION_SECRET manquant en production : définissez SESSION_SECRET dans les variables d’environnement Vercel.');
+}
+
+function resolveSessionSecret(): string {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  const envSeed = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.DATABASE_URL;
+  if (envSeed) {
+    return crypto.createHash('sha256').update(`terrain-plus-session-key:${envSeed}`).digest('hex');
+  }
+  return EPHEMERAL_RUNTIME_SECRET;
 }
 
 export function hashToken(rawToken: string): string {
-  const secret = process.env.SESSION_SECRET || EPHEMERAL_RUNTIME_SECRET;
-  return crypto.createHmac('sha256', secret).update(rawToken).digest('hex');
+  return crypto.createHmac('sha256', resolveSessionSecret()).update(rawToken).digest('hex');
 }
 
 export function verifyTokenHash(rawToken: string, expectedHexHash: string): boolean {
@@ -41,6 +49,51 @@ export function verifyTokenHash(rawToken: string, expectedHexHash: string): bool
   const expectedBuf = Buffer.from(expectedHexHash, 'hex');
   if (actualBuf.length !== expectedBuf.length) return false;
   return crypto.timingSafeEqual(actualBuf, expectedBuf);
+}
+
+export function createScopedActionToken(userId: number, purpose: string, ttlSec = 1800): string {
+  const payload = {
+    userId,
+    purpose,
+    exp: Math.floor(Date.now() / 1000) + ttlSec,
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', resolveSessionSecret()).update(encoded).digest('base64url');
+  return `${encoded}.${sig}`;
+}
+
+export function verifyScopedActionToken(token: string, expectedPurpose: string): { userId: number } | null {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const [encoded, sig] = parts;
+  if (!encoded || !sig) return null;
+  const expectedSig = crypto.createHmac('sha256', resolveSessionSecret()).update(encoded).digest('base64url');
+  const actualBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (actualBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(actualBuf, expectedBuf)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
+      userId?: unknown;
+      purpose?: unknown;
+      exp?: unknown;
+    };
+    if (
+      typeof parsed.userId !== 'number' ||
+      !Number.isInteger(parsed.userId) ||
+      parsed.userId <= 0 ||
+      parsed.purpose !== expectedPurpose ||
+      typeof parsed.exp !== 'number' ||
+      parsed.exp < Math.floor(Date.now() / 1000)
+    ) {
+      return null;
+    }
+    return { userId: parsed.userId };
+  } catch {
+    return null;
+  }
 }
 
 export function isStrongPassword(password: string): boolean {

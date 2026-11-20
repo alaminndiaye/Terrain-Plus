@@ -443,7 +443,7 @@ function computePose(motion: ExerciseMotionType, progress: number, groundY: numb
 
 export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
   exerciseName,
-  accentHex = '#0D7F49',
+  accentHex = '#C8F62D',
   theme = 'dark',
   compact = false,
   syncPlaying,
@@ -451,7 +451,10 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
 }) => {
   const spec = useMemo(() => resolveExerciseDemoSpec(exerciseName), [exerciseName]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rangeRef = useRef<HTMLInputElement | null>(null);
   const progressRef = useRef(0);
+  const phaseIdxRef = useRef(0);
+  const drawFrameRef = useRef<((p: number) => void) | null>(null);
 
   const [playing, setPlaying] = useState(() => {
     if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
@@ -460,11 +463,21 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
     return true;
   });
   const [speed, setSpeed] = useState<0.75 | 1 | 1.25>(1);
-  const [progress, setProgress] = useState(0);
+  const [activePhaseIdx, setActivePhaseIdx] = useState(0);
+
+  const resolvePhaseIdx = (p: number): number => {
+    const idx = spec.phases.findIndex((ph) => p >= ph.start && p <= ph.end);
+    return idx >= 0 ? idx : 0;
+  };
 
   useEffect(() => {
     progressRef.current = 0;
-    setProgress(0);
+    phaseIdxRef.current = 0;
+    setActivePhaseIdx(0);
+    if (rangeRef.current) {
+      rangeRef.current.value = '0';
+    }
+    drawFrameRef.current?.(0);
   }, [exerciseName]);
 
   useEffect(() => {
@@ -473,11 +486,7 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
     }
   }, [syncPlaying]);
 
-  const activePhase = useMemo(() => {
-    return (
-      spec.phases.find((ph) => progress >= ph.start && progress <= ph.end) || spec.phases[0]
-    );
-  }, [spec.phases, progress]);
+  const activePhase = spec.phases[activePhaseIdx] || spec.phases[0];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -500,15 +509,15 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       const isDark = theme === 'dark';
       ctx.clearRect(0, 0, width, height);
 
-      // Clean studio background
-      ctx.fillStyle = isDark ? '#111315' : '#F7F7F5';
+      // Obsidian telemetry studio background
+      ctx.fillStyle = isDark ? '#0D100B' : '#11150E';
       ctx.fillRect(0, 0, width, height);
 
       const groundY = height - 34;
       const cx = width * 0.5;
 
-      // Subtle reference grid
-      ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.06)';
+      // Subtle olive-tinted reference grid
+      ctx.strokeStyle = 'rgba(200, 246, 45, 0.07)';
       ctx.lineWidth = 1;
       for (let gx = 40; gx < width; gx += 40) {
         ctx.beginPath();
@@ -524,7 +533,7 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       }
 
       // Ground plane
-      ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.28)' : 'rgba(15,23,42,0.25)';
+      ctx.strokeStyle = 'rgba(200, 246, 45, 0.35)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(44, groundY);
@@ -537,7 +546,7 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       if (pose.guideLine) {
         ctx.save();
         ctx.setLineDash([5, 5]);
-        ctx.strokeStyle = isDark ? 'rgba(52, 211, 153, 0.55)' : 'rgba(13, 127, 73, 0.45)';
+        ctx.strokeStyle = 'rgba(200, 246, 45, 0.55)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(pose.guideLine[0].x, pose.guideLine[0].y);
@@ -557,8 +566,8 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
         ctx.stroke();
       };
 
-      const backColor = isDark ? '#52525B' : '#9CA3AF';
-      const primaryColor = isDark ? '#F4F4F5' : '#111827';
+      const backColor = '#56614D';
+      const primaryColor = '#F5F7F1';
 
       // Back limbs first
       drawLimb(pose.hip, pose.kneeB, backColor, 9);
@@ -593,17 +602,20 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
           ctx.beginPath();
           ctx.arc(j.x, j.y, 5.5, 0, Math.PI * 2);
           ctx.fill();
-          ctx.strokeStyle = isDark ? '#111315' : '#FFFFFF';
+          ctx.strokeStyle = '#0D100B';
           ctx.lineWidth = 1.5;
           ctx.stroke();
         }
       }
     };
 
+    drawFrameRef.current = drawFrame;
     drawFrame(progressRef.current);
 
     if (!playing) {
-      return;
+      return () => {
+        drawFrameRef.current = null;
+      };
     }
 
     const tick = (now: number) => {
@@ -611,33 +623,34 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       lastTime = now;
       const next = (progressRef.current + (dt * speed) / baseCycleSec) % 1;
       progressRef.current = next;
-      setProgress(next);
+      if (rangeRef.current) {
+        rangeRef.current.value = String(Math.round(next * 100));
+      }
+      const nextPhaseIdx = spec.phases.findIndex((ph) => next >= ph.start && next <= ph.end);
+      const safeIdx = nextPhaseIdx >= 0 ? nextPhaseIdx : 0;
+      if (safeIdx !== phaseIdxRef.current) {
+        phaseIdxRef.current = safeIdx;
+        setActivePhaseIdx(safeIdx);
+      }
       drawFrame(next);
       rafId = window.requestAnimationFrame(tick);
     };
 
     rafId = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [playing, speed, spec.motion, theme, compact, accentHex]);
-
-  const isDark = theme === 'dark';
+    return () => {
+      drawFrameRef.current = null;
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [playing, speed, spec.motion, spec.phases, theme, compact, accentHex]);
 
   return (
-    <div
-      className={`rounded-2xl border overflow-hidden ${
-        isDark ? 'border-neutral-800 bg-neutral-900 text-white' : 'border-neutral-200 bg-white text-neutral-900'
-      }`}
-    >
+    <div className="rounded-2xl border border-white/10 bg-[#121610] text-[#F5F7F1] overflow-hidden">
       {/* Top phase bar inside video container */}
-      <div
-        className={`flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 border-b text-[11px] ${
-          isDark ? 'border-neutral-800 text-neutral-300' : 'border-neutral-100 text-neutral-600'
-        }`}
-      >
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 border-b border-white/[0.08] text-[11px] text-[#B4BCA9]">
         <span className="font-semibold truncate">
           Guide vidéo · {activePhase.label}
         </span>
-        <span className={`font-medium ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>
+        <span className="font-medium text-[#C8F62D]">
           {activePhase.breath}
         </span>
       </div>
@@ -652,21 +665,13 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       </div>
 
       {/* Video transport controls */}
-      <div
-        className={`px-3.5 py-2.5 border-t space-y-2 ${
-          isDark ? 'border-neutral-800 bg-neutral-950/60' : 'border-neutral-100 bg-neutral-50'
-        }`}
-      >
+      <div className="px-3.5 py-2.5 border-t border-white/[0.08] bg-[#0D100B] space-y-2">
         <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={() => setPlaying((p) => !p)}
             aria-label={playing ? 'Mettre en pause la démonstration' : 'Lire la démonstration'}
-            className={`min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-lg border ${
-              isDark
-                ? 'border-neutral-700 bg-neutral-900 text-white hover:bg-neutral-800'
-                : 'border-neutral-300 bg-white text-neutral-900 hover:bg-neutral-100'
-            }`}
+            className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl bg-[#C8F62D] text-[#080A07] hover:bg-[#D7FA59]"
           >
             {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
           </button>
@@ -675,51 +680,50 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
             type="button"
             onClick={() => {
               progressRef.current = 0;
-              setProgress(0);
+              phaseIdxRef.current = 0;
+              setActivePhaseIdx(0);
+              if (rangeRef.current) {
+                rangeRef.current.value = '0';
+              }
+              drawFrameRef.current?.(0);
             }}
             aria-label="Recommencer le mouvement"
-            className={`min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-lg border ${
-              isDark
-                ? 'border-neutral-700 bg-neutral-900 text-neutral-300 hover:bg-neutral-800'
-                : 'border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100'
-            }`}
+            className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl border border-white/12 bg-[#161B13] text-[#D6DDD0] hover:bg-[#1E251A]"
           >
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
 
           <input
+            ref={rangeRef}
             type="range"
             min={0}
             max={100}
-            value={Math.round(progress * 100)}
+            defaultValue={0}
             aria-label="Position dans le mouvement"
             onChange={(e) => {
               const next = Number(e.target.value) / 100;
               setPlaying(false);
               progressRef.current = next;
-              setProgress(next);
+              const nextIdx = resolvePhaseIdx(next);
+              if (nextIdx !== phaseIdxRef.current) {
+                phaseIdxRef.current = nextIdx;
+                setActivePhaseIdx(nextIdx);
+              }
+              drawFrameRef.current?.(next);
             }}
-            className="flex-1 accent-emerald-500 cursor-pointer"
+            className="flex-1 accent-[#C8F62D] cursor-pointer"
           />
 
-          <div
-            className={`inline-flex items-center rounded-lg p-0.5 border ${
-              isDark ? 'border-neutral-800 bg-neutral-900' : 'border-neutral-200 bg-white'
-            }`}
-          >
+          <div className="inline-flex items-center rounded-xl p-0.5 border border-white/10 bg-[#161B13]">
             {([0.75, 1, 1.25] as const).map((spd) => (
               <button
                 key={spd}
                 type="button"
                 onClick={() => setSpeed(spd)}
-                className={`px-2 py-1 rounded-md font-mono text-[11px] tabular-nums min-h-[30px] ${
+                className={`px-2 py-1 rounded-lg font-mono text-[11px] tabular-nums min-h-[30px] ${
                   speed === spd
-                    ? isDark
-                      ? 'bg-white text-neutral-950 font-semibold'
-                      : 'bg-neutral-900 text-white font-semibold'
-                    : isDark
-                      ? 'text-neutral-400 hover:text-white'
-                      : 'text-neutral-600 hover:text-neutral-900'
+                    ? 'bg-[#C8F62D] text-[#080A07] font-semibold'
+                    : 'text-[#9AA491] hover:text-[#F5F7F1]'
                 }`}
               >
                 {spd}x
@@ -728,14 +732,14 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
           </div>
         </div>
 
-        <div className={`flex flex-wrap items-center justify-between gap-2 text-[11px] ${isDark ? 'text-neutral-400' : 'text-neutral-500'}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#8E9784]">
           <span>{spec.tempoLabel}</span>
           <span>0 Ko réseau · Fonctionne hors ligne</span>
         </div>
 
         {showCues && !compact && (
-          <div className={`pt-2 border-t text-left space-y-1 text-xs ${isDark ? 'border-neutral-800 text-neutral-300' : 'border-neutral-200 text-neutral-700'}`}>
-            <div className={`font-semibold text-[11px] ${isDark ? 'text-neutral-400' : 'text-neutral-500'}`}>
+          <div className="pt-2 border-t border-white/[0.08] text-left space-y-1 text-xs text-[#B4BCA9]">
+            <div className="font-semibold text-[11px] text-[#9AA491]">
               Repères clés ({spec.preventionZone})
             </div>
             <ul className="space-y-1">

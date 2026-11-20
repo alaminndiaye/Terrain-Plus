@@ -39,9 +39,9 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
   const Icon = current.icon;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white border border-neutral-200 p-6 shadow-xl">
-        <div className="flex items-center justify-between text-xs text-neutral-500">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-3xl obsidian-card-glow p-6 shadow-2xl text-[#F5F7F1]">
+        <div className="flex items-center justify-between text-xs text-[#9AA491]">
           <div className="flex items-center gap-2">
             <img
               src="/brand/terrain-mark.png"
@@ -49,17 +49,17 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
               referrerPolicy="no-referrer"
               className="h-6 w-6 rounded-md object-contain"
             />
-            <span className="font-medium text-neutral-700">Terrain+ · Visite guidée</span>
+            <span className="font-medium text-[#D6DDD0]">Terrain+ · Visite guidée</span>
           </div>
-          <span className="font-mono tabular-nums">Étape {step + 1} / 3</span>
+          <span className="font-mono tabular-nums text-[#C8F62D]">Étape {step + 1} / 3</span>
         </div>
 
-        <div className="mt-5 flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-100 text-neutral-900">
+        <div className="mt-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#C8F62D]/15 border border-[#C8F62D]/25 text-[#C8F62D]">
           <Icon className="h-6 w-6" aria-hidden="true" />
         </div>
 
-        <h2 className="mt-4 text-xl font-semibold text-neutral-900">{current.title}</h2>
-        <p className="mt-2 text-sm text-neutral-600 leading-relaxed">{current.body}</p>
+        <h2 className="mt-4 text-xl font-semibold text-[#F5F7F1]">{current.title}</h2>
+        <p className="mt-2 text-sm text-[#B4BCA9] leading-relaxed">{current.body}</p>
 
         <div className="mt-6 flex items-center justify-between gap-3">
           {step < 2 ? (
@@ -67,14 +67,14 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
               <button
                 type="button"
                 onClick={() => onFinish(false)}
-                className="text-sm text-neutral-500 hover:text-neutral-900 min-h-[44px] px-2"
+                className="text-sm text-[#9AA491] hover:text-[#F5F7F1] min-h-[44px] px-2"
               >
                 Passer
               </button>
               <button
                 type="button"
                 onClick={() => setStep((s) => s + 1)}
-                className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-neutral-800 min-h-[44px]"
+                className="inline-flex items-center gap-2 rounded-full bg-[#C8F62D] px-5 py-2.5 text-sm font-semibold text-[#080A07] hover:bg-[#D7FA59] min-h-[44px]"
               >
                 <span>Suivant</span>
                 <ArrowRight className="h-4 w-4" />
@@ -85,14 +85,14 @@ export const GuidedTourModal: React.FC<GuidedTourModalProps> = ({
               <button
                 type="button"
                 onClick={() => onFinish(false)}
-                className="flex-1 rounded-xl border border-neutral-300 px-4 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 min-h-[44px]"
+                className="flex-1 rounded-full border border-white/15 bg-[#161B13] px-4 py-2.5 text-sm font-medium text-[#D6DDD0] hover:bg-[#1E251A] min-h-[44px]"
               >
                 Voir mon Dashboard
               </button>
               <button
                 type="button"
                 onClick={() => onFinish(true)}
-                className="flex-1 rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-neutral-800 min-h-[44px]"
+                className="flex-1 rounded-full bg-[#C8F62D] px-4 py-2.5 text-sm font-semibold text-[#080A07] hover:bg-[#D7FA59] min-h-[44px]"
               >
                 Faire l'évaluation initiale
               </button>
