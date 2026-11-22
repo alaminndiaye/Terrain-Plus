@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS public.consents (
 CREATE TABLE IF NOT EXISTS public.athlete_profiles (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL UNIQUE REFERENCES public.users(id) ON DELETE CASCADE,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   niveau TEXT NOT NULL CHECK (niveau IN ('debutant', 'intermediaire', 'avance')),
   taille_cm INTEGER,
   poste TEXT,
@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS public.groups (
   nom TEXT NOT NULL,
   partner_id BIGINT NOT NULL REFERENCES public.partners(id) ON DELETE CASCADE,
   captain_name TEXT NOT NULL,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme'))
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness'))
 );
 
 CREATE TABLE IF NOT EXISTS public.group_memberships (
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS public.partner_requests (
 -- 5. Bibliothèque de séances, programmes, évaluations & prévention
 CREATE TABLE IF NOT EXISTS public.sessions_library (
   id BIGSERIAL PRIMARY KEY,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   titre TEXT NOT NULL,
   niveau TEXT NOT NULL CHECK (niveau IN ('debutant', 'intermediaire', 'avance')),
   duree_min INTEGER NOT NULL,
@@ -193,7 +193,7 @@ CREATE TABLE IF NOT EXISTS public.program_plans (
   id BIGSERIAL PRIMARY KEY,
   athlete_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   coach_user_id BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   date_debut TEXT NOT NULL,
   duree_semaines INTEGER NOT NULL DEFAULT 4,
   objectif TEXT NOT NULL,
@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS public.evaluations (
   id BIGSERIAL PRIMARY KEY,
   athlete_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK (type IN ('INITIALE', 'PERIODIQUE')),
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   date TEXT NOT NULL,
   score_global INTEGER NOT NULL,
   results_json TEXT NOT NULL
@@ -277,7 +277,7 @@ CREATE TABLE IF NOT EXISTS public.system_traffic_logs (
 CREATE TABLE IF NOT EXISTS public.coach_videos (
   id BIGSERIAL PRIMARY KEY,
   coach_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   session_id BIGINT REFERENCES public.sessions_library(id) ON DELETE SET NULL,
   athlete_user_id BIGINT REFERENCES public.users(id) ON DELETE CASCADE,
   titre TEXT NOT NULL,
@@ -290,7 +290,15 @@ CREATE TABLE IF NOT EXISTS public.coach_videos (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS public.rate_limit_buckets (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 1,
+  reset_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_traffic_created_at ON public.system_traffic_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_reset_at ON public.rate_limit_buckets(reset_at);
 CREATE INDEX IF NOT EXISTS idx_coach_docs_user ON public.coach_documents(coach_user_id);
 CREATE INDEX IF NOT EXISTS idx_coach_videos_coach ON public.coach_videos(coach_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_coach_videos_athlete ON public.coach_videos(athlete_user_id);
@@ -330,6 +338,7 @@ ALTER TABLE public.coach_comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.alerts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.access_audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_traffic_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.rate_limit_buckets ENABLE ROW LEVEL SECURITY;
 
 -- 8. Buckets Supabase Storage privés (diplômes coachs & vidéos de séances <= 15 Mo)
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -351,3 +360,19 @@ VALUES (
   ARRAY['video/mp4', 'video/webm', 'video/quicktime']
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- 9. Migration idempotente pour bases existantes (ajout du sport 'fitness')
+DO $$
+DECLARE
+  tbl TEXT;
+BEGIN
+  FOREACH tbl IN ARRAY ARRAY['athlete_profiles', 'groups', 'sessions_library', 'program_plans', 'evaluations', 'coach_videos']
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', tbl, tbl || '_sport_code_check');
+    EXECUTE format(
+      'ALTER TABLE public.%I ADD CONSTRAINT %I CHECK (sport_code IN (''football'', ''basket'', ''handball'', ''volleyball'', ''athletisme'', ''fitness''))',
+      tbl,
+      tbl || '_sport_code_check'
+    );
+  END LOOP;
+END $$;

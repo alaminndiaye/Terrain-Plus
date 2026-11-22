@@ -1,6 +1,8 @@
 {
   "name": "Terrain+",
-  "description": "Plateforme sécurisée de suivi physique pour sportifs (Football, Basket, Handball) avec coaching personnalisé, auto-évaluation et mode hors ligne.",
+  "description": "Plateforme sécurisée de suivi physique et de coaching personnalisé pour 6 disciplines (Football, Basket, Handball, Volley-ball, Athlétisme, Fitness), adaptée à votre objectif et utilisable hors ligne.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

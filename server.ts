@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import compression from 'compression';
 import express from 'express';
 import type { Express, NextFunction, Request, Response } from 'express';
+import { GoogleGenAI } from '@google/genai';
 import {
   USE_POSTGRES,
   dbAll,
@@ -32,13 +33,16 @@ import {
   getSupabaseAdmin,
 } from './server/supabaseAdmin.ts';
 import { buildDefaultScheduleForAthlete, seedIfEmpty } from './server/seed.ts';
+import { deliverOtpCode, isOtpDeliveryConfigured } from './server/otpDelivery.ts';
+import { buildAthleteObjectiveLabel, resolveObjectiveSpec } from './src/data/objectivesConfig.ts';
 import {
-  checkRateLimit,
+  checkRateLimitDistributed,
   clearSessionCookie,
   computeAge,
   createScopedActionToken,
   generateOtpCode,
   generateSecureToken,
+  getClientIp,
   hashPassword,
   hashToken,
   isStrongPassword,
@@ -111,9 +115,8 @@ const asyncHandler =
   };
 
 const SESSION_DURATION_SEC = 60 * 60 * 24 * 7;
-const EXPOSE_DEMO_OTP = process.env.HIDE_DEMO_OTP !== 'true';
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
-const VALID_SPORT_CODES: SportCode[] = ['football', 'basket', 'handball', 'volleyball', 'athletisme'];
+const VALID_SPORT_CODES: SportCode[] = ['football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness'];
 const VIDEO_UPLOAD_DIR = path.resolve(process.env.VIDEO_UPLOAD_DIR || './uploads/coach-videos');
 const ALLOWED_COACH_VIDEO_MIMES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
 
@@ -288,26 +291,59 @@ function requireRole(...roles: UserRole[]) {
   };
 }
 
-function authLimiter(req: Request, res: Response, next: NextFunction): void {
-  const ip = req.ip || 'local';
-  const allowed = checkRateLimit(`auth:${ip}`, 30, 15 * 60 * 1000);
-  if (!allowed) {
-    res.status(429).json({ error: 'Trop de tentatives. Réessayez dans quelques minutes.' });
-    return;
+function applyRateLimitHeaders(
+  res: Response,
+  limit: number,
+  rl: { remaining: number; resetAtMs: number; retryAfterSec: number; allowed: boolean }
+): void {
+  res.setHeader('RateLimit-Limit', String(limit));
+  res.setHeader('RateLimit-Remaining', String(rl.remaining));
+  res.setHeader('RateLimit-Reset', String(Math.max(1, Math.ceil((rl.resetAtMs - Date.now()) / 1000))));
+  if (!rl.allowed) {
+    res.setHeader('Retry-After', String(rl.retryAfterSec));
   }
-  next();
 }
 
-function otpLimiter(req: Request, res: Response, next: NextFunction): void {
-  const ip = req.ip || 'local';
-  const body = (req.body || {}) as Record<string, unknown>;
-  const id = sanitizeText(body.identifier, 120).toLowerCase() || 'anon';
-  const allowed = checkRateLimit(`otp:${ip}:${id}`, 12, 15 * 60 * 1000);
-  if (!allowed) {
-    res.status(429).json({ error: 'Trop de tentatives OTP. Patientez quelques minutes avant de réessayer.' });
+const authLimiter = asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const ip = getClientIp(req);
+  const rl = await checkRateLimitDistributed(`auth:${ip}`, 30, 15 * 60 * 1000);
+  applyRateLimitHeaders(res, 30, rl);
+  if (!rl.allowed) {
+    res.status(429).json({
+      error: `Trop de tentatives. Réessayez dans ${Math.max(1, Math.ceil(rl.retryAfterSec / 60))} minute(s).`,
+    });
     return;
   }
   next();
+});
+
+const otpLimiter = asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const ip = getClientIp(req);
+  const body = (req.body || {}) as Record<string, unknown>;
+  const id = sanitizeText(body.identifier, 120).toLowerCase() || 'anon';
+  const rl = await checkRateLimitDistributed(`otp:${ip}:${id}`, 12, 15 * 60 * 1000);
+  applyRateLimitHeaders(res, 12, rl);
+  if (!rl.allowed) {
+    res.status(429).json({
+      error: 'Trop de tentatives OTP. Patientez quelques minutes avant de réessayer.',
+    });
+    return;
+  }
+  next();
+});
+
+function parseAllowedHost(raw: string | undefined): string {
+  if (!raw) return '';
+  const trimmed = raw.trim().toLowerCase();
+  if (!trimmed) return '';
+  try {
+    if (trimmed.includes('://')) {
+      return new URL(trimmed).host.toLowerCase();
+    }
+    return trimmed.replace(/\/.*$/, '');
+  } catch {
+    return '';
+  }
 }
 
 function verifySameOrigin(req: Request, res: Response, next: NextFunction): void {
@@ -326,8 +362,16 @@ function verifySameOrigin(req: Request, res: Response, next: NextFunction): void
       .split(',')[0]
       .trim()
       .toLowerCase();
-    const appHost = process.env.APP_URL ? new URL(process.env.APP_URL).host.toLowerCase() : '';
-    if (originHost === requestHost || (appHost && originHost === appHost)) {
+    const trustedHosts = new Set<string>([
+      'terrain-plus.vercel.app',
+      requestHost,
+      parseAllowedHost(process.env.APP_URL),
+      parseAllowedHost(process.env.VERCEL_PROJECT_PRODUCTION_URL),
+      parseAllowedHost(process.env.VERCEL_URL),
+    ]);
+    trustedHosts.delete('');
+
+    if (trustedHosts.has(originHost)) {
       next();
       return;
     }
@@ -941,7 +985,8 @@ async function buildAthleteWorkspace(athleteUserId: number, viewerUserId = athle
       ? Number((rated.reduce((acc, s) => acc + (s.qualite_sommeil || 0), 0) / rated.length).toFixed(1))
       : null;
 
-  const fourWeekRegularityPct = Math.min(100, Math.round(((weeklyCompleted + 8) / (weeklyTarget * 4)) * 100));
+  const fourWeekRegularityPct =
+    weeklyTarget > 0 ? Math.min(100, Math.round((weeklyCompleted / weeklyTarget) * 100)) : 0;
 
   const coachVideoRows = coachRow
     ? await dbAll<RawCoachVideoRow>(
@@ -1131,6 +1176,7 @@ export async function createApp(): Promise<Express> {
       const date_naissance = sanitizeText(body.date_naissance, 20);
       const langue = body.langue === 'wo' ? 'wo' : 'fr';
       const consentNonMedical = Boolean(body.consent_non_medical);
+      const consentCdpLegal = Boolean(body.consent_cdp_legal);
 
       if (!nom || !prenom || !isValidEmail(email)) {
         res.status(400).json({ error: 'Nom, prénom et adresse email valide sont obligatoires.' });
@@ -1246,9 +1292,10 @@ export async function createApp(): Promise<Express> {
         }
         const originalFilename = sanitizeText(diplomaFile.name, 120) || 'diplome_coach';
 
-        if (!consentNonMedical || !confirmCoachTerms) {
+        if (!consentNonMedical || !confirmCoachTerms || !consentCdpLegal) {
           res.status(400).json({
-            error: 'La confirmation des conditions Coach Terrain+ et de la charte non médicale est obligatoire.',
+            error:
+              'La confirmation des conditions Coach Terrain+, de la charte non médicale et de la politique de confidentialité (CDP Sénégal) est obligatoire.',
           });
           return;
         }
@@ -1256,17 +1303,17 @@ export async function createApp(): Promise<Express> {
         const monthlyFee = coachPlan === 'COACH_PRO' ? 3000 : 0;
         const commissionPct = coachPlan === 'COACH_PRO' ? 0 : 20;
         const athletePayout = coachPlan === 'COACH_PRO' ? 5000 : 4000;
-
-        const otp = generateOtpCode();
-        const otpHash = hashToken(otp);
-        const otpExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        const otpEnabled = isOtpDeliveryConfigured();
+        const otp = otpEnabled ? generateOtpCode() : null;
+        const otpHash = otp ? hashToken(otp) : null;
+        const otpExpires = otp ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
 
         const { userId, docRes } = await dbTransaction(async (tx) => {
           const uRes = await tx.run(
             `INSERT INTO users (
               nom, prenom, telephone, email, password_hash, role, date_naissance, langue,
               statut, is_minor, verified, otp_code_hash, otp_expires_at
-            ) VALUES (?, ?, ?, ?, ?, 'COACH', ?, ?, 'INSCRIT', 0, 0, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, 'COACH', ?, ?, 'INSCRIT', 0, ?, ?, ?)`,
             nom,
             prenom,
             telephone,
@@ -1274,6 +1321,7 @@ export async function createApp(): Promise<Express> {
             hashPassword(password),
             date_naissance,
             langue,
+            otpEnabled ? 0 : 1,
             otpHash,
             otpExpires
           );
@@ -1304,6 +1352,7 @@ export async function createApp(): Promise<Express> {
           );
 
           await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', userId, 'NON_MEDICAL', 'v1.0');
+          await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', userId, 'CGU_CONFIDENTIALITE_CDP', 'v1.0');
           await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', userId, `COACH_PLAN_${coachPlan}`, 'v2.0');
           await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', userId, 'COACH_HONORABILITY', 'v1.0');
 
@@ -1334,7 +1383,36 @@ export async function createApp(): Promise<Express> {
           return { userId, docRes };
         });
 
+        if (otpEnabled && otp) {
+          const delivery = await deliverOtpCode({
+            email,
+            telephone,
+            prenom,
+            code: otp,
+            purpose: 'VERIFICATION',
+          });
+          res.status(201).json({
+            requiresVerification: true,
+            userId,
+            email,
+            telephone,
+            role: 'COACH',
+            coach_plan: coachPlan,
+            studyStatus: docRes.studyStatus,
+            studyScore: docRes.studyScore,
+            message: delivery.delivered
+              ? coachPlan === 'COACH_PRO'
+                ? 'Dossier Coach Pro déposé (3 000 FCFA / mois · 0 % commission). Validez le code envoyé ; votre compte restera ensuite en étude jusqu’à validation de votre diplôme par l’administrateur.'
+                : 'Dossier Coach Marketplace déposé (0 FCFA fixe · 4 000 F/athlète). Validez le code envoyé ; votre compte restera ensuite en étude jusqu’à validation de votre diplôme par l’administrateur.'
+              : "Dossier enregistré, mais l'envoi du code OTP a échoué. Cliquez sur « Renvoyer un code ».",
+          });
+          return;
+        }
+
         res.status(201).json({
+          requiresVerification: false,
+          pendingAdminReview: true,
+          verificationStatus: 'EN_ATTENTE',
           userId,
           email,
           telephone,
@@ -1344,9 +1422,8 @@ export async function createApp(): Promise<Express> {
           studyScore: docRes.studyScore,
           message:
             coachPlan === 'COACH_PRO'
-              ? 'Dossier Coach Pro déposé (3 000 FCFA / mois · 0 % commission). Validez votre code OTP ; votre compte restera ensuite en étude jusqu’à validation de votre diplôme par l’administrateur.'
-              : 'Dossier Coach Marketplace déposé (0 FCFA fixe · 4 000 F/athlète). Validez votre code OTP ; votre compte restera ensuite en étude jusqu’à validation de votre diplôme par l’administrateur.',
-          ...(EXPOSE_DEMO_OTP ? { demoVerificationCode: otp } : {}),
+              ? 'Dossier Coach Pro déposé (3 000 FCFA / mois · 0 % commission). Votre diplôme et vos pièces sont en cours de vérification par l’administrateur Terrain+.'
+              : 'Dossier Coach Marketplace déposé (0 FCFA fixe · 4 000 F/athlète). Votre diplôme et vos pièces sont en cours de vérification par l’administrateur Terrain+.',
         });
         return;
       }
@@ -1357,6 +1434,7 @@ export async function createApp(): Promise<Express> {
       const poids_kg = Number(body.poids_kg);
       const taille_cm = body.taille_cm ? Number(body.taille_cm) : null;
       const poste = sanitizeText(body.poste, 60) || null;
+      const rawObjectiveInput = sanitizeText(body.objectif_code || body.objectif, 120);
       const consentSensible = Boolean(body.consent_sensible);
       const parentalName = sanitizeText(body.parental_consent_name, 100);
       const parentalPhone = normalizePhone(sanitizeText(body.parental_consent_phone, 30));
@@ -1388,8 +1466,11 @@ export async function createApp(): Promise<Express> {
         res.status(400).json({ error: 'La taille doit être comprise entre 100 et 240 cm.' });
         return;
       }
-      if (!consentSensible || !consentNonMedical) {
-        res.status(400).json({ error: 'Les consentements explicites sont obligatoires.' });
+      if (!consentSensible || !consentNonMedical || !consentCdpLegal) {
+        res.status(400).json({
+          error:
+            'Les consentements explicites (données physiques, clause non médicale, CGU & confidentialité CDP Sénégal) sont obligatoires.',
+        });
         return;
       }
 
@@ -1443,9 +1524,10 @@ export async function createApp(): Promise<Express> {
               : 1500
             : 0;
 
-      const otp = generateOtpCode();
-      const otpHash = hashToken(otp);
-      const otpExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const otpEnabled = isOtpDeliveryConfigured();
+      const otp = otpEnabled ? generateOtpCode() : null;
+      const otpHash = otp ? hashToken(otp) : null;
+      const otpExpires = otp ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
 
       const userId = await dbTransaction(async (tx) => {
         const uRes = await tx.run(
@@ -1453,7 +1535,7 @@ export async function createApp(): Promise<Express> {
             nom, prenom, telephone, email, password_hash, role, date_naissance, langue,
             statut, is_minor, parental_consent_name, parental_consent_phone,
             verified, otp_code_hash, otp_expires_at
-          ) VALUES (?, ?, ?, ?, ?, 'ATHLETE', ?, ?, 'INSCRIT', ?, ?, ?, 0, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, 'ATHLETE', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           nom,
           prenom,
           telephone,
@@ -1461,13 +1543,18 @@ export async function createApp(): Promise<Express> {
           hashPassword(password),
           date_naissance,
           langue,
+          otpEnabled ? 'INSCRIT' : 'ACTIF',
           isMinor ? 1 : 0,
           isMinor ? parentalName : null,
           isMinor ? parentalPhone : null,
+          otpEnabled ? 0 : 1,
           otpHash,
           otpExpires
         );
         const userId = Number(uRes.lastInsertRowid);
+
+        const objectiveSpec = resolveObjectiveSpec(rawObjectiveInput);
+        const athleteObjectiveLabel = buildAthleteObjectiveLabel(objectiveSpec.code, SPORTS_CONFIG[sport_code].nom);
 
         await tx.run(
           `INSERT INTO athlete_profiles (
@@ -1480,7 +1567,7 @@ export async function createApp(): Promise<Express> {
           niveau,
           taille_cm,
           poste,
-          `Régularité ${SPORTS_CONFIG[sport_code].nom}`,
+          athleteObjectiveLabel,
           validCoachId ? 'ACTIF_5000' : 'GRATUIT_BASE',
           validCoachId ? 5000 : 0,
           planTier,
@@ -1492,6 +1579,7 @@ export async function createApp(): Promise<Express> {
 
         await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', userId, 'DONNEES_SENSIBLES', 'v1.0');
         await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', userId, 'NON_MEDICAL', 'v1.0');
+        await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', userId, 'CGU_CONFIDENTIALITE_CDP', 'v1.0');
         if (isMinor) {
           await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', userId, 'ACCORD_PARENTAL', 'v1.0');
         }
@@ -1511,20 +1599,49 @@ export async function createApp(): Promise<Express> {
           sport_code,
           niveau,
           validCoachId,
-          `Programme initial ${SPORTS_CONFIG[sport_code].nom}`,
+          athleteObjectiveLabel,
           tx
         );
         return userId;
       });
 
+      if (otpEnabled && otp) {
+        const delivery = await deliverOtpCode({
+          email,
+          telephone,
+          prenom,
+          code: otp,
+          purpose: 'VERIFICATION',
+        });
+        res.status(201).json({
+          requiresVerification: true,
+          userId,
+          email,
+          telephone,
+          role: 'ATHLETE',
+          plan_tier: planTier,
+          message: delivery.delivered
+            ? 'Compte créé. Validez votre inscription avec le code envoyé.'
+            : "Compte créé, mais l'envoi du code a échoué. Cliquez sur « Renvoyer un code ».",
+        });
+        return;
+      }
+
+      const sessionToken = await createSessionForUser(req, res, userId);
+      const createdUser = await dbGet<AuthedUserRow>(
+        'SELECT id, nom, prenom, telephone, email, role, date_naissance, langue, statut, is_minor, verified FROM users WHERE id = ?',
+        userId
+      );
       res.status(201).json({
+        requiresVerification: false,
+        user: createdUser ? mapUserPublic(createdUser) : null,
+        sessionToken,
         userId,
         email,
         telephone,
         role: 'ATHLETE',
         plan_tier: planTier,
-        message: 'Compte créé. Validez votre inscription avec le code envoyé.',
-        ...(EXPOSE_DEMO_OTP ? { demoVerificationCode: otp } : {}),
+        message: 'Compte créé et activé.',
       });
     })
   );
@@ -1620,6 +1737,7 @@ export async function createApp(): Promise<Express> {
       const body = req.body as Record<string, unknown>;
       const identifier = sanitizeText(body.identifier, 120);
       const password = typeof body.password === 'string' ? body.password : '';
+      const portal = body.portal === 'admin' ? 'admin' : 'public';
 
       if (!identifier || !password || password.length > 128) {
         res.status(400).json({ error: 'Identifiant et mot de passe requis.' });
@@ -1639,6 +1757,15 @@ export async function createApp(): Promise<Express> {
           error: "Ces identifiants n'existent pas sur Terrain+. Veuillez créer un compte pour accéder à votre espace.",
           accountNotFound: true,
         });
+        return;
+      }
+
+      if (portal !== 'admin' && user.role === 'ADMIN') {
+        res.status(403).json({ error: "Ce compte ne peut pas se connecter depuis l'espace public." });
+        return;
+      }
+      if (portal === 'admin' && user.role !== 'ADMIN') {
+        res.status(403).json({ error: "Accès réservé exclusivement aux comptes administrateur." });
         return;
       }
 
@@ -1684,6 +1811,13 @@ export async function createApp(): Promise<Express> {
       await dbRun('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?', user.id);
 
       if (!user.verified) {
+        if (!isOtpDeliveryConfigured()) {
+          res.status(503).json({
+            error:
+              "Ce compte est en attente de validation OTP, mais aucun service d'envoi Email/SMS n'est configuré. Contactez l'administration.",
+          });
+          return;
+        }
         const otp = generateOtpCode();
         const otpExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
         await dbRun(
@@ -1692,11 +1826,23 @@ export async function createApp(): Promise<Express> {
           otpExpires,
           user.id
         );
+        const delivery = await deliverOtpCode({
+          email: user.email,
+          telephone: user.telephone,
+          prenom: user.prenom,
+          code: otp,
+          purpose: 'VERIFICATION',
+        });
+        if (!delivery.delivered) {
+          res.status(502).json({
+            error: delivery.error || "Impossible d'envoyer le code de validation pour le moment.",
+          });
+          return;
+        }
         res.status(403).json({
-          error: 'Compte en attente de validation. Saisissez votre code OTP pour vous connecter.',
+          error: 'Compte en attente de validation. Saisissez le code OTP envoyé à votre contact enregistré.',
           needsVerification: true,
           identifier: user.email,
-          ...(EXPOSE_DEMO_OTP ? { demoVerificationCode: otp } : {}),
         });
         return;
       }
@@ -1727,10 +1873,27 @@ export async function createApp(): Promise<Express> {
     authLimiter,
     otpLimiter,
     asyncHandler(async (req: Request, res: Response) => {
-      const body = req.body as Record<string, unknown>;
+      if (!isOtpDeliveryConfigured()) {
+        res.status(503).json({
+          error:
+            "Aucun service d'envoi Email/SMS (OTP) n'est configuré sur le serveur. Utilisez votre mot de passe ou contactez l'administration.",
+        });
+        return;
+      }
+
+      const body = (req.body || {}) as Record<string, unknown>;
       const identifier = sanitizeText(body.identifier, 120);
-      const user = await dbGet<{ id: number; email: string; telephone: string }>(
-        "SELECT id, email, telephone FROM users WHERE (LOWER(email) = LOWER(?) OR telephone = ?) AND statut != 'CLOTURE'",
+      const portal = body.portal === 'admin' ? 'admin' : 'public';
+      const rawPurpose = sanitizeText(body.purpose, 30).toUpperCase();
+      const purpose =
+        rawPurpose === 'REINITIALISATION'
+          ? 'REINITIALISATION'
+          : rawPurpose === 'VERIFICATION'
+            ? 'VERIFICATION'
+            : 'CONNEXION';
+
+      const user = await dbGet<{ id: number; email: string; telephone: string; prenom: string; role: UserRole }>(
+        "SELECT id, email, telephone, prenom, role FROM users WHERE (LOWER(email) = LOWER(?) OR telephone = ?) AND statut != 'CLOTURE'",
         identifier,
         normalizePhone(identifier)
       );
@@ -1742,6 +1905,14 @@ export async function createApp(): Promise<Express> {
         });
         return;
       }
+      if (portal !== 'admin' && user.role === 'ADMIN') {
+        res.status(403).json({ error: "Ce compte ne peut pas se connecter depuis l'espace public." });
+        return;
+      }
+      if (portal === 'admin' && user.role !== 'ADMIN') {
+        res.status(403).json({ error: "Accès réservé exclusivement aux comptes administrateur." });
+        return;
+      }
       const otp = generateOtpCode();
       const otpExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
       await dbRun(
@@ -1751,9 +1922,25 @@ export async function createApp(): Promise<Express> {
         user.id
       );
 
+      const delivery = await deliverOtpCode({
+        email: user.email,
+        telephone: user.telephone,
+        prenom: user.prenom,
+        code: otp,
+        purpose,
+      });
+
+      if (!delivery.delivered) {
+        res.status(502).json({
+          error: delivery.error || "Impossible d'envoyer le code OTP pour le moment.",
+        });
+        return;
+      }
+
       res.json({
-        message: 'Code à usage unique généré.',
-        ...(EXPOSE_DEMO_OTP ? { demoOtpCode: otp } : {}),
+        ok: true,
+        channel: delivery.channel,
+        message: 'Code à usage unique envoyé à votre contact enregistré (valable 15 minutes).',
       });
     })
   );
@@ -1766,6 +1953,7 @@ export async function createApp(): Promise<Express> {
       const body = req.body as Record<string, unknown>;
       const identifier = sanitizeText(body.identifier, 120);
       const code = sanitizeText(body.code, 12).replace(/\s+/g, '');
+      const portal = body.portal === 'admin' ? 'admin' : 'public';
 
       const user = await dbGet<
         AuthedUserRow & { otp_code_hash: string | null; otp_expires_at: string | null; otp_attempts: number }
@@ -1774,6 +1962,15 @@ export async function createApp(): Promise<Express> {
         identifier,
         normalizePhone(identifier)
       );
+
+      if (user && portal !== 'admin' && user.role === 'ADMIN') {
+        res.status(403).json({ error: "Ce compte ne peut pas se connecter depuis l'espace public." });
+        return;
+      }
+      if (user && portal === 'admin' && user.role !== 'ADMIN') {
+        res.status(403).json({ error: "Accès réservé exclusivement aux comptes administrateur." });
+        return;
+      }
 
       if (!user || !user.otp_code_hash || !user.otp_expires_at) {
         res.status(401).json({ error: 'Code invalide ou expiré.' });
@@ -2200,6 +2397,7 @@ export async function createApp(): Promise<Express> {
 
   app.post(
     '/api/auth/change-password',
+    authLimiter,
     requireAuth,
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const body = (req.body || {}) as Record<string, unknown>;
@@ -2297,8 +2495,10 @@ export async function createApp(): Promise<Express> {
   app.post(
     '/api/public/partner-requests',
     asyncHandler(async (req: Request, res: Response) => {
-      const ip = req.ip || 'local';
-      if (!checkRateLimit(`partner_req:${ip}`, 10, 15 * 60 * 1000)) {
+      const ip = getClientIp(req);
+      const rl = await checkRateLimitDistributed(`partner_req:${ip}`, 10, 15 * 60 * 1000);
+      applyRateLimitHeaders(res, 10, rl);
+      if (!rl.allowed) {
         res.status(429).json({ error: 'Trop de demandes envoyées. Réessayez dans quelques minutes.' });
         return;
       }
@@ -2428,8 +2628,18 @@ export async function createApp(): Promise<Express> {
         }
       }
 
-      // Increment collective challenge counter
-      await dbRun('UPDATE challenges SET current_sessions = current_sessions + 1 WHERE id = (SELECT id FROM challenges ORDER BY id ASC LIMIT 1)');
+      // Increment collective challenge counter only for partner structures the athlete belongs to
+      await dbRun(
+        `UPDATE challenges
+         SET current_sessions = current_sessions + 1
+         WHERE partner_id IN (
+           SELECT DISTINCT g.partner_id
+           FROM group_memberships gm
+           JOIN groups g ON g.id = gm.group_id
+           WHERE gm.user_id = ?
+         )`,
+        userId
+      );
       res.json({ ok: true });
     })
   );
@@ -2557,6 +2767,8 @@ export async function createApp(): Promise<Express> {
       const langue = body.langue === 'wo' ? 'wo' : 'fr';
       const niveau = sanitizeText(body.niveau, 20) as AthleteLevel;
       const poste = sanitizeText(body.poste, 60);
+      const rawObjectiveInput = sanitizeText(body.objectif_code || body.objectif, 120);
+      const adaptProgram = Boolean(body.adapt_program);
       const taille_cm = body.taille_cm ? Number(body.taille_cm) : null;
       const eco_data_mode = body.eco_data_mode ? 1 : 0;
       const notifications_enabled = body.notifications_enabled ? 1 : 0;
@@ -2574,15 +2786,25 @@ export async function createApp(): Promise<Express> {
         return;
       }
 
+      const existingProf = await dbGet<{ sport_code: SportCode; objectif: string | null }>(
+        'SELECT sport_code, objectif FROM athlete_profiles WHERE user_id = ?',
+        userId
+      );
+      const sportForLabel = existingProf?.sport_code || 'football';
+      const nextObjectiveLabel = rawObjectiveInput
+        ? buildAthleteObjectiveLabel(resolveObjectiveSpec(rawObjectiveInput).code, SPORTS_CONFIG[sportForLabel].nom)
+        : existingProf?.objectif || null;
+
       await dbRun('UPDATE users SET nom = ?, prenom = ?, langue = ? WHERE id = ?', nom, prenom, langue, userId);
       await dbRun(
         `UPDATE athlete_profiles
-         SET niveau = ?, poste = ?, taille_cm = ?, eco_data_mode = ?, notifications_enabled = ?,
+         SET niveau = ?, poste = ?, objectif = ?, taille_cm = ?, eco_data_mode = ?, notifications_enabled = ?,
              reminder_time = COALESCE(?, reminder_time),
              reminder_lead_minutes = COALESCE(?, reminder_lead_minutes)
          WHERE user_id = ?`,
         niveau,
         poste || null,
+        nextObjectiveLabel,
         taille_cm,
         eco_data_mode,
         notifications_enabled,
@@ -2590,6 +2812,20 @@ export async function createApp(): Promise<Express> {
         reminder_lead_minutes ?? null,
         userId
       );
+
+      if (adaptProgram && nextObjectiveLabel && existingProf) {
+        const coach = await dbGet<{ coach_user_id: number }>(
+          "SELECT coach_user_id FROM assignments WHERE athlete_user_id = ? AND statut = 'ACTIF' LIMIT 1",
+          userId
+        );
+        await buildDefaultScheduleForAthlete(
+          userId,
+          existingProf.sport_code,
+          niveau,
+          coach ? coach.coach_user_id : null,
+          nextObjectiveLabel
+        );
+      }
 
       res.json({ ok: true });
     })
@@ -2647,19 +2883,30 @@ export async function createApp(): Promise<Express> {
       }
       const userId = req.authUser!.id;
       await dbTransaction(async (tx) => {
-        const prof = await tx.get<{ niveau: AthleteLevel }>('SELECT niveau FROM athlete_profiles WHERE user_id = ?', userId);
+        const prof = await tx.get<{ niveau: AthleteLevel; objectif: string | null }>(
+          'SELECT niveau, objectif FROM athlete_profiles WHERE user_id = ?',
+          userId
+        );
         const coach = await tx.get<{ coach_user_id: number }>(
           "SELECT coach_user_id FROM assignments WHERE athlete_user_id = ? AND statut = 'ACTIF' LIMIT 1",
           userId
         );
 
-        await tx.run('UPDATE athlete_profiles SET sport_code = ?, poste = NULL WHERE user_id = ?', sportCode, userId);
+        const rawGoal = sanitizeText(body.objectif_code, 120) || prof?.objectif || 'PERFORMANCE';
+        const goalLabel = buildAthleteObjectiveLabel(resolveObjectiveSpec(rawGoal).code, SPORTS_CONFIG[sportCode].nom);
+
+        await tx.run(
+          'UPDATE athlete_profiles SET sport_code = ?, poste = NULL, objectif = ? WHERE user_id = ?',
+          sportCode,
+          goalLabel,
+          userId
+        );
         await buildDefaultScheduleForAthlete(
           userId,
           sportCode,
           prof ? prof.niveau : 'debutant',
           coach ? coach.coach_user_id : null,
-          `Nouveau cycle ${SPORTS_CONFIG[sportCode].nom}`,
+          goalLabel,
           tx
         );
       });
@@ -2923,6 +3170,8 @@ export async function createApp(): Promise<Express> {
       res.json({
         exported_at: new Date().toISOString(),
         platform: 'Terrain+',
+        domain: 'https://terrain-plus.vercel.app',
+        legal_framework: 'Loi n° 2008-12 du 25 janvier 2008 (CDP Sénégal — Portabilité et accès aux données personnelles)',
         data,
       });
     })
@@ -2930,6 +3179,7 @@ export async function createApp(): Promise<Express> {
 
   app.delete(
     '/api/athlete/account',
+    authLimiter,
     requireAuth,
     requireRole('ATHLETE'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
@@ -4664,11 +4914,11 @@ export async function createApp(): Promise<Express> {
             {
               code: 'Phase 1',
               horizon: 'T1 – T2 2026',
-              titre: 'Socle pilote Campus & ASC vérifié',
+              titre: 'Socle initial Campus & ASC vérifié',
               statut: 'EN_COURS',
               progressionPct: phase1Progress,
               resume:
-                'Déploiement sur les pôles universitaires (Thiès, Saint-Louis) et ASC de Dakar avec protocole non médical validé par STAPS.',
+                'Déploiement sur les pôles universitaires (Thiès, Saint-Louis) et ASC de Dakar avec protocole non médical validé par la revue technique Terrain+.',
               livrables: [
                 `${validatedSessionsCount} séances validées sans matériel obligatoire`,
                 `${byZone.length} zones territoriales actives (${Number(partnerCounts.totalPartners || 0)} structures)`,
@@ -4694,7 +4944,7 @@ export async function createApp(): Promise<Express> {
               horizon: '2027',
               titre: 'Observatoire National Sport-Santé & Jeunesse',
               statut: 'CIBLE',
-              progressionPct: 15,
+              progressionPct: Math.min(100, Math.round((byZone.length / 14) * 100)),
               resume:
                 'Suivi longitudinal agrégé des progrès physiques amateurs à l’échelle des 14 régions avec protection stricte des mineurs.',
               livrables: [
@@ -4732,6 +4982,107 @@ export async function createApp(): Promise<Express> {
           ],
         },
       });
+    })
+  );
+
+  // ---------------- SERVER-SIDE GEMINI TTS CUE GENERATION ----------------
+  const ttsCueCache = new Map<string, Buffer>();
+  const TTS_CACHE_MAX = 140;
+
+  app.post(
+    '/api/tts/cue',
+    requireAuth,
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+      if (!apiKey) {
+        res.status(503).json({ error: 'Voix de coaching serveur non configurée.' });
+        return;
+      }
+
+      const body = (req.body || {}) as Record<string, unknown>;
+      const rawText = sanitizeText(body.text, 280);
+      const lang: 'fr' | 'wo' = body.lang === 'wo' ? 'wo' : 'fr';
+
+      if (!rawText || rawText.length < 2) {
+        res.status(400).json({ error: 'Texte de consigne vocale requis.' });
+        return;
+      }
+
+      const rl = await checkRateLimitDistributed(`tts:${req.authUser!.id}`, 120, 15 * 60 * 1000);
+      if (!rl.allowed) {
+        res.status(429).json({ error: 'Limite de synthèse vocale atteinte momentanément.' });
+        return;
+      }
+
+      const voiceName = 'Kore';
+      const cacheKey = `${lang}:${voiceName}:${rawText}`;
+      const cached = ttsCueCache.get(cacheKey);
+      if (cached) {
+        // Refresh LRU position
+        ttsCueCache.delete(cacheKey);
+        ttsCueCache.set(cacheKey, cached);
+        res.setHeader('Content-Type', 'audio/wav');
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        res.send(cached);
+        return;
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+      });
+
+      const stylePrompt =
+        lang === 'wo'
+          ? 'Coach sportif professionnel sénégalais, voix posée, fluide, chaleureuse et dynamique, diction naturelle et rythme entraînant'
+          : 'Coach sportif francophone professionnel, voix fluide, posée, chaleureuse et dynamique, élocution claire et rythme naturel sans lenteur';
+
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash-lite-tts',
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: rawText,
+                  speechMetadata: {
+                    style: stylePrompt,
+                  },
+                },
+              ],
+            },
+          ],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName },
+              },
+            },
+          },
+        });
+
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!base64Audio) {
+          res.status(502).json({ error: 'Réponse audio vide du service vocal.' });
+          return;
+        }
+
+        const audioBuffer = Buffer.from(base64Audio, 'base64');
+        if (ttsCueCache.size >= TTS_CACHE_MAX) {
+          const oldestKey = ttsCueCache.keys().next().value;
+          if (oldestKey) ttsCueCache.delete(oldestKey);
+        }
+        ttsCueCache.set(cacheKey, audioBuffer);
+
+        res.setHeader('Content-Type', 'audio/wav');
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        res.send(audioBuffer);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Erreur lors de la synthèse vocale.';
+        res.status(502).json({ error: message });
+      }
     })
   );
 

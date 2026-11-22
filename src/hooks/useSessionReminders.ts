@@ -9,7 +9,6 @@ import {
   markReminderSent,
   requestBrowserNotificationPermission,
   showPWALocalNotification,
-  supportsTimestampTrigger,
   type BrowserNotificationPermission,
   type ComputedReminder,
 } from '../lib/pwaNotifications';
@@ -105,7 +104,7 @@ export function useSessionReminders({
     };
   }, []);
 
-  // Schedule local notifications (OS TimestampTrigger when available + in-app timers & catch-up check)
+  // Schedule local reminders with in-app timers and Service Worker catch-up checks
   useEffect(() => {
     if (!enabled || permission !== 'granted') {
       void cancelPWAScheduledNotifications('tp-session-');
@@ -142,27 +141,8 @@ export function useSessionReminders({
     const scheduleUpcoming = async () => {
       const now = Date.now();
       const next24h = now + 24 * 60 * 60 * 1000;
-      const hasTriggerApi = supportsTimestampTrigger();
 
-      if (hasTriggerApi) {
-        await cancelPWAScheduledNotifications('tp-session-');
-        for (const rem of upcomingReminders.slice(0, 7)) {
-          if (rem.triggerAtMs > now + 2000) {
-            const copy = formatReminderNotificationCopy(rem, reminderTime);
-            await showPWALocalNotification({
-              title: copy.title,
-              body: copy.body,
-              tag: rem.tag,
-              scheduledId: rem.scheduledId,
-              sessionId: rem.sessionId,
-              triggerAt: rem.triggerAtMs,
-              url: `/?tab=programme&scheduledId=${rem.scheduledId}`,
-            });
-          }
-        }
-      }
-
-      // In-app precision timers for reminders within the next 24h (works everywhere while PWA is active)
+      // In-app precision timers for reminders within the next 24h (works while PWA is active)
       for (const rem of upcomingReminders) {
         const delay = rem.triggerAtMs - now;
         if (delay > 500 && rem.triggerAtMs <= next24h) {
@@ -240,7 +220,6 @@ export function useSessionReminders({
   return {
     permission,
     swReady,
-    supportsTriggerApi: supportsTimestampTrigger(),
     upcomingReminders,
     nextReminder,
     requestPermission,

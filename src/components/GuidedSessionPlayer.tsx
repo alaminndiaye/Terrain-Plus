@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
-import { playTone, speakCue, stopSpeech } from '../lib/audioCues';
+import { playTone, prefetchCue, speakCue, stopSpeech } from '../lib/audioCues';
 import { queueOfflineCompletion } from '../lib/offlineCache';
 import { SPORTS_CONFIG } from '../data/sportsConfig';
 import { getExerciseVisual } from '../data/exerciseMedia';
@@ -58,6 +58,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
   const [sommeil, setSommeil] = useState(7);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
 
   const sportTheme = SPORTS_CONFIG[session.sport_code];
   const currentEx = session.exercises[stepIdx];
@@ -70,9 +71,37 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
   }, [coachVideos, session.id, session.sport_code]);
   const selectedCoachVideo = matchingCoachVideos[coachVideoIdx] || matchingCoachVideos[0] || null;
 
+  const formatExerciseCue = React.useCallback(
+    (ex?: (typeof session.exercises)[number]) => {
+      if (!ex) return '';
+      return cueLang === 'wo' ? `${ex.nom}. ${ex.consigneWo}` : `${ex.nom}. ${ex.consigneFr}`;
+    },
+    [cueLang]
+  );
+
   useEffect(() => {
     return () => stopSpeech();
   }, []);
+
+  useEffect(() => {
+    if (!audioEnabled) {
+      stopSpeech();
+      setVoiceNotice(null);
+      return;
+    }
+    if (currentEx) {
+      prefetchCue(formatExerciseCue(currentEx), cueLang);
+      if (stepIdx < totalSteps - 1 && (currentEx.reposSec || 20) > 0) {
+        prefetchCue(`Repos pendant ${currentEx.reposSec || 20} secondes.`, 'fr');
+      }
+    }
+    const nextEx = session.exercises[stepIdx + 1];
+    if (nextEx) {
+      prefetchCue(formatExerciseCue(nextEx), cueLang);
+    } else {
+      prefetchCue('Séance terminée. Pensez à noter votre ressenti.', 'fr');
+    }
+  }, [audioEnabled, cueLang, currentEx, formatExerciseCue, session.exercises, stepIdx, totalSteps]);
 
   useEffect(() => {
     if (!running || phase === 'feedback') return;
@@ -85,7 +114,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
           const restSec = currentEx?.reposSec || 20;
           if (stepIdx < totalSteps - 1 && restSec > 0) {
             playTone('rest');
-            speakCue(`Repos pendant ${restSec} secondes`, audioEnabled);
+            void speakCue(`Repos pendant ${restSec} secondes.`, audioEnabled, 'fr', (msg) => setVoiceNotice(msg));
             setPhase('rest');
             return restSec;
           }
@@ -98,13 +127,15 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
           setPhase('work');
           playTone('start');
           if (nextEx) {
-            speakCue(`${nextEx.nom}. ${nextEx.consigneFr}`, audioEnabled);
+            void speakCue(formatExerciseCue(nextEx), audioEnabled, cueLang, (msg) => setVoiceNotice(msg));
           }
           return nextEx?.dureeSec || 30;
         }
 
         playTone('finish');
-        speakCue('Séance terminée. Pensez à noter votre ressenti.', audioEnabled);
+        void speakCue('Séance terminée. Pensez à noter votre ressenti.', audioEnabled, 'fr', (msg) =>
+          setVoiceNotice(msg)
+        );
         setRunning(false);
         setPhase('feedback');
         return 0;
@@ -112,14 +143,17 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [running, phase, stepIdx, totalSteps, currentEx, session.exercises, audioEnabled]);
+  }, [running, phase, stepIdx, totalSteps, currentEx, session.exercises, audioEnabled, cueLang, formatExerciseCue]);
 
   const handleTogglePlay = () => {
     if (!running && currentEx) {
+      setVoiceNotice(null);
       playTone('start');
       if (phase === 'work') {
-        speakCue(`${currentEx.nom}. ${currentEx.consigneFr}`, audioEnabled);
+        void speakCue(formatExerciseCue(currentEx), audioEnabled, cueLang, (msg) => setVoiceNotice(msg));
       }
+    } else if (running) {
+      stopSpeech();
     }
     setRunning((r) => !r);
   };
@@ -181,23 +215,23 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col obsidian-ambient text-[#F5F7F1] overflow-y-auto">
-      <header className="flex items-center justify-between gap-4 border-b border-white/[0.08] bg-[#080A07]/75 backdrop-blur-md px-4 py-3 md:px-8">
+    <div className="fixed inset-0 z-50 flex flex-col obsidian-ambient text-[#063725] overflow-y-auto">
+      <header className="flex items-center justify-between gap-4 border-b border-[#D5E2DA] bg-white/95 backdrop-blur-md px-4 py-3 md:px-8">
         <div className="min-w-0">
-          <div className="text-xs text-[#9AA491]">
-            <span className="text-[#C8F62D] font-semibold">SÉANCE EN DIRECT</span> · {sportTheme.nom} · {session.duree_min} min
+          <div className="text-xs text-[#5B7064]">
+            <span className="text-[#0D6E46] font-bold">SÉANCE EN DIRECT</span> · {sportTheme.nom} · {session.duree_min} min
           </div>
-          <h2 className="text-base font-semibold truncate text-[#F5F7F1]">{session.titre}</h2>
+          <h2 className="text-base font-bold truncate text-[#063725]">{session.titre}</h2>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setAudioEnabled((a) => !a)}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full border border-white/12 bg-[#161B13] text-[#D6DDD0] hover:bg-[#1E251A]"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full border border-[#C3D6CA] bg-white text-[#063725] hover:bg-[#F1F6F3]"
             aria-label={audioEnabled ? 'Couper le son' : 'Activer le son'}
           >
-            {audioEnabled ? <Volume2 className="h-5 w-5 text-[#C8F62D]" /> : <VolumeX className="h-5 w-5" />}
+            {audioEnabled ? <Volume2 className="h-5 w-5 text-[#0D6E46]" /> : <VolumeX className="h-5 w-5" />}
           </button>
           <button
             type="button"
@@ -205,7 +239,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
               stopSpeech();
               onClose();
             }}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full border border-white/12 bg-[#161B13] text-[#D6DDD0] hover:bg-[#1E251A]"
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full border border-[#C3D6CA] bg-white text-[#063725] hover:bg-[#F1F6F3]"
             aria-label="Quitter la séance"
           >
             <X className="h-5 w-5" />
@@ -217,15 +251,15 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
         {phase === 'feedback' ? (
           <form onSubmit={handleSubmitFeedback} className="rounded-3xl obsidian-card-glow p-6 space-y-5 my-auto">
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="h-6 w-6 text-[#C8F62D] shrink-0" aria-hidden="true" />
+              <CheckCircle2 className="h-6 w-6 text-[#0D6E46] shrink-0" aria-hidden="true" />
               <div>
-                <h3 className="text-xl font-semibold text-[#F5F7F1]">Séance terminée</h3>
-                <p className="text-sm text-[#9AA491]">Notez votre ressenti pour ajuster le suivi avec votre coach.</p>
+                <h3 className="text-xl font-bold text-[#063725]">Séance terminée</h3>
+                <p className="text-sm text-[#475E52]">Notez votre ressenti pour ajuster le suivi avec votre coach.</p>
               </div>
             </div>
 
             {saveMessage && (
-              <div className="rounded-2xl border border-[#C8F62D]/30 bg-[#C8F62D]/10 p-3 text-sm text-[#E9FCD0]">
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
                 {saveMessage}
               </div>
             )}
@@ -233,8 +267,8 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
             <div className="space-y-4">
               <div>
                 <div className="flex justify-between text-sm mb-1.5">
-                  <label htmlFor="rpe-fatigue" className="text-[#D6DDD0]">Fatigue ressentie (1 = frais · 10 = épuisé)</label>
-                  <span className="font-mono tabular-nums font-semibold text-[#C8F62D]">{fatigue}/10</span>
+                  <label htmlFor="rpe-fatigue" className="text-[#3D5246] font-medium">Fatigue ressentie (1 = frais · 10 = épuisé)</label>
+                  <span className="font-mono tabular-nums font-bold text-[#0D6E46]">{fatigue}/10</span>
                 </div>
                 <input
                   id="rpe-fatigue"
@@ -243,14 +277,14 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   max={10}
                   value={fatigue}
                   onChange={(e) => setFatigue(Number(e.target.value))}
-                  className="w-full accent-[#C8F62D]"
+                  className="w-full accent-[#0D6E46]"
                 />
               </div>
 
               <div>
                 <div className="flex justify-between text-sm mb-1.5">
-                  <label htmlFor="rpe-diff" className="text-[#D6DDD0]">Difficulté de la séance (1 à 10)</label>
-                  <span className="font-mono tabular-nums font-semibold text-[#C8F62D]">{difficulte}/10</span>
+                  <label htmlFor="rpe-diff" className="text-[#3D5246] font-medium">Difficulté de la séance (1 à 10)</label>
+                  <span className="font-mono tabular-nums font-bold text-[#0D6E46]">{difficulte}/10</span>
                 </div>
                 <input
                   id="rpe-diff"
@@ -259,14 +293,14 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   max={10}
                   value={difficulte}
                   onChange={(e) => setDifficulte(Number(e.target.value))}
-                  className="w-full accent-[#C8F62D]"
+                  className="w-full accent-[#0D6E46]"
                 />
               </div>
 
               <div>
                 <div className="flex justify-between text-sm mb-1.5">
-                  <label htmlFor="rpe-sleep" className="text-[#D6DDD0]">Qualité du sommeil la nuit dernière (1 à 10)</label>
-                  <span className="font-mono tabular-nums font-semibold text-[#C8F62D]">{sommeil}/10</span>
+                  <label htmlFor="rpe-sleep" className="text-[#3D5246] font-medium">Qualité du sommeil la nuit dernière (1 à 10)</label>
+                  <span className="font-mono tabular-nums font-bold text-[#0D6E46]">{sommeil}/10</span>
                 </div>
                 <input
                   id="rpe-sleep"
@@ -275,7 +309,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   max={10}
                   value={sommeil}
                   onChange={(e) => setSommeil(Number(e.target.value))}
-                  className="w-full accent-[#C8F62D]"
+                  className="w-full accent-[#0D6E46]"
                 />
               </div>
             </div>
@@ -284,7 +318,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
               <button
                 type="submit"
                 disabled={saving}
-                className="flex-1 rounded-full bg-[#C8F62D] px-5 py-3 text-sm font-semibold text-[#080A07] hover:bg-[#D7FA59] min-h-[48px]"
+                className="flex-1 rounded-full bg-[#0D6E46] px-5 py-3 text-sm font-bold text-white hover:bg-[#095637] min-h-[48px] shadow-sm"
               >
                 {saving ? 'Enregistrement...' : 'Enregistrer et terminer'}
               </button>
@@ -294,7 +328,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   stopSpeech();
                   onReportPain();
                 }}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-red-500/35 bg-red-950/50 px-4 py-3 text-sm font-medium text-red-200 hover:bg-red-900/60 min-h-[48px]"
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800 hover:bg-red-100 min-h-[48px]"
               >
                 <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                 <span>Signaler une douleur</span>
@@ -304,16 +338,16 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
         ) : (
           <>
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs text-[#9AA491]">
+              <div className="flex items-center justify-between text-xs text-[#475E52]">
                 <span>
-                  Exercice <span className="font-mono tabular-nums text-[#F5F7F1] font-semibold">{stepIdx + 1}/{totalSteps}</span> · Prévention {session.prevention_focus}
+                  Exercice <span className="font-mono tabular-nums text-[#063725] font-bold">{stepIdx + 1}/{totalSteps}</span> · Prévention {session.prevention_focus}
                 </span>
-                <div className="flex items-center gap-1 rounded-full bg-[#121610] p-1 border border-white/10">
+                <div className="flex items-center gap-1 rounded-full bg-white p-1 border border-[#D5E2DA]">
                   <button
                     type="button"
                     onClick={() => setCueLang('fr')}
                     className={`px-3 py-1 rounded-full text-xs font-medium min-h-[30px] ${
-                      cueLang === 'fr' ? 'bg-[#C8F62D] text-[#080A07] font-semibold' : 'text-[#9AA491]'
+                      cueLang === 'fr' ? 'bg-[#0D6E46] text-white font-semibold' : 'text-[#5B7064]'
                     }`}
                   >
                     Français
@@ -322,7 +356,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                     type="button"
                     onClick={() => setCueLang('wo')}
                     className={`px-3 py-1 rounded-full text-xs font-medium min-h-[30px] ${
-                      cueLang === 'wo' ? 'bg-[#C8F62D] text-[#080A07] font-semibold' : 'text-[#9AA491]'
+                      cueLang === 'wo' ? 'bg-[#0D6E46] text-white font-semibold' : 'text-[#5B7064]'
                     }`}
                   >
                     Wolof
@@ -330,9 +364,9 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                 </div>
               </div>
 
-              <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div className="w-full h-1.5 rounded-full bg-[#D5E2DA] overflow-hidden">
                 <div
-                  className="h-full bg-[#C8F62D] transition-all"
+                  className="h-full bg-[#0D6E46] transition-all"
                   style={{ width: `${((stepIdx + (phase === 'rest' ? 0.5 : 0.2)) / totalSteps) * 100}%` }}
                 />
               </div>
@@ -343,8 +377,8 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
               {phase === 'rest' ? (
                 <div className="space-y-3 text-center">
                   <div className="space-y-1">
-                    <p className="text-lg font-medium text-[#C8F62D]">Respirez et relâchez les appuis</p>
-                    <p className="text-sm text-[#9AA491]">
+                    <p className="text-lg font-bold text-[#0D6E46]">Respirez et relâchez les appuis</p>
+                    <p className="text-sm text-[#475E52]">
                       À suivre : {session.exercises[stepIdx + 1]?.nom}
                     </p>
                   </div>
@@ -352,8 +386,8 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                     <div className="mx-auto max-w-md text-left">
                       <ExerciseVideoGuide
                         exerciseName={session.exercises[stepIdx + 1].nom}
-                        accentHex="#C8F62D"
-                        theme="dark"
+                        accentHex="#0D6E46"
+                        theme="light"
                         compact
                         showCues={false}
                       />
@@ -363,9 +397,9 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
               ) : (
                 <div className="space-y-3 text-center">
                   <div className="space-y-1">
-                    <h3 className="text-xl sm:text-2xl font-semibold text-[#F5F7F1]">{currentEx?.nom}</h3>
+                    <h3 className="text-xl sm:text-2xl font-bold text-[#063725]">{currentEx?.nom}</h3>
                     {currentEx && (
-                      <div className="text-xs font-mono tabular-nums text-[#9AA491]">
+                      <div className="text-xs font-mono tabular-nums text-[#475E52]">
                         {currentEx.mode === 'repetitions' && currentEx.repetitions
                           ? `Objectif : ${currentEx.repetitions} répétitions`
                           : `Effort guidé : ${currentEx.dureeSec} s`}
@@ -374,12 +408,12 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   </div>
 
                   {(currentVisual || selectedCoachVideo) && (
-                    <div className="inline-flex flex-wrap items-center justify-center gap-1 rounded-full bg-[#121610] p-1 border border-white/10">
+                    <div className="inline-flex flex-wrap items-center justify-center gap-1 rounded-full bg-white p-1 border border-[#D5E2DA]">
                       <button
                         type="button"
                         onClick={() => setVisualMode('video')}
                         className={`px-3.5 py-1.5 rounded-full text-xs font-medium min-h-[34px] ${
-                          visualMode === 'video' ? 'bg-[#C8F62D] text-[#080A07] font-semibold' : 'text-[#9AA491]'
+                          visualMode === 'video' ? 'bg-[#0D6E46] text-white font-semibold' : 'text-[#475E52]'
                         }`}
                       >
                         Vidéo guidée
@@ -389,7 +423,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                           type="button"
                           onClick={() => setVisualMode('photo')}
                           className={`px-3.5 py-1.5 rounded-full text-xs font-medium min-h-[34px] ${
-                            visualMode === 'photo' ? 'bg-[#C8F62D] text-[#080A07] font-semibold' : 'text-[#9AA491]'
+                            visualMode === 'photo' ? 'bg-[#0D6E46] text-white font-semibold' : 'text-[#475E52]'
                           }`}
                         >
                           Planche anatomique
@@ -400,7 +434,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                           type="button"
                           onClick={() => setVisualMode('coach')}
                           className={`px-3.5 py-1.5 rounded-full text-xs font-medium min-h-[34px] ${
-                            visualMode === 'coach' ? 'bg-[#C8F62D] text-[#080A07] font-semibold' : 'text-[#9AA491]'
+                            visualMode === 'coach' ? 'bg-[#0D6E46] text-white font-semibold' : 'text-[#475E52]'
                           }`}
                         >
                           Vidéo du coach ({matchingCoachVideos.length})
@@ -420,8 +454,8 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                               onClick={() => setCoachVideoIdx(idx)}
                               className={`rounded-full px-3 py-1 text-xs font-medium whitespace-nowrap ${
                                 coachVideoIdx === idx
-                                  ? 'bg-[#C8F62D] text-[#080A07] font-semibold'
-                                  : 'border border-white/10 bg-[#161B13] text-[#D6DDD0]'
+                                  ? 'bg-[#0D6E46] text-white font-semibold'
+                                  : 'border border-[#D5E2DA] bg-white text-[#3D5246]'
                               }`}
                             >
                               {vid.titre}
@@ -429,14 +463,14 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                           ))}
                         </div>
                       )}
-                      <CoachVideoPlayer video={selectedCoachVideo} ecoMode={ecoMode} theme="dark" />
+                      <CoachVideoPlayer video={selectedCoachVideo} ecoMode={ecoMode} theme="light" />
                       {selectedCoachVideo.description && (
-                        <p className="text-xs text-[#B4BCA9] leading-relaxed">{selectedCoachVideo.description}</p>
+                        <p className="text-xs text-[#475E52] leading-relaxed">{selectedCoachVideo.description}</p>
                       )}
                     </div>
                   ) : visualMode === 'photo' && currentVisual ? (
                     !ecoMode ? (
-                      <div className="mx-auto max-w-sm rounded-2xl border border-white/10 bg-[#F5F7F1] p-2.5 text-neutral-900">
+                      <div className="mx-auto max-w-sm rounded-2xl border border-[#D5E2DA] bg-white p-2.5 text-[#063725] shadow-sm">
                         <img
                           src={currentVisual.imageUrl}
                           alt={currentVisual.label}
@@ -444,12 +478,12 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                           referrerPolicy="no-referrer"
                           className="mx-auto max-h-44 w-auto object-contain"
                         />
-                        <div className="mt-1.5 text-[11px] font-medium text-neutral-700 px-1">
+                        <div className="mt-1.5 text-[11px] font-medium text-[#3D5246] px-1">
                           {currentVisual.label}
                         </div>
                       </div>
                     ) : (
-                      <div className="text-[11px] text-[#9AA491]">
+                      <div className="text-[11px] text-[#5B7064]">
                         Planche photo masquée (mode éco données actif) — basculez sur « Vidéo guidée » (0 Ko réseau).
                       </div>
                     )
@@ -457,8 +491,8 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                     <div className="mx-auto max-w-lg">
                       <ExerciseVideoGuide
                         exerciseName={currentEx?.nom || ''}
-                        accentHex="#C8F62D"
-                        theme="dark"
+                        accentHex="#0D6E46"
+                        theme="light"
                         syncPlaying={running}
                       />
                     </div>
@@ -466,13 +500,25 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                 </div>
               )}
 
-              {/* Screen 3 inspired Duration Card + Telemetry Grid */}
+              {/* Duration Card + Step Metrics Grid */}
+              {voiceNotice && audioEnabled && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs text-amber-900 flex items-center justify-between gap-2">
+                  <span>{voiceNotice}</span>
+                  <button
+                    type="button"
+                    onClick={() => setVoiceNotice(null)}
+                    className="font-semibold text-[#063725] hover:underline shrink-0"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              )}
               <div className="rounded-3xl obsidian-card p-5 space-y-4">
-                <div className="text-center border-b border-white/[0.08] pb-4">
-                  <div className="text-[11px] font-medium tracking-wider text-[#9AA491] uppercase">
+                <div className="text-center border-b border-[#E2EBE5] pb-4">
+                  <div className="text-[11px] font-medium tracking-wider text-[#5B7064] uppercase">
                     {phase === 'rest' ? 'Temps de récupération' : 'Durée restante'}
                   </div>
-                  <div className="mt-1 font-mono text-5xl sm:text-6xl font-semibold tabular-nums tracking-tight text-[#F5F7F1]">
+                  <div className="mt-1 font-mono text-5xl sm:text-6xl font-bold tabular-nums tracking-tight text-[#063725]">
                     {String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:
                     {String(secondsLeft % 60).padStart(2, '0')}
                   </div>
@@ -482,41 +528,41 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   <>
                     <div className="grid grid-cols-3 gap-2.5 text-center">
                       <div className="rounded-2xl obsidian-inset p-2.5">
-                        <div className="text-[10px] text-[#8E9784]">Repos prévu</div>
-                        <div className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-[#F5F7F1]">
+                        <div className="text-[10px] text-[#5B7064]">Repos prévu</div>
+                        <div className="mt-0.5 font-mono text-sm font-bold tabular-nums text-[#063725]">
                           {currentEx?.reposSec || 20}s
                         </div>
                       </div>
                       <div className="rounded-2xl obsidian-inset p-2.5">
-                        <div className="text-[10px] text-[#8E9784]">Étape</div>
-                        <div className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-[#C8F62D]">
+                        <div className="text-[10px] text-[#5B7064]">Étape</div>
+                        <div className="mt-0.5 font-mono text-sm font-bold tabular-nums text-[#0D6E46]">
                           {stepIdx + 1}/{totalSteps}
                         </div>
                       </div>
                       <div className="rounded-2xl obsidian-inset p-2.5">
-                        <div className="text-[10px] text-[#8E9784]">Langue</div>
-                        <div className="mt-0.5 text-xs font-semibold text-[#F5F7F1]">
+                        <div className="text-[10px] text-[#5B7064]">Langue</div>
+                        <div className="mt-0.5 text-xs font-bold text-[#063725]">
                           {cueLang === 'wo' ? 'Wolof' : 'Français'}
                         </div>
                       </div>
                     </div>
 
-                    <p className="text-sm text-[#D6DDD0] leading-relaxed text-center">
+                    <p className="text-sm text-[#063725] leading-relaxed text-center font-medium">
                       {cueLang === 'wo' ? currentEx?.consigneWo : currentEx?.consigneFr}
                     </p>
                     {cueLang === 'wo' && (
-                      <p className="text-xs text-[#8E9784] text-center">
+                      <p className="text-xs text-[#5B7064] text-center">
                         Français : {currentEx?.consigneFr}
                       </p>
                     )}
 
                     <div className="text-center pt-1">
-                      <div className="inline-flex items-center gap-1 rounded-full bg-[#181D15] p-1 border border-white/10">
+                      <div className="inline-flex items-center gap-1 rounded-full bg-[#F1F6F3] p-1 border border-[#D5E2DA]">
                         <button
                           type="button"
                           onClick={() => setVariant('facile')}
                           className={`px-3 py-1.5 rounded-full text-xs font-medium min-h-[34px] whitespace-nowrap ${
-                            variant === 'facile' ? 'bg-emerald-600 text-white' : 'text-[#9AA491]'
+                            variant === 'facile' ? 'bg-[#0D6E46] text-white' : 'text-[#475E52]'
                           }`}
                         >
                           Facile
@@ -525,7 +571,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                           type="button"
                           onClick={() => setVariant('standard')}
                           className={`px-3 py-1.5 rounded-full text-xs font-medium min-h-[34px] whitespace-nowrap ${
-                            variant === 'standard' ? 'bg-[#C8F62D] text-[#080A07] font-semibold' : 'text-[#9AA491]'
+                            variant === 'standard' ? 'bg-[#063725] text-white font-semibold' : 'text-[#475E52]'
                           }`}
                         >
                           Standard
@@ -534,14 +580,14 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                           type="button"
                           onClick={() => setVariant('difficile')}
                           className={`px-3 py-1.5 rounded-full text-xs font-medium min-h-[34px] whitespace-nowrap ${
-                            variant === 'difficile' ? 'bg-orange-600 text-white' : 'text-[#9AA491]'
+                            variant === 'difficile' ? 'bg-amber-600 text-white' : 'text-[#475E52]'
                           }`}
                         >
                           Exigeante
                         </button>
                       </div>
                       {variant !== 'standard' && (
-                        <p className="mt-2 text-xs text-[#B4BCA9] max-w-lg mx-auto">
+                        <p className="mt-2 text-xs text-[#475E52] max-w-lg mx-auto">
                           {variant === 'facile' ? currentEx?.varianteFacile : currentEx?.varianteDifficile}
                         </p>
                       )}
@@ -559,7 +605,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                     setRunning(false);
                     setSecondsLeft(phase === 'rest' ? currentEx?.reposSec || 20 : currentEx?.dureeSec || 30);
                   }}
-                  className="h-12 w-12 flex items-center justify-center rounded-full border border-white/12 bg-[#161B13] text-[#D6DDD0] hover:bg-[#1E251A]"
+                  className="h-12 w-12 flex items-center justify-center rounded-full border border-[#C3D6CA] bg-white text-[#063725] hover:bg-[#F1F6F3]"
                   aria-label="Réinitialiser le chrono"
                 >
                   <RotateCcw className="h-5 w-5" />
@@ -568,21 +614,21 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   type="button"
                   onClick={handleTogglePlay}
                   aria-label={running ? 'Pause' : 'Démarrer le chrono'}
-                  className="h-16 w-16 inline-flex items-center justify-center rounded-full bg-[#C8F62D] text-[#080A07] hover:bg-[#D7FA59] shadow-lg shadow-[#C8F62D]/20 transition-transform active:scale-95"
+                  className="h-16 w-16 inline-flex items-center justify-center rounded-full bg-[#0D6E46] text-white hover:bg-[#095637] shadow-lg shadow-[#0D6E46]/25 transition-transform active:scale-95"
                 >
                   {running ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
                 </button>
                 <button
                   type="button"
                   onClick={handleSkip}
-                  className="h-12 px-4 inline-flex items-center justify-center gap-1.5 rounded-full border border-white/12 bg-[#161B13] text-xs font-semibold text-[#D6DDD0] hover:bg-[#1E251A] whitespace-nowrap"
+                  className="h-12 px-4 inline-flex items-center justify-center gap-1.5 rounded-full border border-[#C3D6CA] bg-white text-xs font-bold text-[#063725] hover:bg-[#F1F6F3] whitespace-nowrap"
                 >
                   <span>Suivant</span>
-                  <SkipForward className="h-4 w-4 text-[#C8F62D]" />
+                  <SkipForward className="h-4 w-4 text-[#0D6E46]" />
                 </button>
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-white/[0.08]">
+              <div className="flex items-center justify-between pt-2 border-t border-[#D5E2DA]">
                 <button
                   type="button"
                   onClick={() => {
@@ -590,7 +636,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                     setRunning(false);
                     onReportPain();
                   }}
-                  className="inline-flex items-center gap-2 text-xs font-medium text-red-400 hover:text-red-300 min-h-[44px]"
+                  className="inline-flex items-center gap-2 text-xs font-semibold text-red-700 hover:text-red-800 min-h-[44px]"
                 >
                   <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                   <span>Douleur ? Arrêter et alerter</span>
@@ -603,7 +649,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                     setRunning(false);
                     setPhase('feedback');
                   }}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-[#C8F62D] hover:text-[#D7FA59] min-h-[44px]"
+                  className="inline-flex items-center gap-1 text-xs font-bold text-[#0D6E46] hover:text-[#095637] min-h-[44px]"
                 >
                   <span>Terminer la séance</span>
                   <ChevronRight className="h-4 w-4" />

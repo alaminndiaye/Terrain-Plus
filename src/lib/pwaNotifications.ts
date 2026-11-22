@@ -37,11 +37,6 @@ export function getNotificationPermission(): BrowserNotificationPermission {
   return Notification.permission;
 }
 
-export function supportsTimestampTrigger(): boolean {
-  if (typeof window === 'undefined') return false;
-  return 'showTrigger' in Notification.prototype && 'TimestampTrigger' in globalThis;
-}
-
 export async function requestBrowserNotificationPermission(): Promise<BrowserNotificationPermission> {
   if (!isNotificationSupported()) return 'unsupported';
   try {
@@ -90,12 +85,6 @@ export async function showPWALocalNotification(payload: LocalNotificationRequest
           { action: 'dismiss', title: 'Plus tard' },
         ],
       };
-      if (typeof payload.triggerAt === 'number' && payload.triggerAt > Date.now() + 2000 && supportsTimestampTrigger()) {
-        const TriggerCtor = (globalThis as unknown as { TimestampTrigger?: new (ts: number) => unknown }).TimestampTrigger;
-        if (TriggerCtor) {
-          options.showTrigger = new TriggerCtor(payload.triggerAt);
-        }
-      }
       await reg.showNotification(payload.title, options as NotificationOptions);
       return true;
     } catch {

@@ -1,6 +1,14 @@
 export type UserRole = 'ATHLETE' | 'COACH' | 'ADMIN' | 'MINISTRE';
 
-export type SportCode = 'football' | 'basket' | 'handball' | 'volleyball' | 'athletisme';
+export type SportCode = 'football' | 'basket' | 'handball' | 'volleyball' | 'athletisme' | 'fitness';
+
+export type ObjectiveCode =
+  | 'PERTE_POIDS'
+  | 'PRISE_MASSE'
+  | 'ENDURANCE'
+  | 'EXPLOSIVITE'
+  | 'PREVENTION'
+  | 'PERFORMANCE';
 
 export type AthleteLevel = 'debutant' | 'intermediaire' | 'avance';
 

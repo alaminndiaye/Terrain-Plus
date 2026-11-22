@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS public.consents (
 CREATE TABLE IF NOT EXISTS public.athlete_profiles (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL UNIQUE REFERENCES public.users(id) ON DELETE CASCADE,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   niveau TEXT NOT NULL CHECK (niveau IN ('debutant', 'intermediaire', 'avance')),
   taille_cm INTEGER,
   poste TEXT,
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS public.groups (
   nom TEXT NOT NULL,
   partner_id BIGINT NOT NULL REFERENCES public.partners(id) ON DELETE CASCADE,
   captain_name TEXT NOT NULL,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme'))
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness'))
 );
 
 CREATE TABLE IF NOT EXISTS public.group_memberships (
@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS public.partner_requests (
 
 CREATE TABLE IF NOT EXISTS public.sessions_library (
   id BIGSERIAL PRIMARY KEY,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   titre TEXT NOT NULL,
   niveau TEXT NOT NULL CHECK (niveau IN ('debutant', 'intermediaire', 'avance')),
   duree_min INTEGER NOT NULL,
@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS public.program_plans (
   id BIGSERIAL PRIMARY KEY,
   athlete_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   coach_user_id BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   date_debut TEXT NOT NULL,
   duree_semaines INTEGER NOT NULL DEFAULT 4,
   objectif TEXT NOT NULL,
@@ -230,7 +230,7 @@ CREATE TABLE IF NOT EXISTS public.evaluations (
   id BIGSERIAL PRIMARY KEY,
   athlete_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK (type IN ('INITIALE', 'PERIODIQUE')),
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   date TEXT NOT NULL,
   score_global INTEGER NOT NULL,
   results_json TEXT NOT NULL
@@ -284,7 +284,7 @@ CREATE TABLE IF NOT EXISTS public.system_traffic_logs (
 CREATE TABLE IF NOT EXISTS public.coach_videos (
   id BIGSERIAL PRIMARY KEY,
   coach_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+  sport_code TEXT NOT NULL CHECK (sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
   session_id BIGINT REFERENCES public.sessions_library(id) ON DELETE SET NULL,
   athlete_user_id BIGINT REFERENCES public.users(id) ON DELETE CASCADE,
   titre TEXT NOT NULL,
@@ -297,7 +297,15 @@ CREATE TABLE IF NOT EXISTS public.coach_videos (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS public.rate_limit_buckets (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 1,
+  reset_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_traffic_created_at ON public.system_traffic_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_rate_limit_reset_at ON public.rate_limit_buckets(reset_at);
 CREATE INDEX IF NOT EXISTS idx_coach_docs_user ON public.coach_documents(coach_user_id);
 CREATE INDEX IF NOT EXISTS idx_coach_videos_coach ON public.coach_videos(coach_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_coach_videos_athlete ON public.coach_videos(athlete_user_id);
@@ -323,6 +331,21 @@ ALTER TABLE public.coaches ADD COLUMN IF NOT EXISTS business_reg_number TEXT;
 ALTER TABLE public.coaches ADD COLUMN IF NOT EXISTS honorability_attested INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public.sessions_library ADD COLUMN IF NOT EXISTS access_tier TEXT NOT NULL DEFAULT 'ESSENTIEL';
 ALTER TABLE public.partner_requests ADD COLUMN IF NOT EXISTS pack_souhaite TEXT;
+
+DO $$
+DECLARE
+  tbl TEXT;
+BEGIN
+  FOREACH tbl IN ARRAY ARRAY['athlete_profiles', 'groups', 'sessions_library', 'program_plans', 'evaluations', 'coach_videos']
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', tbl, tbl || '_sport_code_check');
+    EXECUTE format(
+      'ALTER TABLE public.%I ADD CONSTRAINT %I CHECK (sport_code IN (''football'', ''basket'', ''handball'', ''volleyball'', ''athletisme'', ''fitness''))',
+      tbl,
+      tbl || '_sport_code_check'
+    );
+  END LOOP;
+END $$;
 `;
 
 export async function initSchema(): Promise<void> {
@@ -374,7 +397,7 @@ export async function initSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS athlete_profiles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
       niveau TEXT NOT NULL CHECK(niveau IN ('debutant', 'intermediaire', 'avance')),
       taille_cm INTEGER,
       poste TEXT,
@@ -434,7 +457,7 @@ export async function initSchema(): Promise<void> {
       nom TEXT NOT NULL,
       partner_id INTEGER NOT NULL REFERENCES partners(id) ON DELETE CASCADE,
       captain_name TEXT NOT NULL,
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme'))
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness'))
     );
 
     CREATE TABLE IF NOT EXISTS group_memberships (
@@ -457,7 +480,7 @@ export async function initSchema(): Promise<void> {
 
     CREATE TABLE IF NOT EXISTS sessions_library (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
       titre TEXT NOT NULL,
       niveau TEXT NOT NULL CHECK(niveau IN ('debutant', 'intermediaire', 'avance')),
       duree_min INTEGER NOT NULL,
@@ -474,7 +497,7 @@ export async function initSchema(): Promise<void> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       coach_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
       date_debut TEXT NOT NULL,
       duree_semaines INTEGER NOT NULL DEFAULT 4,
       objectif TEXT NOT NULL,
@@ -503,7 +526,7 @@ export async function initSchema(): Promise<void> {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       type TEXT NOT NULL CHECK(type IN ('INITIALE', 'PERIODIQUE')),
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
       date TEXT NOT NULL,
       score_global INTEGER NOT NULL,
       results_json TEXT NOT NULL
@@ -594,7 +617,7 @@ export async function initSchema(): Promise<void> {
     CREATE TABLE IF NOT EXISTS coach_videos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       coach_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+      sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
       session_id INTEGER REFERENCES sessions_library(id) ON DELETE SET NULL,
       athlete_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       titre TEXT NOT NULL,
@@ -607,7 +630,15 @@ export async function initSchema(): Promise<void> {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL DEFAULT 1,
+      reset_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_traffic_created_at ON system_traffic_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_rate_limit_reset_at ON rate_limit_buckets(reset_at);
     CREATE INDEX IF NOT EXISTS idx_coach_docs_user ON coach_documents(coach_user_id);
     CREATE INDEX IF NOT EXISTS idx_coach_videos_coach ON coach_videos(coach_user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_coach_videos_athlete ON coach_videos(athlete_user_id);
@@ -776,13 +807,13 @@ export async function initSchema(): Promise<void> {
     await dbPragma('foreign_keys = ON');
   }
 
-  // Safe idempotent sport_code CHECK constraint migration to include volleyball and athletisme
+  // Safe idempotent sport_code CHECK constraint migration to include volleyball, athletisme and fitness
   const checkSportsTable = async (tableName: string): Promise<boolean> => {
     const row = await dbGet<{ sql: string }>(
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
       tableName
     );
-    return Boolean(row && (!row.sql.includes("'volleyball'") || !row.sql.includes("'athletisme'")));
+    return Boolean(row && (!row.sql.includes("'volleyball'") || !row.sql.includes("'athletisme'") || !row.sql.includes("'fitness'")));
   };
 
   if (
@@ -790,7 +821,8 @@ export async function initSchema(): Promise<void> {
     (await checkSportsTable('groups')) ||
     (await checkSportsTable('sessions_library')) ||
     (await checkSportsTable('program_plans')) ||
-    (await checkSportsTable('evaluations'))
+    (await checkSportsTable('evaluations')) ||
+    (await checkSportsTable('coach_videos'))
   ) {
     await dbPragma('foreign_keys = OFF');
     await dbTransaction(async (tx) => {
@@ -799,7 +831,7 @@ export async function initSchema(): Promise<void> {
           CREATE TABLE athlete_profiles_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
             niveau TEXT NOT NULL CHECK(niveau IN ('debutant', 'intermediaire', 'avance')),
             taille_cm INTEGER,
             poste TEXT,
@@ -839,7 +871,7 @@ export async function initSchema(): Promise<void> {
             nom TEXT NOT NULL,
             partner_id INTEGER NOT NULL REFERENCES partners(id) ON DELETE CASCADE,
             captain_name TEXT NOT NULL,
-            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme'))
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness'))
           );
           INSERT INTO groups_new (id, nom, partner_id, captain_name, sport_code)
           SELECT id, nom, partner_id, captain_name, sport_code FROM groups;
@@ -852,7 +884,7 @@ export async function initSchema(): Promise<void> {
         await tx.exec(`
           CREATE TABLE sessions_library_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
             titre TEXT NOT NULL,
             niveau TEXT NOT NULL CHECK(niveau IN ('debutant', 'intermediaire', 'avance')),
             duree_min INTEGER NOT NULL,
@@ -883,7 +915,7 @@ export async function initSchema(): Promise<void> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             coach_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
             date_debut TEXT NOT NULL,
             duree_semaines INTEGER NOT NULL DEFAULT 4,
             objectif TEXT NOT NULL,
@@ -902,7 +934,7 @@ export async function initSchema(): Promise<void> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             type TEXT NOT NULL CHECK(type IN ('INITIALE', 'PERIODIQUE')),
-            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme')),
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
             date TEXT NOT NULL,
             score_global INTEGER NOT NULL,
             results_json TEXT NOT NULL
@@ -911,6 +943,36 @@ export async function initSchema(): Promise<void> {
           SELECT id, athlete_user_id, type, sport_code, date, score_global, results_json FROM evaluations;
           DROP TABLE evaluations;
           ALTER TABLE evaluations_new RENAME TO evaluations;
+        `);
+      }
+
+      if (await checkSportsTable('coach_videos')) {
+        await tx.exec(`
+          CREATE TABLE coach_videos_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            coach_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            sport_code TEXT NOT NULL CHECK(sport_code IN ('football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness')),
+            session_id INTEGER REFERENCES sessions_library(id) ON DELETE SET NULL,
+            athlete_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            titre TEXT NOT NULL,
+            description TEXT,
+            source_type TEXT NOT NULL CHECK(source_type IN ('SUPABASE_STORAGE', 'LOCAL_STORAGE', 'EXTERNAL_URL')),
+            storage_path TEXT,
+            external_url TEXT,
+            mime_type TEXT,
+            file_size_bytes INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+          INSERT INTO coach_videos_new (
+            id, coach_user_id, sport_code, session_id, athlete_user_id, titre, description,
+            source_type, storage_path, external_url, mime_type, file_size_bytes, created_at
+          )
+          SELECT
+            id, coach_user_id, sport_code, session_id, athlete_user_id, titre, description,
+            source_type, storage_path, external_url, mime_type, file_size_bytes, created_at
+          FROM coach_videos;
+          DROP TABLE coach_videos;
+          ALTER TABLE coach_videos_new RENAME TO coach_videos;
         `);
       }
     });

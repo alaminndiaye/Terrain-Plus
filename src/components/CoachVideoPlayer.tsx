@@ -8,7 +8,11 @@ interface CoachVideoPlayerProps {
   theme?: 'light' | 'dark';
 }
 
-function parseEmbedTarget(url: string): { kind: 'youtube' | 'vimeo' | 'native'; src: string } {
+function parseEmbedTarget(url: string): {
+  kind: 'youtube' | 'vimeo' | 'direct';
+  src: string;
+  thumbnailUrl?: string;
+} {
   try {
     const parsed = new URL(url, window.location.origin);
     const host = parsed.hostname.toLowerCase();
@@ -16,7 +20,11 @@ function parseEmbedTarget(url: string): { kind: 'youtube' | 'vimeo' | 'native'; 
     if (host.includes('youtu.be')) {
       const id = parsed.pathname.replace(/^\/+/, '').split('/')[0];
       if (/^[A-Za-z0-9_-]{6,20}$/.test(id)) {
-        return { kind: 'youtube', src: `https://www.youtube-nocookie.com/embed/${id}?rel=0` };
+        return {
+          kind: 'youtube',
+          src: `https://www.youtube-nocookie.com/embed/${id}?rel=0&autoplay=1&playsinline=1&modestbranding=1`,
+          thumbnailUrl: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+        };
       }
     }
 
@@ -29,25 +37,29 @@ function parseEmbedTarget(url: string): { kind: 'youtube' | 'vimeo' | 'native'; 
         id = parsed.pathname.split('/')[2] || '';
       }
       if (/^[A-Za-z0-9_-]{6,20}$/.test(id)) {
-        return { kind: 'youtube', src: `https://www.youtube-nocookie.com/embed/${id}?rel=0` };
+        return {
+          kind: 'youtube',
+          src: `https://www.youtube-nocookie.com/embed/${id}?rel=0&autoplay=1&playsinline=1&modestbranding=1`,
+          thumbnailUrl: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+        };
       }
     }
 
     if (host.includes('vimeo.com')) {
       const match = /\/(?:video\/)?(\d{5,15})/.exec(parsed.pathname);
       if (match?.[1]) {
-        return { kind: 'vimeo', src: `https://player.vimeo.com/video/${match[1]}` };
+        return { kind: 'vimeo', src: `https://player.vimeo.com/video/${match[1]}?autoplay=1` };
       }
     }
   } catch {
-    // Fallback to native HTML5 player
+    // Fallback to direct HTML5 player
   }
 
-  return { kind: 'native', src: url };
+  return { kind: 'direct', src: url };
 }
 
 export function formatVideoSizeMb(bytes: number): string {
-  if (!bytes || bytes <= 0) return 'Lien externe · 0 Mo';
+  if (!bytes || bytes <= 0) return 'Version légère · 0 Mo';
   const mb = bytes / (1024 * 1024);
   return mb < 0.1 ? `${Math.max(1, Math.round(bytes / 1024))} Ko` : `${mb.toFixed(1)} Mo`;
 }
@@ -55,37 +67,72 @@ export function formatVideoSizeMb(bytes: number): string {
 export const CoachVideoPlayer: React.FC<CoachVideoPlayerProps> = ({
   video,
   ecoMode = false,
-  theme = 'dark',
 }) => {
-  const [unlockedInEco, setUnlockedInEco] = useState(false);
+  const [activated, setActivated] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [thumbFailed, setThumbFailed] = useState(false);
 
   const embed = useMemo(() => parseEmbedTarget(video.playback_url), [video.playback_url]);
-  const isDark = theme === 'dark';
 
-  if (ecoMode && !unlockedInEco) {
+  // Ultra-lightweight click-to-load facade: mounts 0 iframes and 0 video bytes until user clicks Play
+  if (!activated) {
+    const showThumb = Boolean(!ecoMode && embed.thumbnailUrl && !thumbFailed);
+
+    if (showThumb && embed.thumbnailUrl) {
+      return (
+        <button
+          type="button"
+          onClick={() => setActivated(true)}
+          aria-label={`Lire la vidéo : ${video.titre}`}
+          className="group relative aspect-video w-full overflow-hidden rounded-2xl border border-[#D5E2DA] bg-[#F1F6F3] text-left focus:outline-none focus:ring-2 focus:ring-[#0D6E46]"
+        >
+          <img
+            src={embed.thumbnailUrl}
+            alt={video.titre}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={() => setThumbFailed(true)}
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#063725]/85 via-[#063725]/35 to-[#063725]/15" />
+
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#0D6E46] text-white shadow-lg ring-4 ring-white/30 transition-transform group-hover:scale-105">
+              <Play className="h-5 w-5 fill-current ml-0.5" aria-hidden="true" />
+            </span>
+          </div>
+
+          <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between gap-2 text-white">
+            <span className="text-xs font-bold truncate drop-shadow">{video.titre}</span>
+            <span className="shrink-0 rounded-full bg-white/20 backdrop-blur-sm px-2 py-0.5 text-[10px] font-semibold">
+              Lire
+            </span>
+          </div>
+        </button>
+      );
+    }
+
     return (
-      <div
-        className={`aspect-video w-full rounded-2xl border flex flex-col items-center justify-center gap-3 p-5 text-center ${
-          isDark
-            ? 'border-white/10 bg-[#161B13] text-[#F5F7F1]'
-            : 'border-white/10 bg-[#161B13] text-[#F5F7F1]'
-        }`}
-      >
-        <Video className="h-7 w-7 text-[#C8F62D]" aria-hidden="true" />
+      <div className="aspect-video w-full rounded-2xl border border-[#D5E2DA] bg-[#F1F6F3] text-[#063725] flex flex-col items-center justify-center gap-3 p-5 text-center">
+        <div className="h-11 w-11 rounded-full bg-[#ECF7F1] border border-[#BFE0CD] flex items-center justify-center">
+          <Video className="h-5 w-5 text-[#0D6E46]" aria-hidden="true" />
+        </div>
         <div className="space-y-1 max-w-sm">
-          <div className="text-xs font-semibold">Mode éco données actif — vidéo en attente</div>
-          <p className="text-[11px] text-[#9AA491]">
-            Aucun octet n’est téléchargé tant que vous ne lancez pas la lecture ({formatVideoSizeMb(video.file_size_bytes)}).
+          <div className="text-xs font-bold truncate">{video.titre}</div>
+          <p className="text-[11px] text-[#5B7064]">
+            {ecoMode
+              ? `Mode éco actif — aucun chargement avant lecture (${formatVideoSizeMb(video.file_size_bytes)}).`
+              : `Chargement léger à la demande (${formatVideoSizeMb(video.file_size_bytes)}).`}
           </p>
         </div>
         <button
           type="button"
-          onClick={() => setUnlockedInEco(true)}
-          className="inline-flex items-center gap-2 rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-semibold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+          onClick={() => setActivated(true)}
+          className="inline-flex items-center gap-2 rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px] shadow-sm"
         >
           <Play className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>Charger et lire la vidéo</span>
+          <span>Lire la vidéo</span>
         </button>
       </div>
     );
@@ -93,16 +140,16 @@ export const CoachVideoPlayer: React.FC<CoachVideoPlayerProps> = ({
 
   if (loadError) {
     return (
-      <div className="aspect-video w-full rounded-2xl border border-white/10 bg-[#161B13] text-[#B4BCA9] flex flex-col items-center justify-center gap-2.5 p-5 text-center">
+      <div className="aspect-video w-full rounded-2xl border border-[#D5E2DA] bg-[#F1F6F3] text-[#3D5246] flex flex-col items-center justify-center gap-2.5 p-5 text-center">
         <p className="text-xs font-medium">Impossible de lire ce flux vidéo directement dans le lecteur.</p>
         {video.source_type === 'EXTERNAL_URL' && (
           <a
             href={video.playback_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-[#1C2318] px-3 py-1.5 text-xs font-medium text-[#F5F7F1] hover:bg-[#242D1F] min-h-[36px]"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#C3D6CA] bg-white px-3 py-1.5 text-xs font-semibold text-[#063725] hover:bg-[#E7F1EC] min-h-[36px]"
           >
-            <ExternalLink className="h-3.5 w-3.5 text-[#C8F62D]" aria-hidden="true" />
+            <ExternalLink className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
             <span>Ouvrir le lien vidéo</span>
           </a>
         )}
@@ -111,7 +158,7 @@ export const CoachVideoPlayer: React.FC<CoachVideoPlayerProps> = ({
   }
 
   return (
-    <div className="aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-black">
+    <div className="aspect-video w-full overflow-hidden rounded-2xl border border-[#D5E2DA] bg-black">
       {embed.kind === 'youtube' || embed.kind === 'vimeo' ? (
         <iframe
           src={embed.src}
@@ -124,8 +171,9 @@ export const CoachVideoPlayer: React.FC<CoachVideoPlayerProps> = ({
       ) : (
         <video
           controls
+          autoPlay
           playsInline
-          preload="metadata"
+          preload="none"
           src={embed.src}
           onError={() => setLoadError(true)}
           className="h-full w-full object-contain bg-black"

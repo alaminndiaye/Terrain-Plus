@@ -28,8 +28,9 @@ import {
   readJsonCache,
   writeJsonCache,
 } from '../lib/api';
-import { LEVEL_LABELS, SPORTS_CONFIG } from '../data/sportsConfig';
+import { ALL_SPORT_CODES, LEVEL_LABELS, SPORTS_CONFIG } from '../data/sportsConfig';
 import { COACH_LEGAL_STATUS_OPTIONS } from '../data/sportsDiplomas';
+import { LegalFooter } from './LegalFooter';
 
 const ADMIN_OVERVIEW_CACHE_KEY = 'terrain_plus_admin_overview_v1';
 const MINISTER_OVERVIEW_CACHE_KEY = 'terrain_plus_minister_overview_v1';
@@ -485,7 +486,7 @@ export const AdminWorkspace: React.FC<{
 
   if (loading && !data) {
     return (
-      <div className="min-h-screen obsidian-ambient flex items-center justify-center text-sm text-[#B4BCA9]">
+      <div className="min-h-screen obsidian-ambient flex items-center justify-center text-sm text-[#3D5246]">
         Chargement de l'administration Terrain+...
       </div>
     );
@@ -535,23 +536,18 @@ export const AdminWorkspace: React.FC<{
   ];
 
   return (
-    <div className="min-h-screen obsidian-ambient text-[#F5F7F1] flex flex-col md:flex-row">
+    <div className="min-h-screen obsidian-ambient text-[#063725] flex flex-col md:flex-row">
       {/* Detached Desktop Sidebar */}
-      <aside className="hidden md:flex md:w-64 md:shrink-0 md:flex-col md:sticky md:top-0 md:h-screen md:overflow-y-auto border-r border-white/[0.08] bg-[#0C0F0A]">
-        <div className="p-5 border-b border-white/[0.08]">
-          <div className="flex items-center gap-2.5">
-            <img
-              src="/brand/terrain-mark.png"
-              alt="Terrain+"
-              decoding="async"
-              referrerPolicy="no-referrer"
-              className="h-8 w-8 rounded-lg object-contain shrink-0"
-            />
-            <span className="font-display text-lg font-bold tracking-tight text-[#F5F7F1]">
-              Terrain<span className="text-[#C8F62D]">+</span>
-            </span>
-          </div>
-          <div className="mt-2 text-xs font-medium text-[#8E9784]">Administration & Gouvernance</div>
+      <aside className="hidden md:flex md:w-64 md:shrink-0 md:flex-col md:sticky md:top-0 md:h-screen md:overflow-y-auto border-r border-[#D5E2DA] bg-white">
+        <div className="p-5 border-b border-[#E2EBE5]">
+          <img
+            src="/brand/terrain-logo.png"
+            alt="Terrain+"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            className="h-9 w-auto object-contain"
+          />
+          <div className="mt-2.5 text-xs font-medium text-[#5B7064]">Administration & Gouvernance</div>
         </div>
 
         <nav className="flex-1 p-3 space-y-1">
@@ -565,8 +561,8 @@ export const AdminWorkspace: React.FC<{
                 onClick={() => setTab(item.id)}
                 className={`w-full flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium min-h-[44px] text-left transition-colors ${
                   active
-                    ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                    : 'text-[#B4BCA9] hover:bg-white/[0.06] hover:text-[#F5F7F1]'
+                    ? 'bg-[#0D6E46] text-white font-bold shadow-sm'
+                    : 'text-[#3D5246] hover:bg-[#ECF7F1] hover:text-[#063725]'
                 }`}
               >
                 <span className="flex items-center gap-3 min-w-0">
@@ -576,7 +572,7 @@ export const AdminWorkspace: React.FC<{
                 {item.badge && item.badge > 0 ? (
                   <span
                     className={`font-mono text-xs font-bold tabular-nums shrink-0 rounded-md px-1.5 py-0.5 ${
-                      active ? 'bg-[#080A07] text-[#C8F62D]' : 'bg-amber-400/20 text-amber-300'
+                      active ? 'bg-white text-[#0D6E46]' : 'bg-amber-100 text-amber-800'
                     }`}
                   >
                     {item.badge}
@@ -587,15 +583,15 @@ export const AdminWorkspace: React.FC<{
           })}
         </nav>
 
-        <div className="p-4 border-t border-white/[0.08] space-y-3">
-          <div className="flex items-center gap-2 text-xs text-[#B4BCA9]">
-            <ShieldCheck className="h-4 w-4 text-[#C8F62D] shrink-0" aria-hidden="true" />
+        <div className="p-4 border-t border-[#E2EBE5] space-y-3">
+          <div className="flex items-center gap-2 text-xs text-[#3D5246]">
+            <ShieldCheck className="h-4 w-4 text-[#0D6E46] shrink-0" aria-hidden="true" />
             <span>Traçabilité et validation active</span>
           </div>
           <button
             type="button"
             onClick={handleLogout}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px]"
+            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-[#C3D6CA] bg-[#F1F6F3] px-3 py-2 text-xs font-medium text-[#063725] hover:bg-[#E7F1EC] min-h-[40px]"
           >
             <LogOut className="h-4 w-4" aria-hidden="true" />
             <span>Déconnexion</span>
@@ -606,23 +602,23 @@ export const AdminWorkspace: React.FC<{
       {/* Main Column */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Compact Mobile Top Header */}
-        <header className="md:hidden flex items-center justify-between gap-3 border-b border-white/[0.08] bg-[#0B0E09] px-4 h-[52px]">
-          <div className="flex items-center gap-2 min-w-0">
+        <header className="md:hidden flex items-center justify-between gap-3 border-b border-[#D5E2DA] bg-white/95 backdrop-blur-md px-4 h-[52px]">
+          <div className="flex items-center gap-2.5 min-w-0">
             <img
-              src="/brand/terrain-mark.png"
+              src="/brand/terrain-logo.png"
               alt="Terrain+"
               decoding="async"
               referrerPolicy="no-referrer"
-              className="h-7 w-7 rounded-md object-contain shrink-0"
+              className="h-7 w-auto object-contain shrink-0"
             />
-            <span className="font-display text-sm font-bold text-[#F5F7F1] truncate">
-              Administration Terrain+
+            <span className="text-xs font-semibold text-[#5B7064] truncate">
+              · Administration
             </span>
           </div>
           <button
             type="button"
             onClick={handleLogout}
-            className="p-2 text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
+            className="p-2 text-[#3D5246] hover:text-[#063725] min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
             aria-label="Déconnexion"
           >
             <LogOut className="h-4 w-4" />
@@ -632,12 +628,12 @@ export const AdminWorkspace: React.FC<{
         <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8 pb-24 md:pb-10">
           <div className="mx-auto max-w-6xl space-y-6">
             {notice && (
-              <div className="obsidian-card rounded-xl px-4 py-3 text-sm text-[#F5F7F1] flex items-center justify-between gap-3">
+              <div className="obsidian-card rounded-xl px-4 py-3 text-sm text-[#063725] flex items-center justify-between gap-3">
                 <span>{notice}</span>
                 <button
                   type="button"
                   onClick={() => setNotice(null)}
-                  className="text-xs font-semibold text-[#C8F62D] hover:text-[#D7FA59] shrink-0"
+                  className="text-xs font-semibold text-[#0D6E46] hover:text-[#095637] shrink-0"
                 >
                   Fermer
                 </button>
@@ -648,10 +644,10 @@ export const AdminWorkspace: React.FC<{
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="font-display text-2xl font-bold text-[#F5F7F1]">
+                  <h1 className="font-display text-2xl font-bold text-[#063725]">
                     Vue d’ensemble Système & Trafic
                   </h1>
-                  <p className="text-sm text-[#B4BCA9]">
+                  <p className="text-sm text-[#3D5246]">
                     Supervision temps réel de l’infrastructure Terrain+, des files d’approbation et de l’ensemble des requêtes API.
                   </p>
                 </div>
@@ -659,9 +655,9 @@ export const AdminWorkspace: React.FC<{
                   type="button"
                   onClick={handleRefreshSystemOverview}
                   disabled={refreshingSystem}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-[#181D15] px-4 py-2 text-xs font-semibold text-[#F5F7F1] hover:bg-white/[0.08] min-h-[42px] shrink-0"
+                  className="inline-flex items-center gap-2 rounded-full border border-[#C3D6CA] bg-white px-4 py-2 text-xs font-semibold text-[#063725] hover:bg-[#ECF7F1] min-h-[42px] shrink-0"
                 >
-                  <RefreshCw className={`h-4 w-4 text-[#C8F62D] ${refreshingSystem ? 'animate-spin' : ''}`} aria-hidden="true" />
+                  <RefreshCw className={`h-4 w-4 text-[#0D6E46] ${refreshingSystem ? 'animate-spin' : ''}`} aria-hidden="true" />
                   <span>{refreshingSystem ? 'Actualisation...' : 'Actualiser la télémétrie'}</span>
                 </button>
               </div>
@@ -675,15 +671,15 @@ export const AdminWorkspace: React.FC<{
                       onClick={() => setTab('comptes')}
                       className={`rounded-2xl border p-4 text-left transition-colors ${
                         data.systemOverview.queues.pendingCoachDossiers > 0
-                          ? 'border-amber-400/35 bg-amber-950/35 hover:bg-amber-950/50'
-                          : 'border-white/[0.08] bg-[#121610] hover:bg-white/[0.04]'
+                          ? 'border-amber-200 bg-amber-50 hover:bg-amber-100/70'
+                          : 'border-[#D5E2DA] bg-white hover:bg-[#F6F8F5]'
                       }`}
                     >
-                      <div className="text-xs font-medium text-[#B4BCA9]">Dossiers Coachs en étude</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                      <div className="text-xs font-medium text-[#3D5246]">Dossiers Coachs en étude</div>
+                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
                         {data.systemOverview.queues.pendingCoachDossiers}
                       </div>
-                      <div className="mt-1 text-[11px] font-medium text-[#C8F62D]">
+                      <div className="mt-1 text-[11px] font-semibold text-[#0D6E46]">
                         {data.systemOverview.queues.pendingCoachDossiers > 0
                           ? 'Ouvrir l’étude des diplômes ->'
                           : 'Aucun dossier bloqué'}
@@ -693,86 +689,86 @@ export const AdminWorkspace: React.FC<{
                     <button
                       type="button"
                       onClick={() => setTab('contenus')}
-                      className="obsidian-card rounded-2xl p-4 text-left hover:bg-white/[0.04] transition-colors"
+                      className="obsidian-card rounded-2xl p-4 text-left hover:bg-[#F6F8F5] transition-colors"
                     >
-                      <div className="text-xs font-medium text-[#B4BCA9]">Séances en relecture</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                      <div className="text-xs font-medium text-[#3D5246]">Séances en relecture</div>
+                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
                         {data.systemOverview.queues.pendingSessionsReview}
                       </div>
-                      <div className="mt-1 text-[11px] text-[#8E9784]">Validation technique requise</div>
+                      <div className="mt-1 text-[11px] text-[#5B7064]">Validation technique requise</div>
                     </button>
 
                     <div className="obsidian-card rounded-2xl p-4">
-                      <div className="text-xs font-medium text-[#B4BCA9]">Alertes douleur ouvertes</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                      <div className="text-xs font-medium text-[#3D5246]">Alertes douleur ouvertes</div>
+                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
                         {data.systemOverview.queues.openPainAlerts}
                       </div>
-                      <div className="mt-1 text-[11px] text-[#8E9784]">Suivi préventif athlètes</div>
+                      <div className="mt-1 text-[11px] text-[#5B7064]">Suivi préventif athlètes</div>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => setTab('partenaires')}
-                      className="obsidian-card rounded-2xl p-4 text-left hover:bg-white/[0.04] transition-colors"
+                      className="obsidian-card rounded-2xl p-4 text-left hover:bg-[#F6F8F5] transition-colors"
                     >
-                      <div className="text-xs font-medium text-[#B4BCA9]">Demandes partenariats</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                      <div className="text-xs font-medium text-[#3D5246]">Demandes partenariats</div>
+                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
                         {data.systemOverview.queues.newPartnerRequests}
                       </div>
-                      <div className="mt-1 text-[11px] text-[#8E9784]">ASC, Campus & Ligues</div>
+                      <div className="mt-1 text-[11px] text-[#5B7064]">ASC, Campus & Ligues</div>
                     </button>
                   </div>
 
                   {/* Primary System & Traffic KPIs */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#8E9784]">
+                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
                         <span>Trafic API (24h)</span>
-                        <Activity className="h-4 w-4 text-[#C8F62D]" aria-hidden="true" />
+                        <Activity className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
                       </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
                         {data.systemOverview.traffic.requestsLast24h.toLocaleString('fr-FR')} req
                       </div>
-                      <div className="text-xs font-mono text-[#B4BCA9] tabular-nums">
+                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
                         {data.systemOverview.traffic.requestsLastHour} req / 1h · {data.systemOverview.traffic.bandwidthOutKb24h} Ko sortants
                       </div>
                     </div>
 
                     <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#8E9784]">
+                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
                         <span>Latence & Erreurs HTTP</span>
-                        <AlertTriangle className="h-4 w-4 text-amber-400" aria-hidden="true" />
+                        <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
                       </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
                         {data.systemOverview.traffic.avgLatencyMs} ms
                       </div>
-                      <div className="text-xs font-mono text-[#B4BCA9] tabular-nums">
+                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
                         {data.systemOverview.traffic.errorRatePct}% erreurs · {data.systemOverview.traffic.authBlocks24h} blocages 401/403/429
                       </div>
                     </div>
 
                     <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#8E9784]">
+                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
                         <span>Sessions & Comptes</span>
-                        <Server className="h-4 w-4 text-[#C8F62D]" aria-hidden="true" />
+                        <Server className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
                       </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
                         {data.systemOverview.system.activeSessionsCount} actives
                       </div>
-                      <div className="text-xs font-mono text-[#B4BCA9] tabular-nums">
+                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
                         {data.systemOverview.platformTotals.totalUsers} comptes · {data.systemOverview.system.lockedAccountsCount} verrouillés · {data.systemOverview.system.unverifiedAccountsCount} OTP en attente
                       </div>
                     </div>
 
                     <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#8E9784]">
+                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
                         <span>Ressources & Stockage</span>
-                        <Database className="h-4 w-4 text-[#C8F62D]" aria-hidden="true" />
+                        <Database className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
                       </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
                         {data.systemOverview.system.memoryRssMb} Mo RAM
                       </div>
-                      <div className="text-xs font-mono text-[#B4BCA9] tabular-nums">
+                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
                         DB {data.systemOverview.system.dbSizeKb} Ko · {data.systemOverview.system.uploadsCount} diplômes ({data.systemOverview.system.uploadsSizeKb} Ko) · {formatUptime(data.systemOverview.system.uptimeSeconds)}
                       </div>
                     </div>
@@ -783,12 +779,12 @@ export const AdminWorkspace: React.FC<{
                     <div className="lg:col-span-2 obsidian-card rounded-2xl p-5 space-y-3">
                       <div className="flex items-center justify-between gap-2">
                         <div>
-                          <h2 className="text-base font-semibold text-[#F5F7F1]">Volume horaire du trafic (24h)</h2>
-                          <p className="text-xs text-[#8E9784]">
+                          <h2 className="text-base font-semibold text-[#063725]">Volume horaire du trafic (24h)</h2>
+                          <p className="text-xs text-[#5B7064]">
                             Requêtes traitées et réponses d’erreur / refus par tranche horaire.
                           </p>
                         </div>
-                        <span className="font-mono text-[11px] text-[#8E9784]">
+                        <span className="font-mono text-[11px] text-[#5B7064]">
                           {data.systemOverview.system.nodeVersion}
                         </span>
                       </div>
@@ -796,35 +792,35 @@ export const AdminWorkspace: React.FC<{
                         {data.systemOverview.traffic.hourlySeries.length > 0 ? (
                           <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data.systemOverview.traffic.hourlySeries}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                              <CartesianGrid strokeDasharray="3 3" stroke="#E2EBE5" />
                               <XAxis
                                 dataKey="hour"
-                                tick={{ fontSize: 11, fill: '#8E9784' }}
-                                axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
-                                tickLine={{ stroke: 'rgba(255,255,255,0.12)' }}
+                                tick={{ fontSize: 11, fill: '#5B7064' }}
+                                axisLine={{ stroke: '#D5E2DA' }}
+                                tickLine={{ stroke: '#D5E2DA' }}
                               />
                               <YAxis
-                                tick={{ fontSize: 11, fill: '#8E9784' }}
+                                tick={{ fontSize: 11, fill: '#5B7064' }}
                                 allowDecimals={false}
-                                axisLine={{ stroke: 'rgba(255,255,255,0.12)' }}
-                                tickLine={{ stroke: 'rgba(255,255,255,0.12)' }}
+                                axisLine={{ stroke: '#D5E2DA' }}
+                                tickLine={{ stroke: '#D5E2DA' }}
                               />
                               <Tooltip
                                 contentStyle={{
-                                  backgroundColor: '#121610',
-                                  borderColor: 'rgba(255,255,255,0.15)',
+                                  backgroundColor: '#FFFFFF',
+                                  borderColor: '#D5E2DA',
                                   borderRadius: 12,
-                                  color: '#F5F7F1',
+                                  color: '#063725',
                                 }}
-                                itemStyle={{ color: '#F5F7F1' }}
-                                labelStyle={{ color: '#C8F62D' }}
+                                itemStyle={{ color: '#063725' }}
+                                labelStyle={{ color: '#0D6E46', fontWeight: 600 }}
                               />
-                              <Bar dataKey="requests" name="Requêtes" fill="#C8F62D" radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="errors" name="Erreurs / Blocages" fill="#F87171" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="requests" name="Requêtes" fill="#0D6E46" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="errors" name="Erreurs / Blocages" fill="#EF4444" radius={[4, 4, 0, 0]} />
                             </BarChart>
                           </ResponsiveContainer>
                         ) : (
-                          <div className="h-full flex items-center justify-center text-xs text-[#8E9784]">
+                          <div className="h-full flex items-center justify-center text-xs text-[#5B7064]">
                             En attente des premières requêtes enregistrées...
                           </div>
                         )}
@@ -833,46 +829,46 @@ export const AdminWorkspace: React.FC<{
 
                     <div className="obsidian-card rounded-2xl p-5 space-y-4">
                       <div>
-                        <h2 className="text-base font-semibold text-[#F5F7F1]">Trafic par rôle (24h)</h2>
+                        <h2 className="text-base font-semibold text-[#063725]">Trafic par rôle (24h)</h2>
                         <div className="mt-3 space-y-2">
                           {data.systemOverview.traffic.byRole.map((r) => (
                             <div key={r.role} className="flex items-center justify-between text-xs">
-                              <span className="font-medium text-[#B4BCA9]">{r.role}</span>
-                              <span className="font-mono font-semibold tabular-nums text-[#C8F62D]">
+                              <span className="font-medium text-[#3D5246]">{r.role}</span>
+                              <span className="font-mono font-semibold tabular-nums text-[#0D6E46]">
                                 {r.requests} req
                               </span>
                             </div>
                           ))}
                           {data.systemOverview.traffic.byRole.length === 0 && (
-                            <div className="text-xs text-[#8E9784]">Aucune requête enregistrée sur 24h.</div>
+                            <div className="text-xs text-[#5B7064]">Aucune requête enregistrée sur 24h.</div>
                           )}
                         </div>
                       </div>
 
-                      <div className="pt-3 border-t border-white/[0.08] space-y-2">
-                        <div className="text-xs font-semibold text-[#F5F7F1]">Activité métier globale</div>
+                      <div className="pt-3 border-t border-[#E2EBE5] space-y-2">
+                        <div className="text-xs font-semibold text-[#063725]">Activité métier globale</div>
                         <div className="grid grid-cols-2 gap-2 text-xs">
                           <div className="obsidian-inset rounded-lg p-2.5">
-                            <div className="text-[11px] text-[#8E9784]">Athlètes actifs</div>
-                            <div className="font-mono font-bold text-[#F5F7F1] tabular-nums">
+                            <div className="text-[11px] text-[#5B7064]">Athlètes actifs</div>
+                            <div className="font-mono font-bold text-[#063725] tabular-nums">
                               {data.systemOverview.platformTotals.athletesCount}
                             </div>
                           </div>
                           <div className="obsidian-inset rounded-lg p-2.5">
-                            <div className="text-[11px] text-[#8E9784]">Coachs vérifiés</div>
-                            <div className="font-mono font-bold text-[#C8F62D] tabular-nums">
+                            <div className="text-[11px] text-[#5B7064]">Coachs vérifiés</div>
+                            <div className="font-mono font-bold text-[#0D6E46] tabular-nums">
                               {data.systemOverview.platformTotals.coachesVerifiedCount}
                             </div>
                           </div>
                           <div className="obsidian-inset rounded-lg p-2.5">
-                            <div className="text-[11px] text-[#8E9784]">Séances faites</div>
-                            <div className="font-mono font-bold text-[#F5F7F1] tabular-nums">
+                            <div className="text-[11px] text-[#5B7064]">Séances faites</div>
+                            <div className="font-mono font-bold text-[#063725] tabular-nums">
                               {data.systemOverview.platformTotals.completedSessionsCount}
                             </div>
                           </div>
                           <div className="obsidian-inset rounded-lg p-2.5">
-                            <div className="text-[11px] text-[#8E9784]">Évaluations</div>
-                            <div className="font-mono font-bold text-[#F5F7F1] tabular-nums">
+                            <div className="text-[11px] text-[#5B7064]">Évaluations</div>
+                            <div className="font-mono font-bold text-[#063725] tabular-nums">
                               {data.systemOverview.platformTotals.evaluationsCount}
                             </div>
                           </div>
@@ -883,11 +879,11 @@ export const AdminWorkspace: React.FC<{
 
                   {/* Top Routes */}
                   <div className="obsidian-card rounded-2xl overflow-x-auto">
-                    <div className="px-5 py-4 border-b border-white/[0.08]">
-                      <h2 className="text-base font-semibold text-[#F5F7F1]">Routes API les plus sollicitées (24h)</h2>
+                    <div className="px-5 py-4 border-b border-[#E2EBE5]">
+                      <h2 className="text-base font-semibold text-[#063725]">Routes API les plus sollicitées (24h)</h2>
                     </div>
                     <table className="w-full text-left text-xs">
-                      <thead className="border-b border-white/[0.08] bg-[#181D15] text-[#8E9784]">
+                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
                         <tr>
                           <th className="px-4 py-2.5 font-medium">Méthode</th>
                           <th className="px-4 py-2.5 font-medium">Endpoint</th>
@@ -896,17 +892,17 @@ export const AdminWorkspace: React.FC<{
                           <th className="px-4 py-2.5 font-medium">Erreurs HTTP</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/[0.06]">
+                      <tbody className="divide-y divide-[#E2EBE5]">
                         {data.systemOverview.traffic.topRoutes.map((route) => (
-                          <tr key={`${route.method}:${route.path_group}`} className="hover:bg-white/[0.03]">
-                            <td className="px-4 py-2.5 font-mono font-semibold text-[#C8F62D]">{route.method}</td>
-                            <td className="px-4 py-2.5 font-mono text-[#F5F7F1]">{route.path_group}</td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums font-semibold text-[#F5F7F1]">
+                          <tr key={`${route.method}:${route.path_group}`} className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-mono font-semibold text-[#0D6E46]">{route.method}</td>
+                            <td className="px-4 py-2.5 font-mono text-[#063725]">{route.path_group}</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums font-semibold text-[#063725]">
                               {route.hits}
                             </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#B4BCA9]">{route.avg_ms} ms</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#3D5246]">{route.avg_ms} ms</td>
                             <td className="px-4 py-2.5 font-mono tabular-nums">
-                              <span className={route.errors > 0 ? 'text-red-400 font-semibold' : 'text-[#8E9784]'}>
+                              <span className={route.errors > 0 ? 'text-red-700 font-semibold' : 'text-[#5B7064]'}>
                                 {route.errors}
                               </span>
                             </td>
@@ -918,10 +914,10 @@ export const AdminWorkspace: React.FC<{
 
                   {/* Recent Traffic Log Stream */}
                   <div className="obsidian-card rounded-2xl overflow-x-auto">
-                    <div className="px-5 py-4 border-b border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="px-5 py-4 border-b border-[#E2EBE5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
-                        <h2 className="text-base font-semibold text-[#F5F7F1]">Flux récent des requêtes système</h2>
-                        <p className="text-xs text-[#8E9784]">
+                        <h2 className="text-base font-semibold text-[#063725]">Flux récent des requêtes système</h2>
+                        <p className="text-xs text-[#5B7064]">
                           Dernières requêtes HTTP enregistrées avec code réponse, rôle et temps de traitement.
                         </p>
                       </div>
@@ -939,8 +935,8 @@ export const AdminWorkspace: React.FC<{
                             onClick={() => setTrafficFilter(code)}
                             className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[34px] transition-colors ${
                               trafficFilter === code
-                                ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                                : 'border border-white/15 bg-[#181D15] text-[#B4BCA9] hover:text-[#F5F7F1]'
+                                ? 'bg-[#0D6E46] text-white font-bold'
+                                : 'border border-[#C3D6CA] bg-[#F1F6F3] text-[#3D5246] hover:text-[#063725]'
                             }`}
                           >
                             {label}
@@ -949,7 +945,7 @@ export const AdminWorkspace: React.FC<{
                       </div>
                     </div>
                     <table className="w-full text-left text-xs">
-                      <thead className="border-b border-white/[0.08] bg-[#181D15] text-[#8E9784]">
+                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
                         <tr>
                           <th className="px-4 py-2.5 font-medium">Horodatage</th>
                           <th className="px-4 py-2.5 font-medium">Requête</th>
@@ -958,31 +954,31 @@ export const AdminWorkspace: React.FC<{
                           <th className="px-4 py-2.5 font-medium">Rôle</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/[0.06]">
+                      <tbody className="divide-y divide-[#E2EBE5]">
                         {filteredTrafficLogs.map((log) => (
-                          <tr key={log.id} className="hover:bg-white/[0.03]">
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#8E9784] whitespace-nowrap">
+                          <tr key={log.id} className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#5B7064] whitespace-nowrap">
                               {log.created_at}
                             </td>
-                            <td className="px-4 py-2.5 font-mono text-[#B4BCA9]">
-                              <span className="font-semibold text-[#F5F7F1] mr-1.5">{log.method}</span>
+                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">
+                              <span className="font-semibold text-[#063725] mr-1.5">{log.method}</span>
                               {log.full_path}
                             </td>
                             <td className="px-4 py-2.5 font-mono tabular-nums">
                               <span
                                 className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${
                                   log.status_code >= 500
-                                    ? 'bg-red-950/70 text-red-300 border border-red-400/30'
+                                    ? 'bg-red-50 text-red-700 border border-red-200'
                                     : log.status_code >= 400
-                                      ? 'bg-amber-950/70 text-amber-300 border border-amber-400/30'
-                                      : 'bg-emerald-950/70 text-[#C8F62D] border border-[#C8F62D]/30'
+                                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                      : 'bg-[#ECF7F1] text-[#0D6E46] border border-[#BFE0CD]'
                                 }`}
                               >
                                 {log.status_code}
                               </span>
                             </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#B4BCA9]">{log.duration_ms} ms</td>
-                            <td className="px-4 py-2.5 font-mono text-[#B4BCA9]">{log.user_role}</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#3D5246]">{log.duration_ms} ms</td>
+                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">{log.user_role}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -990,7 +986,7 @@ export const AdminWorkspace: React.FC<{
                   </div>
                 </>
               ) : (
-                <div className="obsidian-card rounded-2xl p-6 text-sm text-[#B4BCA9]">
+                <div className="obsidian-card rounded-2xl p-6 text-sm text-[#3D5246]">
                   Télémétrie système indisponible hors ligne. Cliquez sur « Actualiser la télémétrie » une fois reconnecté.
                 </div>
               )}
@@ -1000,8 +996,8 @@ export const AdminWorkspace: React.FC<{
           {tab === 'comptes' && data && (
             <div className="space-y-6">
               <div>
-                <h1 className="font-display text-2xl font-bold text-[#F5F7F1]">Comptes, dossiers coachs et affectations</h1>
-                <p className="text-sm text-[#B4BCA9]">
+                <h1 className="font-display text-2xl font-bold text-[#063725]">Comptes, dossiers coachs et affectations</h1>
+                <p className="text-sm text-[#3D5246]">
                   Étudiez obligatoirement le diplôme d’un coach avant d’activer son accès et de le rendre visible aux athlètes.
                 </p>
               </div>
@@ -1010,76 +1006,76 @@ export const AdminWorkspace: React.FC<{
               <div className="obsidian-card rounded-2xl p-5 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <h2 className="text-base font-semibold text-[#F5F7F1]">Étude des dossiers & diplômes Coachs</h2>
-                    <p className="text-xs text-[#8E9784]">
+                    <h2 className="text-base font-semibold text-[#063725]">Étude des dossiers & diplômes Coachs</h2>
+                    <p className="text-xs text-[#5B7064]">
                       Un coach reste bloqué en attente de validation tant que l’administrateur n’a pas validé son diplôme (« VERIFIE »).
                     </p>
                   </div>
                   {pendingCoachesCount > 0 && (
-                    <span className="font-mono text-xs font-bold text-amber-300">
+                    <span className="font-mono text-xs font-bold text-amber-800">
                       {pendingCoachesCount} en attente d’étude
                     </span>
                   )}
                 </div>
 
-                <div className="divide-y divide-white/[0.06]">
+                <div className="divide-y divide-[#E2EBE5]">
                   {data.coaches.map((c) => (
                     <div key={c.id} className="py-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                       <div className="space-y-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-semibold text-[#F5F7F1]">
+                          <span className="text-sm font-semibold text-[#063725]">
                             {c.prenom} {c.nom} · {c.zone}
                           </span>
                           {c.document ? (
                             <span
                               className={`rounded px-2 py-0.5 font-mono text-[10px] font-semibold ${
                                 c.document.study_status === 'CONFORME_PRE_ETUDE'
-                                  ? 'border border-[#C8F62D]/30 bg-[#C8F62D]/15 text-[#C8F62D]'
+                                  ? 'border border-[#BFE0CD] bg-[#ECF7F1] text-[#0D6E46]'
                                   : c.document.study_status === 'ANOMALIE'
-                                    ? 'border border-red-400/35 bg-red-950/50 text-red-200'
-                                    : 'border border-amber-400/30 bg-amber-950/50 text-amber-200'
+                                    ? 'border border-red-200 bg-red-50 text-red-700'
+                                    : 'border border-amber-200 bg-amber-50 text-amber-800'
                               }`}
                             >
                               Pré-étude {c.document.study_score}/100 · {c.document.study_status}
                             </span>
                           ) : (
-                            <span className="rounded bg-white/[0.06] px-2 py-0.5 font-mono text-[10px] text-[#8E9784]">
+                            <span className="rounded bg-[#F1F6F3] px-2 py-0.5 font-mono text-[10px] text-[#5B7064]">
                               Aucun document joint
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-[#B4BCA9]">
+                        <div className="text-xs text-[#3D5246]">
                           {c.specialite} · {c.qualification}
                         </div>
-                        <div className="text-[11px] font-mono text-[#8E9784]">
+                        <div className="text-[11px] font-mono text-[#5B7064]">
                           {c.coach_plan || 'MARKETPLACE'} {c.telephone ? `· ${c.telephone}` : ''}
                           {c.document ? ` · Diplôme ${c.document.diploma_number} (${c.document.issuing_organism})` : ''}
                         </div>
-                        <div className="text-[11px] text-[#8E9784] flex flex-wrap gap-x-3 gap-y-0.5">
+                        <div className="text-[11px] text-[#5B7064] flex flex-wrap gap-x-3 gap-y-0.5">
                           <span>
-                            Carte pro : <strong className="font-mono text-[#F5F7F1]">{c.pro_card_number || 'Non renseignée'}</strong>
+                            Carte pro : <strong className="font-mono text-[#063725]">{c.pro_card_number || 'Non renseignée'}</strong>
                             {c.pro_card_expiry ? ` (exp. ${c.pro_card_expiry})` : ''}
                           </span>
                           <span>
-                            RC Pro : <strong className="text-[#F5F7F1]">{c.rc_pro_insurer || '—'}</strong>
+                            RC Pro : <strong className="text-[#063725]">{c.rc_pro_insurer || '—'}</strong>
                             {c.rc_pro_policy_number ? ` (${c.rc_pro_policy_number})` : ''}
                           </span>
                           <span>
-                            Statut : <strong className="text-[#F5F7F1]">{COACH_LEGAL_STATUS_OPTIONS.find((o) => o.code === c.legal_status)?.label || c.legal_status || 'Non déclaré'}</strong>
+                            Statut : <strong className="text-[#063725]">{COACH_LEGAL_STATUS_OPTIONS.find((o) => o.code === c.legal_status)?.label || c.legal_status || 'Non déclaré'}</strong>
                             {c.business_reg_number ? ` · ${c.business_reg_number}` : ''}
                           </span>
                         </div>
                         {c.rejection_reason && c.verification_status === 'REFUSE' && (
-                          <div className="text-xs text-red-300">Motif du refus : {c.rejection_reason}</div>
+                          <div className="text-xs text-red-700 font-medium">Motif du refus : {c.rejection_reason}</div>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <button
                           type="button"
                           onClick={() => openCoachInspection(c)}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-[#181D15] px-3 py-1.5 text-xs font-semibold text-[#F5F7F1] hover:bg-white/[0.08] min-h-[36px]"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#C3D6CA] bg-[#F1F6F3] px-3 py-1.5 text-xs font-semibold text-[#063725] hover:bg-[#E2EBE5] min-h-[36px]"
                         >
-                          <Eye className="h-3.5 w-3.5 text-[#C8F62D]" aria-hidden="true" />
+                          <Eye className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
                           <span>Étudier le dossier</span>
                         </button>
                         <select
@@ -1092,10 +1088,10 @@ export const AdminWorkspace: React.FC<{
                           }
                           className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold min-h-[36px] ${
                             c.verification_status === 'EN_ATTENTE'
-                              ? 'border-amber-400/35 bg-amber-950/60 text-amber-200'
+                              ? 'border-amber-200 bg-amber-50 text-amber-800'
                               : c.verification_status === 'REFUSE'
-                                ? 'border-red-400/35 bg-red-950/60 text-red-200'
-                                : 'border-[#C8F62D]/35 bg-[#181D15] text-[#C8F62D]'
+                                ? 'border-red-200 bg-red-50 text-red-700'
+                                : 'border-[#BFE0CD] bg-[#ECF7F1] text-[#0D6E46]'
                           }`}
                         >
                           <option value="VERIFIE">VERIFIE</option>
@@ -1110,7 +1106,7 @@ export const AdminWorkspace: React.FC<{
 
               <div className="obsidian-card rounded-2xl overflow-x-auto">
                 <table className="w-full text-left text-sm">
-                  <thead className="border-b border-white/[0.08] bg-[#181D15] text-xs text-[#8E9784]">
+                  <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-xs text-[#5B7064]">
                     <tr>
                       <th className="px-4 py-3 font-medium">Utilisateur</th>
                       <th className="px-4 py-3 font-medium">Rôle & Sport</th>
@@ -1119,19 +1115,19 @@ export const AdminWorkspace: React.FC<{
                       <th className="px-4 py-3 font-medium">Statut</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/[0.06]">
+                  <tbody className="divide-y divide-[#E2EBE5]">
                     {data.users.map((u) => (
-                      <tr key={u.id} className="hover:bg-white/[0.03]">
-                        <td className="px-4 py-3.5 font-medium text-[#F5F7F1]">
+                      <tr key={u.id} className="hover:bg-[#F6F8F5]">
+                        <td className="px-4 py-3.5 font-medium text-[#063725]">
                           {u.prenom} {u.nom}
-                          {u.is_minor ? <span className="ml-2 text-xs text-amber-300">(Mineur)</span> : null}
+                          {u.is_minor ? <span className="ml-2 text-xs text-amber-700 font-semibold">(Mineur)</span> : null}
                         </td>
-                        <td className="px-4 py-3.5 text-xs text-[#B4BCA9]">
+                        <td className="px-4 py-3.5 text-xs text-[#3D5246]">
                           {u.role}
                           {u.sport_code ? ` · ${SPORTS_CONFIG[u.sport_code].nom}` : ''}
                           {u.niveau ? ` (${LEVEL_LABELS[u.niveau]})` : ''}
                         </td>
-                        <td className="px-4 py-3.5 text-xs text-[#B4BCA9] font-mono">
+                        <td className="px-4 py-3.5 text-xs text-[#3D5246] font-mono">
                           {u.telephone}
                         </td>
                         <td className="px-4 py-3.5">
@@ -1139,7 +1135,7 @@ export const AdminWorkspace: React.FC<{
                             <select
                               value={u.assigned_coach_id || ''}
                               onChange={(e) => handleAssignCoach(u.id, Number(e.target.value))}
-                              className="rounded-lg border border-white/15 bg-[#181D15] px-2.5 py-1.5 text-xs text-[#F5F7F1] min-h-[36px]"
+                              className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725] min-h-[36px]"
                             >
                               <option value="">Non affecté</option>
                               {data.coaches
@@ -1151,7 +1147,7 @@ export const AdminWorkspace: React.FC<{
                                 ))}
                             </select>
                           ) : (
-                            <span className="text-xs text-[#8E9784]">—</span>
+                            <span className="text-xs text-[#5B7064]">—</span>
                           )}
                         </td>
                         <td className="px-4 py-3.5">
@@ -1159,7 +1155,7 @@ export const AdminWorkspace: React.FC<{
                             <select
                               value={u.statut}
                               onChange={(e) => handleStatusChange(u.id, e.target.value as AthleteStatus)}
-                              className="rounded-lg border border-white/15 bg-[#181D15] px-2.5 py-1.5 text-xs text-[#F5F7F1] min-h-[36px]"
+                              className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725] min-h-[36px]"
                             >
                               <option value="ACTIF">ACTIF</option>
                               <option value="SUIVI_ACTIF">SUIVI_ACTIF</option>
@@ -1167,7 +1163,7 @@ export const AdminWorkspace: React.FC<{
                               <option value="CLOTURE">CLOTURE</option>
                             </select>
                           ) : (
-                            <span className="text-xs font-medium text-[#C8F62D]">{u.statut}</span>
+                            <span className="text-xs font-semibold text-[#0D6E46]">{u.statut}</span>
                           )}
                         </td>
                       </tr>
@@ -1181,8 +1177,8 @@ export const AdminWorkspace: React.FC<{
           {tab === 'contenus' && data && (
             <div className="space-y-5">
               <div>
-                <h1 className="font-display text-2xl font-bold text-[#F5F7F1]">Validation et relecture des séances</h1>
-                <p className="text-sm text-[#B4BCA9]">
+                <h1 className="font-display text-2xl font-bold text-[#063725]">Validation et relecture des séances</h1>
+                <p className="text-sm text-[#3D5246]">
                   Chaque séance doit être relue par un préparateur physique ou un professionnel de santé avant publication.
                 </p>
               </div>
@@ -1192,33 +1188,33 @@ export const AdminWorkspace: React.FC<{
                   <div key={s.id} className="obsidian-card rounded-2xl p-5 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <div className="text-xs text-[#8E9784]">
+                        <div className="text-xs text-[#5B7064]">
                           {SPORTS_CONFIG[s.sport_code].nom} · {LEVEL_LABELS[s.niveau]} · {s.duree_min} min
                           {s.proposee_par_nom ? ` · Proposée par ${s.proposee_par_nom}` : ''}
                         </div>
-                        <h2 className="text-base font-semibold text-[#F5F7F1] mt-0.5">{s.titre}</h2>
+                        <h2 className="text-base font-semibold text-[#063725] mt-0.5">{s.titre}</h2>
                       </div>
                       <span
                         className={`text-xs font-semibold ${
                           s.validation_status === 'VALIDEE'
-                            ? 'text-[#C8F62D]'
+                            ? 'text-[#0D6E46]'
                             : s.validation_status === 'EN_RELECTURE'
-                              ? 'text-amber-300'
-                              : 'text-[#8E9784]'
+                              ? 'text-amber-700'
+                              : 'text-[#5B7064]'
                         }`}
                       >
                         {s.validation_status}
                       </span>
                     </div>
 
-                    <p className="text-xs text-[#B4BCA9]">
+                    <p className="text-xs text-[#3D5246]">
                       Objectif : {s.objectif} · Prévention : {s.prevention_focus}
                     </p>
                     {s.relue_par && (
-                      <p className="text-xs text-[#C8F62D] font-medium">Relue et validée par : {s.relue_par}</p>
+                      <p className="text-xs text-[#0D6E46] font-semibold">Relue et validée par : {s.relue_par}</p>
                     )}
 
-                    <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-white/[0.08]">
+                    <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-[#E2EBE5]">
                       <input
                         type="text"
                         value={reviewerBySession[s.id] ?? s.relue_par ?? ''}
@@ -1226,19 +1222,19 @@ export const AdminWorkspace: React.FC<{
                           setReviewerBySession((prev) => ({ ...prev, [s.id]: e.target.value }))
                         }
                         placeholder="Nom et qualité du relecteur (ex: Dr. S. Diagne, Médecin du sport)"
-                        className="flex-1 rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                        className="flex-1 rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                       />
                       <button
                         type="button"
                         onClick={() => handleReviewSession(s.id, 'VALIDEE')}
-                        className="rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+                        className="rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
                       >
                         Valider et publier
                       </button>
                       <button
                         type="button"
                         onClick={() => handleReviewSession(s.id, 'BROUILLON')}
-                        className="rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs font-medium text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[40px]"
+                        className="rounded-xl border border-[#C3D6CA] bg-[#F1F6F3] px-3 py-2 text-xs font-medium text-[#3D5246] hover:text-[#063725] hover:bg-[#E2EBE5] min-h-[40px]"
                       >
                         Renvoyer en brouillon
                       </button>
@@ -1253,8 +1249,8 @@ export const AdminWorkspace: React.FC<{
             <div className="space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="font-display text-2xl font-bold text-[#F5F7F1]">Journal des accès aux fiches athlètes</h1>
-                  <p className="text-sm text-[#B4BCA9]">
+                  <h1 className="font-display text-2xl font-bold text-[#063725]">Journal des accès aux fiches athlètes</h1>
+                  <p className="text-sm text-[#3D5246]">
                     Traçabilité complète des consultations, ajustements et exports de données sensibles.
                   </p>
                 </div>
@@ -1263,13 +1259,13 @@ export const AdminWorkspace: React.FC<{
                   value={auditFilter}
                   onChange={(e) => setAuditFilter(e.target.value)}
                   placeholder="Filtrer par acteur, athlète ou action..."
-                  className="w-full sm:w-64 rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-sm text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[42px]"
+                  className="w-full sm:w-64 rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[42px]"
                 />
               </div>
 
               <div className="obsidian-card rounded-2xl overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="border-b border-white/[0.08] bg-[#181D15] text-[#8E9784]">
+                  <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
                     <tr>
                       <th className="px-4 py-3 font-medium">Horodatage</th>
                       <th className="px-4 py-3 font-medium">Acteur</th>
@@ -1278,16 +1274,16 @@ export const AdminWorkspace: React.FC<{
                       <th className="px-4 py-3 font-medium">Ressource</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/[0.06]">
+                  <tbody className="divide-y divide-[#E2EBE5]">
                     {filteredLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-white/[0.03]">
-                        <td className="px-4 py-3 font-mono tabular-nums text-[#8E9784]">{log.created_at}</td>
-                        <td className="px-4 py-3 font-medium text-[#F5F7F1]">
+                      <tr key={log.id} className="hover:bg-[#F6F8F5]">
+                        <td className="px-4 py-3 font-mono tabular-nums text-[#5B7064]">{log.created_at}</td>
+                        <td className="px-4 py-3 font-medium text-[#063725]">
                           {log.actor_nom} ({log.actor_role})
                         </td>
-                        <td className="px-4 py-3 font-mono text-[#C8F62D]">{log.action}</td>
-                        <td className="px-4 py-3 text-[#B4BCA9]">{log.athlete_nom || '—'}</td>
-                        <td className="px-4 py-3 font-mono text-[#8E9784]">{log.resource}</td>
+                        <td className="px-4 py-3 font-mono font-semibold text-[#0D6E46]">{log.action}</td>
+                        <td className="px-4 py-3 text-[#3D5246]">{log.athlete_nom || '—'}</td>
+                        <td className="px-4 py-3 font-mono text-[#5B7064]">{log.resource}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1299,23 +1295,23 @@ export const AdminWorkspace: React.FC<{
           {tab === 'partenaires' && data && (
             <div className="space-y-8">
               <div>
-                <h1 className="font-display text-2xl font-bold text-[#F5F7F1]">
+                <h1 className="font-display text-2xl font-bold text-[#063725]">
                   Partenaires, Groupes et Défis collectifs
                 </h1>
-                <p className="text-sm text-[#B4BCA9]">
+                <p className="text-sm text-[#3D5246]">
                   Modèle collectif ASC, Campus et Ligues (suivi agrégé uniquement, sans classement individuel public).
                 </p>
               </div>
 
               {/* Active Partners */}
               <section className="space-y-3">
-                <h2 className="text-base font-semibold text-[#F5F7F1]">Organisations partenaires actives</h2>
+                <h2 className="text-base font-semibold text-[#063725]">Organisations partenaires actives</h2>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {data.partners.map((p) => (
                     <div key={p.id} className="obsidian-card rounded-2xl p-5 space-y-2">
-                      <div className="text-xs text-[#C8F62D] font-semibold">{p.type} · {p.zone}</div>
-                      <div className="text-base font-semibold text-[#F5F7F1]">{p.nom}</div>
-                      <div className="text-xs font-mono tabular-nums text-[#B4BCA9] pt-1">
+                      <div className="text-xs text-[#0D6E46] font-semibold">{p.type} · {p.zone}</div>
+                      <div className="text-base font-semibold text-[#063725]">{p.nom}</div>
+                      <div className="text-xs font-mono tabular-nums text-[#3D5246] pt-1">
                         {p.groups_count} groupe(s) · {p.members_count} membre(s) agrégés
                       </div>
                     </div>
@@ -1326,17 +1322,17 @@ export const AdminWorkspace: React.FC<{
               {/* Active Groups & Challenges */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <section className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h2 className="text-base font-semibold text-[#F5F7F1]">Groupes et Capitaines Prépa</h2>
-                  <div className="divide-y divide-white/[0.06]">
+                  <h2 className="text-base font-semibold text-[#063725]">Groupes et Capitaines Prépa</h2>
+                  <div className="divide-y divide-[#E2EBE5]">
                     {data.groups.map((g) => (
                       <div key={g.id} className="py-3 flex items-center justify-between gap-3">
                         <div>
-                          <div className="text-sm font-semibold text-[#F5F7F1]">{g.nom}</div>
-                          <div className="text-xs text-[#8E9784]">
+                          <div className="text-sm font-semibold text-[#063725]">{g.nom}</div>
+                          <div className="text-xs text-[#5B7064]">
                             {g.partner_nom} · {SPORTS_CONFIG[g.sport_code].nom} · Capitaine : {g.captain_name}
                           </div>
                         </div>
-                        <span className="font-mono text-xs tabular-nums font-semibold text-[#C8F62D]">
+                        <span className="font-mono text-xs tabular-nums font-semibold text-[#0D6E46]">
                           {g.member_count} membres
                         </span>
                       </div>
@@ -1345,21 +1341,21 @@ export const AdminWorkspace: React.FC<{
                 </section>
 
                 <section className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h2 className="text-base font-semibold text-[#F5F7F1]">Défis collectifs en cours</h2>
+                  <h2 className="text-base font-semibold text-[#063725]">Défis collectifs en cours</h2>
                   <div className="space-y-3">
                     {data.challenges.map((c) => {
                       const pct = Math.min(100, Math.round((c.current_sessions / c.target_sessions) * 100));
                       return (
                         <div key={c.id} className="obsidian-inset rounded-xl p-3.5 space-y-2">
-                          <div className="flex items-center justify-between gap-2 text-xs text-[#8E9784]">
+                          <div className="flex items-center justify-between gap-2 text-xs text-[#5B7064]">
                             <span>{c.partner_nom} · {c.periode}</span>
-                            <span className="font-mono tabular-nums font-semibold text-[#C8F62D]">{pct}%</span>
+                            <span className="font-mono tabular-nums font-semibold text-[#0D6E46]">{pct}%</span>
                           </div>
-                          <div className="text-sm font-semibold text-[#F5F7F1]">{c.titre}</div>
-                          <div className="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
-                            <div className="h-full bg-[#C8F62D]" style={{ width: `${pct}%` }} />
+                          <div className="text-sm font-semibold text-[#063725]">{c.titre}</div>
+                          <div className="h-1.5 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
+                            <div className="h-full bg-[#0D6E46]" style={{ width: `${pct}%` }} />
                           </div>
-                          <div className="font-mono text-xs tabular-nums text-[#B4BCA9]">
+                          <div className="font-mono text-xs tabular-nums text-[#3D5246]">
                             {c.current_sessions} / {c.target_sessions} · {c.indicateur}
                           </div>
                         </div>
@@ -1372,19 +1368,19 @@ export const AdminWorkspace: React.FC<{
               {/* Partner Requests from Landing Page */}
               <section className="obsidian-card rounded-2xl p-5 space-y-3">
                 <div>
-                  <h2 className="text-base font-semibold text-[#F5F7F1]">Demandes de partenariat reçues</h2>
-                  <p className="text-xs text-[#8E9784]">
+                  <h2 className="text-base font-semibold text-[#063725]">Demandes de partenariat reçues</h2>
+                  <p className="text-xs text-[#5B7064]">
                     Valider une demande crée automatiquement le partenaire actif dans la plateforme.
                   </p>
                 </div>
                 {data.partnerRequests.length === 0 ? (
-                  <p className="text-xs text-[#8E9784] py-3">
+                  <p className="text-xs text-[#5B7064] py-3">
                     Aucune demande de partenariat soumise depuis l’accueil public pour le moment.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="border-b border-white/[0.08] bg-[#181D15] text-[#8E9784]">
+                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
                         <tr>
                           <th className="px-3 py-2.5 font-medium">Structure</th>
                           <th className="px-3 py-2.5 font-medium">Responsable & Contact</th>
@@ -1392,22 +1388,22 @@ export const AdminWorkspace: React.FC<{
                           <th className="px-3 py-2.5 font-medium">Statut</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-white/[0.06]">
+                      <tbody className="divide-y divide-[#E2EBE5]">
                         {data.partnerRequests.map((req) => (
-                          <tr key={req.id} className="hover:bg-white/[0.03]">
-                            <td className="px-3 py-3 font-medium text-[#F5F7F1]">
+                          <tr key={req.id} className="hover:bg-[#F6F8F5]">
+                            <td className="px-3 py-3 font-medium text-[#063725]">
                               {req.organisation}
-                              <div className="text-[#8E9784] font-normal">
+                              <div className="text-[#5B7064] font-normal">
                                 {req.type} · {req.zone}
                               </div>
                             </td>
-                            <td className="px-3 py-3 text-[#B4BCA9]">
+                            <td className="px-3 py-3 text-[#3D5246]">
                               <div>{req.contact_nom}</div>
-                              <div className="font-mono text-[#8E9784]">{req.contact_telephone}</div>
+                              <div className="font-mono text-[#5B7064]">{req.contact_telephone}</div>
                             </td>
-                            <td className="px-3 py-3 text-[#B4BCA9] max-w-xs">
+                            <td className="px-3 py-3 text-[#3D5246] max-w-xs">
                               {req.pack_souhaite ? (
-                                <div className="mb-1 inline-block rounded border border-[#C8F62D]/30 bg-[#C8F62D]/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#C8F62D]">
+                                <div className="mb-1 inline-block rounded border border-[#BFE0CD] bg-[#ECF7F1] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#0D6E46]">
                                   {req.pack_souhaite}
                                 </div>
                               ) : null}
@@ -1426,7 +1422,7 @@ export const AdminWorkspace: React.FC<{
                                     e.target.value as 'NOUVELLE' | 'EN_ETUDE' | 'VALIDEE'
                                   )
                                 }
-                                className="rounded-lg border border-white/15 bg-[#181D15] px-2.5 py-1.5 text-xs text-[#F5F7F1] min-h-[36px]"
+                                className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725] min-h-[36px]"
                               >
                                 <option value="NOUVELLE">NOUVELLE</option>
                                 <option value="EN_ETUDE">EN_ETUDE</option>
@@ -1444,20 +1440,20 @@ export const AdminWorkspace: React.FC<{
               {/* Creation Forms */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <form onSubmit={handleCreatePartner} className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h3 className="text-sm font-semibold text-[#F5F7F1]">Ajouter un partenaire</h3>
+                  <h3 className="text-sm font-semibold text-[#063725]">Ajouter un partenaire</h3>
                   <input
                     type="text"
                     required
                     value={newPartnerNom}
                     onChange={(e) => setNewPartnerNom(e.target.value)}
                     placeholder="Nom de l'ASC, Campus ou Ligue"
-                    className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <select
                       value={newPartnerType}
                       onChange={(e) => setNewPartnerType(e.target.value as 'ASC' | 'CAMPUS' | 'LIGUE')}
-                      className="rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] min-h-[40px]"
+                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
                     >
                       <option value="ASC">ASC</option>
                       <option value="CAMPUS">Campus</option>
@@ -1469,23 +1465,23 @@ export const AdminWorkspace: React.FC<{
                       value={newPartnerZone}
                       onChange={(e) => setNewPartnerZone(e.target.value)}
                       placeholder="Zone (ex: Kaolack)"
-                      className="rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
                   </div>
                   <button
                     type="submit"
-                    className="w-full rounded-full bg-[#C8F62D] py-2.5 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+                    className="w-full rounded-full bg-[#0D6E46] py-2.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
                   >
                     Créer le partenaire
                   </button>
                 </form>
 
                 <form onSubmit={handleCreateGroup} className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h3 className="text-sm font-semibold text-[#F5F7F1]">Créer un groupe</h3>
+                  <h3 className="text-sm font-semibold text-[#063725]">Créer un groupe</h3>
                   <select
                     value={newGroupPartnerId}
                     onChange={(e) => setNewGroupPartnerId(e.target.value)}
-                    className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] min-h-[40px]"
+                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
                   >
                     {data.partners.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -1499,7 +1495,7 @@ export const AdminWorkspace: React.FC<{
                     value={newGroupNom}
                     onChange={(e) => setNewGroupNom(e.target.value)}
                     placeholder="Nom du collectif"
-                    className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <input
@@ -1508,34 +1504,34 @@ export const AdminWorkspace: React.FC<{
                       value={newGroupCaptain}
                       onChange={(e) => setNewGroupCaptain(e.target.value)}
                       placeholder="Capitaine Prépa"
-                      className="rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
                     <select
                       value={newGroupSport}
                       onChange={(e) => setNewGroupSport(e.target.value as SportCode)}
-                      className="rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] min-h-[40px]"
+                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
                     >
-                      <option value="football">Football</option>
-                      <option value="basket">Basket</option>
-                      <option value="handball">Handball</option>
-                      <option value="volleyball">Volleyball</option>
-                      <option value="athletisme">Athlétisme</option>
+                      {ALL_SPORT_CODES.map((code) => (
+                        <option key={code} value={code}>
+                          {SPORTS_CONFIG[code].nom}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <button
                     type="submit"
-                    className="w-full rounded-full bg-[#C8F62D] py-2.5 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+                    className="w-full rounded-full bg-[#0D6E46] py-2.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
                   >
                     Créer le groupe
                   </button>
                 </form>
 
                 <form onSubmit={handleCreateChallenge} className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h3 className="text-sm font-semibold text-[#F5F7F1]">Lancer un défi collectif</h3>
+                  <h3 className="text-sm font-semibold text-[#063725]">Lancer un défi collectif</h3>
                   <select
                     value={newChallPartnerId}
                     onChange={(e) => setNewChallPartnerId(e.target.value)}
-                    className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] min-h-[40px]"
+                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
                   >
                     {data.partners.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -1549,7 +1545,7 @@ export const AdminWorkspace: React.FC<{
                     value={newChallTitre}
                     onChange={(e) => setNewChallTitre(e.target.value)}
                     placeholder="Titre du défi (ex: 100 séances prévention)"
-                    className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <input
@@ -1558,7 +1554,7 @@ export const AdminWorkspace: React.FC<{
                       value={newChallPeriode}
                       onChange={(e) => setNewChallPeriode(e.target.value)}
                       placeholder="Période"
-                      className="rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
                     <input
                       type="number"
@@ -1568,12 +1564,12 @@ export const AdminWorkspace: React.FC<{
                       value={newChallTarget}
                       onChange={(e) => setNewChallTarget(e.target.value)}
                       placeholder="Objectif séances"
-                      className="rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 font-mono text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
                   </div>
                   <button
                     type="submit"
-                    className="w-full rounded-full bg-[#C8F62D] py-2.5 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+                    className="w-full rounded-full bg-[#0D6E46] py-2.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
                   >
                     Publier le défi
                   </button>
@@ -1590,19 +1586,20 @@ export const AdminWorkspace: React.FC<{
                 embeddedInAdmin
               />
             ) : (
-              <div className="obsidian-card rounded-2xl p-6 text-sm text-[#B4BCA9]">
+              <div className="obsidian-card rounded-2xl p-6 text-sm text-[#3D5246]">
                 Chargement de l’Observatoire National...
               </div>
             )
           )}
+            <LegalFooter />
           </div>
         </main>
       </div>
 
-      {/* Floating Dark Mobile Bottom Navigation Bar */}
+      {/* Floating Light Mobile Bottom Navigation Bar */}
       <nav
         aria-label="Navigation mobile administration"
-        className="md:hidden fixed bottom-3 left-3 right-3 z-40 rounded-2xl border border-white/12 bg-[#121610]/95 backdrop-blur-md p-1.5 shadow-2xl"
+        className="md:hidden fixed bottom-3 left-3 right-3 z-40 rounded-2xl border border-[#D5E2DA] bg-white/95 backdrop-blur-md p-1.5 shadow-xl"
       >
         <div className="grid grid-cols-6 gap-0.5">
           {adminNavItems.map((item) => {
@@ -1615,8 +1612,8 @@ export const AdminWorkspace: React.FC<{
                 onClick={() => setTab(item.id)}
                 className={`relative flex flex-col items-center justify-center gap-0.5 rounded-xl py-2 px-0.5 text-[10px] transition-colors ${
                   active
-                    ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                    : 'text-[#8E9784] hover:text-[#F5F7F1] font-medium'
+                    ? 'bg-[#0D6E46] text-white font-bold shadow-sm'
+                    : 'text-[#5B7064] hover:text-[#063725] font-medium'
                 }`}
               >
                 <div className="relative">
@@ -1624,7 +1621,7 @@ export const AdminWorkspace: React.FC<{
                   {item.badge && item.badge > 0 ? (
                     <span
                       className={`absolute -top-1.5 -right-2 font-mono text-[9px] font-bold tabular-nums rounded px-1 leading-tight ${
-                        active ? 'bg-[#080A07] text-[#C8F62D]' : 'bg-amber-400 text-[#080A07]'
+                        active ? 'bg-white text-[#0D6E46]' : 'bg-amber-500 text-white'
                       }`}
                     >
                       {item.badge}
@@ -1640,21 +1637,21 @@ export const AdminWorkspace: React.FC<{
 
       {/* Coach Diploma Study & Inspection Modal */}
       {inspectedCoach && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="obsidian-card-glow w-full max-w-4xl rounded-3xl my-auto overflow-hidden">
-            <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-6 py-4">
+            <div className="flex items-center justify-between gap-4 border-b border-[#E2EBE5] px-6 py-4">
               <div>
-                <h2 className="font-display text-lg font-bold text-[#F5F7F1]">
+                <h2 className="font-display text-lg font-bold text-[#063725]">
                   Étude du dossier Coach · {inspectedCoach.prenom} {inspectedCoach.nom}
                 </h2>
-                <p className="text-xs text-[#8E9784]">
+                <p className="text-xs text-[#5B7064]">
                   {inspectedCoach.zone} · {inspectedCoach.specialite} · {inspectedCoach.qualification}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setInspectedCoach(null)}
-                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-[#B4BCA9] hover:bg-white/[0.08] hover:text-[#F5F7F1]"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-[#5B7064] hover:bg-[#F1F6F3] hover:text-[#063725]"
                 aria-label="Fermer l’étude"
               >
                 <X className="h-5 w-5" />
@@ -1668,92 +1665,92 @@ export const AdminWorkspace: React.FC<{
                   <>
                     <div className="obsidian-inset rounded-xl p-4 space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-[#F5F7F1]">
+                        <span className="text-xs font-semibold text-[#063725]">
                           {inspectedCoach.document.study_report.formatLabel}
                         </span>
                         <span
                           className={`rounded px-2 py-0.5 font-mono text-xs font-bold ${
                             inspectedCoach.document.study_status === 'CONFORME_PRE_ETUDE'
-                              ? 'border border-[#C8F62D]/30 bg-[#C8F62D]/15 text-[#C8F62D]'
+                              ? 'border border-[#BFE0CD] bg-[#ECF7F1] text-[#0D6E46]'
                               : inspectedCoach.document.study_status === 'ANOMALIE'
-                                ? 'border border-red-400/35 bg-red-950/50 text-red-200'
-                                : 'border border-amber-400/30 bg-amber-950/50 text-amber-200'
+                                ? 'border border-red-200 bg-red-50 text-red-700'
+                                : 'border border-amber-200 bg-amber-50 text-amber-800'
                           }`}
                         >
                           {inspectedCoach.document.study_score} / 100
                         </span>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 text-xs text-[#B4BCA9] pt-1">
+                      <div className="grid grid-cols-2 gap-2 text-xs text-[#3D5246] pt-1">
                         <div>
-                          <span className="text-[#8E9784]">Organisme : </span>
-                          <span className="font-medium text-[#F5F7F1]">{inspectedCoach.document.issuing_organism}</span>
+                          <span className="text-[#5B7064]">Organisme : </span>
+                          <span className="font-medium text-[#063725]">{inspectedCoach.document.issuing_organism}</span>
                         </div>
                         <div>
-                          <span className="text-[#8E9784]">Année : </span>
-                          <span className="font-mono font-medium text-[#F5F7F1]">{inspectedCoach.document.issue_year}</span>
+                          <span className="text-[#5B7064]">Année : </span>
+                          <span className="font-mono font-medium text-[#063725]">{inspectedCoach.document.issue_year}</span>
                         </div>
                         <div className="col-span-2">
-                          <span className="text-[#8E9784]">Référence : </span>
-                          <span className="font-mono font-semibold text-[#C8F62D]">
+                          <span className="text-[#5B7064]">Référence : </span>
+                          <span className="font-mono font-semibold text-[#0D6E46]">
                             {inspectedCoach.document.diploma_number}
                           </span>
                         </div>
                         <div className="col-span-2 truncate">
-                          <span className="text-[#8E9784]">Empreinte SHA-256 : </span>
+                          <span className="text-[#5B7064]">Empreinte SHA-256 : </span>
                           <span className="font-mono text-[11px]">{inspectedCoach.document.sha256_hash}</span>
                         </div>
                       </div>
                     </div>
 
                     <div className="obsidian-inset rounded-xl p-4 space-y-2 text-xs">
-                      <div className="font-semibold text-[#F5F7F1]">
+                      <div className="font-semibold text-[#063725]">
                         Conformité réglementaire (Carte Pro · RC Pro · Statut juridique · Honorabilité)
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[#B4BCA9]">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[#3D5246]">
                         <div>
-                          <span className="text-[#8E9784]">Carte pro : </span>
-                          <span className="font-mono font-semibold text-[#F5F7F1]">
+                          <span className="text-[#5B7064]">Carte pro : </span>
+                          <span className="font-mono font-semibold text-[#063725]">
                             {inspectedCoach.pro_card_number || 'Non renseignée'}
                           </span>
                           {inspectedCoach.pro_card_expiry && (
-                            <span className="text-[#8E9784]"> (exp. {inspectedCoach.pro_card_expiry})</span>
+                            <span className="text-[#5B7064]"> (exp. {inspectedCoach.pro_card_expiry})</span>
                           )}
                         </div>
                         <div>
-                          <span className="text-[#8E9784]">Honorabilité : </span>
+                          <span className="text-[#5B7064]">Honorabilité : </span>
                           <span
                             className={`font-semibold ${
-                              inspectedCoach.honorability_attested ? 'text-[#C8F62D]' : 'text-amber-300'
+                              inspectedCoach.honorability_attested ? 'text-[#0D6E46]' : 'text-amber-700'
                             }`}
                           >
                             {inspectedCoach.honorability_attested ? 'Attestée sur l’honneur' : 'Non attestée'}
                           </span>
                         </div>
                         <div>
-                          <span className="text-[#8E9784]">Assurance RC Pro : </span>
-                          <span className="font-medium text-[#F5F7F1]">
+                          <span className="text-[#5B7064]">Assurance RC Pro : </span>
+                          <span className="font-medium text-[#063725]">
                             {inspectedCoach.rc_pro_insurer || 'Non renseignée'}
                           </span>
                           {inspectedCoach.rc_pro_policy_number && (
-                            <span className="font-mono text-[#8E9784]"> ({inspectedCoach.rc_pro_policy_number})</span>
+                            <span className="font-mono text-[#5B7064]"> ({inspectedCoach.rc_pro_policy_number})</span>
                           )}
                         </div>
                         <div>
-                          <span className="text-[#8E9784]">Structure & ID : </span>
-                          <span className="font-medium text-[#F5F7F1]">
+                          <span className="text-[#5B7064]">Structure & ID : </span>
+                          <span className="font-medium text-[#063725]">
                             {COACH_LEGAL_STATUS_OPTIONS.find((o) => o.code === inspectedCoach.legal_status)?.label ||
                               inspectedCoach.legal_status ||
                               'Non déclaré'}
                           </span>
                           {inspectedCoach.business_reg_number && (
-                            <span className="font-mono text-[#8E9784]"> · {inspectedCoach.business_reg_number}</span>
+                            <span className="font-mono text-[#5B7064]"> · {inspectedCoach.business_reg_number}</span>
                           )}
                         </div>
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <div className="text-xs font-semibold text-[#F5F7F1]">
+                      <div className="text-xs font-semibold text-[#063725]">
                         Contrôles automatiques de pré-étude
                       </div>
                       <div className="space-y-2">
@@ -1762,14 +1759,14 @@ export const AdminWorkspace: React.FC<{
                             key={chk.id}
                             className={`rounded-xl border px-3 py-2.5 text-xs flex items-start gap-2.5 ${
                               chk.passed
-                                ? 'border-[#C8F62D]/25 bg-[#C8F62D]/[0.08] text-[#F5F7F1]'
-                                : 'border-amber-400/30 bg-amber-950/40 text-amber-200'
+                                ? 'border-[#BFE0CD] bg-[#ECF7F1] text-[#063725]'
+                                : 'border-amber-200 bg-amber-50 text-amber-900'
                             }`}
                           >
                             {chk.passed ? (
-                              <CheckCircle2 className="h-4 w-4 text-[#C8F62D] shrink-0 mt-0.5" aria-hidden="true" />
+                              <CheckCircle2 className="h-4 w-4 text-[#0D6E46] shrink-0 mt-0.5" aria-hidden="true" />
                             ) : (
-                              <XCircle className="h-4 w-4 text-amber-300 shrink-0 mt-0.5" aria-hidden="true" />
+                              <XCircle className="h-4 w-4 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
                             )}
                             <div>
                               <div className="font-semibold">{chk.label}</div>
@@ -1781,14 +1778,14 @@ export const AdminWorkspace: React.FC<{
                     </div>
                   </>
                 ) : (
-                  <div className="rounded-xl border border-amber-400/30 bg-amber-950/40 p-4 text-xs text-amber-200">
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
                     Aucun justificatif numérique n’a été déposé pour ce profil. Vous pouvez laisser le dossier en attente ou le refuser.
                   </div>
                 )}
 
-                <div className="space-y-2.5 pt-2 border-t border-white/[0.08]">
+                <div className="space-y-2.5 pt-2 border-t border-[#E2EBE5]">
                   <div>
-                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
+                    <label className="block text-xs font-medium text-[#3D5246] mb-1">
                       Note d’étude administrative (interne)
                     </label>
                     <input
@@ -1796,11 +1793,11 @@ export const AdminWorkspace: React.FC<{
                       value={reviewNoteInput}
                       onChange={(e) => setReviewNoteInput(e.target.value)}
                       placeholder="Ex: Licence vérifiée auprès de la DTN / FSF"
-                      className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                      className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-[#B4BCA9] mb-1">
+                    <label className="block text-xs font-medium text-[#3D5246] mb-1">
                       Motif de refus (affiché au coach si refusé)
                     </label>
                     <input
@@ -1808,7 +1805,7 @@ export const AdminWorkspace: React.FC<{
                       value={rejectionReasonInput}
                       onChange={(e) => setRejectionReasonInput(e.target.value)}
                       placeholder="Ex: Numéro de diplôme illisible ou non reconnu"
-                      className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                      className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
                   </div>
 
@@ -1821,7 +1818,7 @@ export const AdminWorkspace: React.FC<{
                           closeModal: true,
                         })
                       }
-                      className="rounded-full bg-[#C8F62D] px-4 py-2.5 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+                      className="rounded-full bg-[#0D6E46] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
                     >
                       Valider le diplôme et activer le coach
                     </button>
@@ -1833,7 +1830,7 @@ export const AdminWorkspace: React.FC<{
                           closeModal: true,
                         })
                       }
-                      className="rounded-xl border border-white/15 bg-[#181D15] px-3.5 py-2.5 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px]"
+                      className="rounded-xl border border-[#C3D6CA] bg-[#F1F6F3] px-3.5 py-2.5 text-xs font-medium text-[#063725] hover:bg-[#E2EBE5] min-h-[40px]"
                     >
                       Laisser en étude
                     </button>
@@ -1846,7 +1843,7 @@ export const AdminWorkspace: React.FC<{
                           closeModal: true,
                         })
                       }
-                      className="rounded-xl border border-red-400/35 bg-red-950/50 px-3.5 py-2.5 text-xs font-semibold text-red-200 hover:bg-red-950/70 min-h-[40px]"
+                      className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-semibold text-red-700 hover:bg-red-100 min-h-[40px]"
                     >
                       Refuser le dossier
                     </button>
@@ -1855,16 +1852,16 @@ export const AdminWorkspace: React.FC<{
               </div>
 
               {/* Right: Live Document Preview (keep crisp white canvas behind uploaded document) */}
-              <div className="flex flex-col rounded-xl border border-white/[0.08] bg-[#181D15] overflow-hidden min-h-[380px]">
-                <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] bg-[#121610] px-4 py-2.5 text-xs">
-                  <span className="font-medium text-[#F5F7F1] truncate">
+              <div className="flex flex-col rounded-xl border border-[#D5E2DA] bg-[#F1F6F3] overflow-hidden min-h-[380px]">
+                <div className="flex items-center justify-between gap-2 border-b border-[#E2EBE5] bg-white px-4 py-2.5 text-xs">
+                  <span className="font-medium text-[#063725] truncate">
                     {inspectedCoach.document?.original_filename || 'Aperçu du justificatif'}
                   </span>
                   {docPreviewUrl && inspectedCoach.document && (
                     <a
                       href={docPreviewUrl}
                       download={inspectedCoach.document.original_filename}
-                      className="inline-flex items-center gap-1 font-semibold text-[#C8F62D] hover:underline shrink-0"
+                      className="inline-flex items-center gap-1 font-semibold text-[#0D6E46] hover:underline shrink-0"
                     >
                       <Download className="h-3.5 w-3.5" aria-hidden="true" />
                       <span>Télécharger</span>
@@ -1874,23 +1871,23 @@ export const AdminWorkspace: React.FC<{
 
                 <div className="flex-1 flex items-center justify-center p-3">
                   {!inspectedCoach.document ? (
-                    <div className="text-xs text-[#8E9784]">Aucun fichier joint.</div>
+                    <div className="text-xs text-[#5B7064]">Aucun fichier joint.</div>
                   ) : docPreviewLoading ? (
-                    <div className="text-xs text-[#B4BCA9]">Chargement sécurisé du document...</div>
+                    <div className="text-xs text-[#3D5246]">Chargement sécurisé du document...</div>
                   ) : docPreviewError ? (
-                    <div className="text-xs text-red-300 px-4 text-center">{docPreviewError}</div>
+                    <div className="text-xs text-red-700 px-4 text-center">{docPreviewError}</div>
                   ) : docPreviewUrl ? (
                     inspectedCoach.document.mime_type === 'application/pdf' ? (
                       <iframe
                         src={docPreviewUrl}
                         title={`Aperçu diplôme ${inspectedCoach.prenom} ${inspectedCoach.nom}`}
-                        className="w-full h-[460px] rounded-lg border border-white/10 bg-white"
+                        className="w-full h-[460px] rounded-lg border border-[#D5E2DA] bg-white"
                       />
                     ) : (
                       <img
                         src={docPreviewUrl}
                         alt={`Diplôme ${inspectedCoach.prenom} ${inspectedCoach.nom}`}
-                        className="max-h-[460px] w-auto object-contain rounded-lg border border-white/10 bg-white"
+                        className="max-h-[460px] w-auto object-contain rounded-lg border border-[#D5E2DA] bg-white"
                       />
                     )
                   ) : null}

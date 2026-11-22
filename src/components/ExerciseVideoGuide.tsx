@@ -443,8 +443,8 @@ function computePose(motion: ExerciseMotionType, progress: number, groundY: numb
 
 export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
   exerciseName,
-  accentHex = '#C8F62D',
-  theme = 'dark',
+  accentHex = '#0D6E46',
+  theme = 'light',
   compact = false,
   syncPlaying,
   showCues = true,
@@ -464,6 +464,22 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
   });
   const [speed, setSpeed] = useState<0.75 | 1 | 1.25>(1);
   const [activePhaseIdx, setActivePhaseIdx] = useState(0);
+  const [isInView, setIsInView] = useState(true);
+
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]) {
+          setIsInView(entries[0].isIntersecting);
+        }
+      },
+      { threshold: 0.05 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const resolvePhaseIdx = (p: number): number => {
     const idx = spec.phases.findIndex((ph) => p >= ph.start && p <= ph.end);
@@ -509,15 +525,15 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       const isDark = theme === 'dark';
       ctx.clearRect(0, 0, width, height);
 
-      // Obsidian telemetry studio background
-      ctx.fillStyle = isDark ? '#0D100B' : '#11150E';
+      // Studio background (daylight Terrain+ off-white vs dark)
+      ctx.fillStyle = isDark ? '#0D100B' : '#F6F8F5';
       ctx.fillRect(0, 0, width, height);
 
       const groundY = height - 34;
       const cx = width * 0.5;
 
-      // Subtle olive-tinted reference grid
-      ctx.strokeStyle = 'rgba(200, 246, 45, 0.07)';
+      // Subtle green reference grid
+      ctx.strokeStyle = isDark ? 'rgba(200, 246, 45, 0.07)' : 'rgba(13, 110, 70, 0.08)';
       ctx.lineWidth = 1;
       for (let gx = 40; gx < width; gx += 40) {
         ctx.beginPath();
@@ -533,7 +549,7 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       }
 
       // Ground plane
-      ctx.strokeStyle = 'rgba(200, 246, 45, 0.35)';
+      ctx.strokeStyle = isDark ? 'rgba(200, 246, 45, 0.35)' : 'rgba(13, 110, 70, 0.35)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(44, groundY);
@@ -546,7 +562,7 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       if (pose.guideLine) {
         ctx.save();
         ctx.setLineDash([5, 5]);
-        ctx.strokeStyle = 'rgba(200, 246, 45, 0.55)';
+        ctx.strokeStyle = isDark ? 'rgba(200, 246, 45, 0.55)' : 'rgba(13, 110, 70, 0.45)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(pose.guideLine[0].x, pose.guideLine[0].y);
@@ -566,8 +582,8 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
         ctx.stroke();
       };
 
-      const backColor = '#56614D';
-      const primaryColor = '#F5F7F1';
+      const backColor = isDark ? '#56614D' : '#94AEA0';
+      const primaryColor = isDark ? '#F5F7F1' : '#063725';
 
       // Back limbs first
       drawLimb(pose.hip, pose.kneeB, backColor, 9);
@@ -602,7 +618,7 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
           ctx.beginPath();
           ctx.arc(j.x, j.y, 5.5, 0, Math.PI * 2);
           ctx.fill();
-          ctx.strokeStyle = '#0D100B';
+          ctx.strokeStyle = isDark ? '#0D100B' : '#FFFFFF';
           ctx.lineWidth = 1.5;
           ctx.stroke();
         }
@@ -612,13 +628,18 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
     drawFrameRef.current = drawFrame;
     drawFrame(progressRef.current);
 
-    if (!playing) {
+    if (!playing || !isInView) {
       return () => {
         drawFrameRef.current = null;
       };
     }
 
     const tick = (now: number) => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        lastTime = now;
+        rafId = window.requestAnimationFrame(tick);
+        return;
+      }
       const dt = Math.min(0.05, (now - lastTime) / 1000);
       lastTime = now;
       const next = (progressRef.current + (dt * speed) / baseCycleSec) % 1;
@@ -641,22 +662,22 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       drawFrameRef.current = null;
       window.cancelAnimationFrame(rafId);
     };
-  }, [playing, speed, spec.motion, spec.phases, theme, compact, accentHex]);
+  }, [playing, isInView, speed, spec.motion, spec.phases, theme, compact, accentHex]);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#121610] text-[#F5F7F1] overflow-hidden">
+    <div className="rounded-2xl border border-[#D5E2DA] bg-white text-[#063725] overflow-hidden shadow-sm">
       {/* Top phase bar inside video container */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 border-b border-white/[0.08] text-[11px] text-[#B4BCA9]">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 border-b border-[#E2EBE5] bg-white text-[11px] text-[#475E52]">
         <span className="font-semibold truncate">
           Guide vidéo · {activePhase.label}
         </span>
-        <span className="font-medium text-[#C8F62D]">
+        <span className="font-bold text-[#0D6E46]">
           {activePhase.breath}
         </span>
       </div>
 
       {/* Canvas video viewport */}
-      <div className="relative">
+      <div className="relative bg-[#F6F8F5]">
         <canvas
           ref={canvasRef}
           aria-label={`Démonstration vidéo guidée : ${spec.title}`}
@@ -665,13 +686,13 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
       </div>
 
       {/* Video transport controls */}
-      <div className="px-3.5 py-2.5 border-t border-white/[0.08] bg-[#0D100B] space-y-2">
+      <div className="px-3.5 py-2.5 border-t border-[#E2EBE5] bg-[#F6F8F5] space-y-2">
         <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={() => setPlaying((p) => !p)}
             aria-label={playing ? 'Mettre en pause la démonstration' : 'Lire la démonstration'}
-            className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl bg-[#C8F62D] text-[#080A07] hover:bg-[#D7FA59]"
+            className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl bg-[#0D6E46] text-white hover:bg-[#095637]"
           >
             {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
           </button>
@@ -688,7 +709,7 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
               drawFrameRef.current?.(0);
             }}
             aria-label="Recommencer le mouvement"
-            className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl border border-white/12 bg-[#161B13] text-[#D6DDD0] hover:bg-[#1E251A]"
+            className="min-h-[38px] min-w-[38px] inline-flex items-center justify-center rounded-xl border border-[#C3D6CA] bg-white text-[#063725] hover:bg-[#E7F1EC]"
           >
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
@@ -711,10 +732,10 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
               }
               drawFrameRef.current?.(next);
             }}
-            className="flex-1 accent-[#C8F62D] cursor-pointer"
+            className="flex-1 accent-[#0D6E46] cursor-pointer"
           />
 
-          <div className="inline-flex items-center rounded-xl p-0.5 border border-white/10 bg-[#161B13]">
+          <div className="inline-flex items-center rounded-xl p-0.5 border border-[#D5E2DA] bg-white">
             {([0.75, 1, 1.25] as const).map((spd) => (
               <button
                 key={spd}
@@ -722,8 +743,8 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
                 onClick={() => setSpeed(spd)}
                 className={`px-2 py-1 rounded-lg font-mono text-[11px] tabular-nums min-h-[30px] ${
                   speed === spd
-                    ? 'bg-[#C8F62D] text-[#080A07] font-semibold'
-                    : 'text-[#9AA491] hover:text-[#F5F7F1]'
+                    ? 'bg-[#0D6E46] text-white font-semibold'
+                    : 'text-[#5B7064] hover:text-[#063725]'
                 }`}
               >
                 {spd}x
@@ -732,14 +753,14 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#8E9784]">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#5B7064]">
           <span>{spec.tempoLabel}</span>
           <span>0 Ko réseau · Fonctionne hors ligne</span>
         </div>
 
         {showCues && !compact && (
-          <div className="pt-2 border-t border-white/[0.08] text-left space-y-1 text-xs text-[#B4BCA9]">
-            <div className="font-semibold text-[11px] text-[#9AA491]">
+          <div className="pt-2 border-t border-[#E2EBE5] text-left space-y-1 text-xs text-[#3D5246]">
+            <div className="font-semibold text-[11px] text-[#0D6E46]">
               Repères clés ({spec.preventionZone})
             </div>
             <ul className="space-y-1">

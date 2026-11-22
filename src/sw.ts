@@ -188,13 +188,6 @@ async function showLocalReminder(payload: LocalNotificationPayload): Promise<voi
     ],
   };
 
-  if (typeof payload.triggerAt === 'number' && payload.triggerAt > Date.now() + 2000) {
-    const TriggerCtor = (globalThis as unknown as { TimestampTrigger?: new (ts: number) => unknown }).TimestampTrigger;
-    if (TriggerCtor) {
-      options.showTrigger = new TriggerCtor(payload.triggerAt);
-    }
-  }
-
   await sw.registration.showNotification(payload.title, options as NotificationOptions);
 }
 

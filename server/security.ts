@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
+import { USE_POSTGRES, dbGet, dbRun } from './database.ts';
 
 const SCRYPT_KEYLEN = 64;
 const SCRYPT_COST = 16384;
@@ -197,7 +198,31 @@ interface RateBucket {
   resetAt: number;
 }
 
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  resetAtMs: number;
+  retryAfterSec: number;
+  backend: 'upstash' | 'postgres' | 'sqlite' | 'memory';
+}
+
 const buckets = new Map<string, RateBucket>();
+let rateLimitOpsCount = 0;
+
+export function getClientIp(req: Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim().slice(0, 64);
+  }
+  if (Array.isArray(forwarded) && forwarded.length > 0 && forwarded[0]) {
+    return String(forwarded[0]).split(',')[0].trim().slice(0, 64);
+  }
+  const realIp = req.headers['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) {
+    return realIp.trim().slice(0, 64);
+  }
+  return (req.ip || req.socket?.remoteAddress || 'local').slice(0, 64);
+}
 
 export function checkRateLimit(key: string, maxRequests: number, windowMs: number): boolean {
   const now = Date.now();
@@ -218,4 +243,161 @@ export function checkRateLimit(key: string, maxRequests: number, windowMs: numbe
   }
   current.count += 1;
   return true;
+}
+
+function checkRateLimitMemoryResult(key: string, maxRequests: number, windowMs: number): RateLimitResult {
+  const now = Date.now();
+  const allowed = checkRateLimit(key, maxRequests, windowMs);
+  const current = buckets.get(key);
+  const resetAtMs = current ? current.resetAt : now + windowMs;
+  const count = current ? current.count : 1;
+  return {
+    allowed,
+    remaining: Math.max(0, maxRequests - count),
+    resetAtMs,
+    retryAfterSec: Math.max(1, Math.ceil((resetAtMs - now) / 1000)),
+    backend: 'memory',
+  };
+}
+
+async function checkUpstashRateLimit(
+  key: string,
+  maxRequests: number,
+  windowMs: number
+): Promise<RateLimitResult | null> {
+  const restUrl = (process.env.UPSTASH_REDIS_REST_URL || '').trim().replace(/\/+$/, '');
+  const restToken = (process.env.UPSTASH_REDIS_REST_TOKEN || '').trim();
+  if (!restUrl || !restToken) return null;
+
+  const redisKey = `tp:rl:${key}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2500);
+  try {
+    const res = await fetch(`${restUrl}/pipeline`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${restToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify([
+        ['INCR', redisKey],
+        ['PTTL', redisKey],
+      ]),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const payload = (await res.json()) as Array<{ result?: number | string | null; error?: string }>;
+    const count = Number(payload?.[0]?.result ?? 0);
+    let pttl = Number(payload?.[1]?.result ?? -1);
+    if (!Number.isFinite(count) || count <= 0) return null;
+
+    if (pttl < 0 || count === 1) {
+      pttl = windowMs;
+      void fetch(`${restUrl}/pexpire/${encodeURIComponent(redisKey)}/${windowMs}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${restToken}` },
+      }).catch(() => undefined);
+    }
+
+    const now = Date.now();
+    const resetAtMs = now + Math.max(1000, pttl);
+    return {
+      allowed: count <= maxRequests,
+      remaining: Math.max(0, maxRequests - count),
+      resetAtMs,
+      retryAfterSec: Math.max(1, Math.ceil(pttl / 1000)),
+      backend: 'upstash',
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function checkRateLimitDistributed(
+  key: string,
+  maxRequests: number,
+  windowMs: number
+): Promise<RateLimitResult> {
+  const upstashRes = await checkUpstashRateLimit(key, maxRequests, windowMs);
+  if (upstashRes) return upstashRes;
+
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const nextResetIso = new Date(now + windowMs).toISOString();
+  const safeKey = key.slice(0, 180);
+
+  try {
+    let row: { count: number; reset_at: string } | undefined;
+    if (USE_POSTGRES) {
+      row = await dbGet<{ count: number; reset_at: string }>(
+        `INSERT INTO rate_limit_buckets (key, count, reset_at, updated_at)
+         VALUES (?, 1, ?::timestamptz, NOW())
+         ON CONFLICT (key) DO UPDATE SET
+           count = CASE
+             WHEN rate_limit_buckets.reset_at <= NOW() THEN 1
+             ELSE rate_limit_buckets.count + 1
+           END,
+           reset_at = CASE
+             WHEN rate_limit_buckets.reset_at <= NOW() THEN ?::timestamptz
+             ELSE rate_limit_buckets.reset_at
+           END,
+           updated_at = NOW()
+         RETURNING count, reset_at`,
+        safeKey,
+        nextResetIso,
+        nextResetIso
+      );
+    } else {
+      row = await dbGet<{ count: number; reset_at: string }>(
+        `INSERT INTO rate_limit_buckets (key, count, reset_at, updated_at)
+         VALUES (?, 1, ?, ?)
+         ON CONFLICT (key) DO UPDATE SET
+           count = CASE
+             WHEN rate_limit_buckets.reset_at <= ? THEN 1
+             ELSE rate_limit_buckets.count + 1
+           END,
+           reset_at = CASE
+             WHEN rate_limit_buckets.reset_at <= ? THEN ?
+             ELSE rate_limit_buckets.reset_at
+           END,
+           updated_at = ?
+         RETURNING count, reset_at`,
+        safeKey,
+        nextResetIso,
+        nowIso,
+        nowIso,
+        nowIso,
+        nextResetIso,
+        nowIso
+      );
+    }
+
+    rateLimitOpsCount += 1;
+    if (rateLimitOpsCount % 120 === 0) {
+      if (USE_POSTGRES) {
+        void dbRun('DELETE FROM rate_limit_buckets WHERE reset_at < NOW()').catch(() => undefined);
+      } else {
+        void dbRun('DELETE FROM rate_limit_buckets WHERE reset_at < ?', nowIso).catch(() => undefined);
+      }
+    }
+
+    if (row) {
+      const count = Number(row.count) || 1;
+      const parsedResetMs = new Date(row.reset_at).getTime();
+      const resetAtMs = Number.isFinite(parsedResetMs) ? parsedResetMs : now + windowMs;
+      return {
+        allowed: count <= maxRequests,
+        remaining: Math.max(0, maxRequests - count),
+        resetAtMs,
+        retryAfterSec: Math.max(1, Math.ceil((resetAtMs - now) / 1000)),
+        backend: USE_POSTGRES ? 'postgres' : 'sqlite',
+      };
+    }
+  } catch (err) {
+    console.warn('[SECURITY] Rate limiter DB indisponible, repli mémoire:', err instanceof Error ? err.message : err);
+  }
+
+  return checkRateLimitMemoryResult(safeKey, maxRequests, windowMs);
 }

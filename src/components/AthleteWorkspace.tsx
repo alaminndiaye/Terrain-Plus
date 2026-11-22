@@ -3,12 +3,13 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
-  BarChart3,
   Bell,
   BellOff,
   BellRing,
   Calendar,
+  Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -18,6 +19,7 @@ import {
   LayoutDashboard,
   Lock,
   LogOut,
+  Menu,
   Play,
   ShieldCheck,
   Trash2,
@@ -27,8 +29,6 @@ import {
   X,
 } from 'lucide-react';
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -54,13 +54,16 @@ import {
 } from '../lib/offlineCache';
 import { formatReminderLeadLabel } from '../lib/pwaNotifications';
 import { TECHNIQUE_FICHES, type TechniqueCategory, type TechniqueFiche } from '../data/exerciseMedia';
-import { LEVEL_LABELS, SPORTS_CONFIG } from '../data/sportsConfig';
+import { ALL_SPORT_CODES, LEVEL_LABELS, SPORTS_CONFIG } from '../data/sportsConfig';
+import { TRAINING_OBJECTIVES, resolveObjectiveSpec } from '../data/objectivesConfig';
+import { getCuratedVideosForSport } from '../data/guideVideos';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useSessionReminders } from '../hooks/useSessionReminders';
 import type {
   AthleteLevel,
   AthletePlanTier,
   AthleteWorkspacePayload,
+  ObjectiveCode,
   ScheduledSession,
   SessionTemplate,
   SportCode,
@@ -69,8 +72,11 @@ import { GuidedSessionPlayer } from './GuidedSessionPlayer';
 import { ExerciseVideoGuide } from './ExerciseVideoGuide';
 import { CoachVideoPlayer, formatVideoSizeMb } from './CoachVideoPlayer';
 import { GuidedTourModal } from './GuidedTourModal';
+import { LegalFooter } from './LegalFooter';
+import { LegalModal } from './LegalModal';
 import { PainReportModal } from './PainReportModal';
 import { PWAInstallButton } from './PWAControls';
+import { type LegalDocTab } from '../data/legalDocs';
 
 type AthleteTab = 'dashboard' | 'programme' | 'evaluation' | 'profil';
 
@@ -149,9 +155,9 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   // Offline downloaded sessions
   const [offlineMap, setOfflineMap] = useState<Record<number, SessionTemplate>>(() => getOfflineSessions());
 
-  // Library filter, weekly summary tab & programme calendar
+  // Library filter, collapsible dropdowns & programme calendar
   const [levelFilter, setLevelFilter] = useState<'all' | AthleteLevel>('all');
-  const [weekDetailFilter, setWeekDetailFilter] = useState<'completed' | 'remaining'>('completed');
+  const [levelDropdownOpen, setLevelDropdownOpen] = useState(false);
   const [programmeView, setProgrammeView] = useState<'calendar' | 'list'>('calendar');
   const [calendarMonth, setCalendarMonth] = useState<{ year: number; month: number }>(() => {
     const now = new Date();
@@ -169,6 +175,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
   // Technical fiches & freemium plan states
   const [ficheCategoryFilter, setFicheCategoryFilter] = useState<'Toutes' | TechniqueCategory>('Toutes');
+  const [ficheDropdownOpen, setFicheDropdownOpen] = useState(false);
   const [selectedFicheModal, setSelectedFicheModal] = useState<TechniqueFiche | null>(null);
   const [ficheModalMode, setFicheModalMode] = useState<'video' | 'photo'>('video');
   const [videoPreviewSession, setVideoPreviewSession] = useState<{
@@ -187,6 +194,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     cachedInit?.profile.taille_cm ? String(cachedInit.profile.taille_cm) : ''
   );
   const [profileLangue, setProfileLangue] = useState<'fr' | 'wo'>(() => cachedInit?.user.langue || 'fr');
+  const [profileObjectiveCode, setProfileObjectiveCode] = useState<ObjectiveCode>(() =>
+    resolveObjectiveSpec(cachedInit?.profile.objectif).code
+  );
+  const [adaptProgramOnSave, setAdaptProgramOnSave] = useState(true);
   const [ecoMode, setEcoMode] = useState(() => Boolean(cachedInit?.profile.eco_data_mode));
   const [notifEnabled, setNotifEnabled] = useState(() => cachedInit?.profile.notifications_enabled ?? true);
   const [reminderTime, setReminderTime] = useState(() => cachedInit?.profile.reminder_time || '18:00');
@@ -209,6 +220,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const [legalTab, setLegalTab] = useState<LegalDocTab | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const loadWorkspace = useCallback(async () => {
     try {
@@ -221,6 +234,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       setProfilePoste(payload.profile.poste || '');
       setProfileTaille(payload.profile.taille_cm ? String(payload.profile.taille_cm) : '');
       setProfileLangue(payload.user.langue);
+      setProfileObjectiveCode(resolveObjectiveSpec(payload.profile.objectif || payload.program?.objectif).code);
       setEcoMode(payload.profile.eco_data_mode);
       setNotifEnabled(payload.profile.notifications_enabled);
       setReminderTime(payload.profile.reminder_time || '18:00');
@@ -334,6 +348,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     }));
   }, [data]);
 
+  const todayIso = useMemo(() => toIsoDateLocal(new Date()), []);
+
   const weeklySummary = useMemo(() => {
     if (!data) {
       return {
@@ -342,16 +358,21 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
         totalMinutesDone: 0,
         totalMinutesPlanned: 0,
         completionPct: 0,
+        minutesPct: 0,
         avgFatigue: null as number | null,
         restDaysCount: 0,
         days: [] as Array<{
           dayNum: number;
           dayLabel: string;
           dateLabel: string;
+          isoDate: string;
+          isToday: boolean;
           status: 'done' | 'planned' | 'rest';
           minutesDone: number;
           minutesRemaining: number;
           sessionsCount: number;
+          primarySlot: ScheduledSession | null;
+          sessionTitle: string | null;
         }>,
       };
     }
@@ -375,6 +396,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     const completionPct =
       trainingSlots.length > 0
         ? Math.min(100, Math.round((completedSessions.length / trainingSlots.length) * 100))
+        : 0;
+    const minutesPct =
+      totalMinutesPlanned > 0
+        ? Math.min(100, Math.round((totalMinutesDone / totalMinutesPlanned) * 100))
         : 0;
 
     const fatigueRated = completedSessions.filter((s) => s.ressenti_fatigue !== null);
@@ -406,17 +431,22 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
         status = 'planned';
       }
 
-      const rawDate = daySlots[0]?.date_prevue || '';
+      const rawDate = (daySlots[0]?.date_prevue || '').slice(0, 10);
       const dateLabel = rawDate.length >= 10 ? `${rawDate.slice(8, 10)}/${rawDate.slice(5, 7)}` : '—';
+      const primarySlot = dayRemaining[0] || dayDone[0] || dayTraining[0] || null;
 
       return {
         dayNum,
         dayLabel,
         dateLabel,
+        isoDate: rawDate,
+        isToday: rawDate === todayIso,
         status,
         minutesDone,
         minutesRemaining,
         sessionsCount: dayDone.length,
+        primarySlot,
+        sessionTitle: primarySlot?.session?.titre || null,
       };
     });
 
@@ -426,13 +456,12 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       totalMinutesDone,
       totalMinutesPlanned,
       completionPct,
+      minutesPct,
       avgFatigue,
       restDaysCount,
       days,
     };
-  }, [data]);
-
-  const todayIso = useMemo(() => toIsoDateLocal(new Date()), []);
+  }, [data, todayIso]);
 
   const sessionsByDate = useMemo(() => {
     const map: Record<string, ScheduledSession[]> = {};
@@ -551,7 +580,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   const {
     permission: notifPermission,
     swReady,
-    supportsTriggerApi,
     nextReminder,
     requestPermission: requestNotifPermission,
     sendTestNotification,
@@ -688,13 +716,15 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
           poste: profilePoste,
           taille_cm: profileTaille ? Number(profileTaille) : null,
           langue: profileLangue,
+          objectif_code: profileObjectiveCode,
+          adapt_program: adaptProgramOnSave,
           eco_data_mode: ecoMode,
           notifications_enabled: notifEnabled,
           reminder_time: reminderTime,
           reminder_lead_minutes: reminderLeadMinutes,
         }),
       });
-      setFeedbackBanner('Préférences et profil enregistrés.');
+      setFeedbackBanner('Profil, objectif et préférences enregistrés.');
       await loadWorkspace();
     } catch (err) {
       setFeedbackBanner(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde.');
@@ -763,10 +793,13 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     try {
       await apiRequest('/api/athlete/change-sport', {
         method: 'POST',
-        body: JSON.stringify({ sport_code: pendingSportChange }),
+        body: JSON.stringify({
+          sport_code: pendingSportChange,
+          objectif_code: profileObjectiveCode,
+        }),
       });
       setPendingSportChange(null);
-      setFeedbackBanner('Sport mis à jour : interface, séances et tests adaptés.');
+      setFeedbackBanner('Sport mis à jour : interface, séances et tests adaptés à votre objectif.');
       await loadWorkspace();
     } catch (err) {
       setFeedbackBanner(err instanceof Error ? err.message : 'Erreur.');
@@ -888,7 +921,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   if (loading && !data) {
     return (
       <div className="min-h-screen obsidian-ambient flex items-center justify-center p-6">
-        <div className="text-sm text-[#B4BCA9]">Chargement de votre espace sportif...</div>
+        <div className="text-sm text-[#3D5246] font-medium">Chargement de votre espace sportif...</div>
       </div>
     );
   }
@@ -896,11 +929,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   if (!data) {
     return (
       <div className="min-h-screen obsidian-ambient flex flex-col items-center justify-center p-6 gap-4">
-        <p className="text-sm text-red-300">{error || 'Impossible de charger les données.'}</p>
+        <p className="text-sm text-red-700 font-medium">{error || 'Impossible de charger les données.'}</p>
         <button
           type="button"
           onClick={handleLogout}
-          className="rounded-full bg-[#C8F62D] px-5 py-2.5 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[44px]"
+          className="rounded-full bg-[#0D6E46] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#095637] min-h-[44px]"
         >
           Retour à l'accueil
         </button>
@@ -920,32 +953,29 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   const regularityPct = Math.min(100, Math.max(0, data.stats.fourWeekRegularityPct || 0));
   const regularityCircumference = 301.59;
   const regularityOffset = regularityCircumference * (1 - regularityPct / 100);
-  const maxWeeklyDayMinutes = Math.max(
+  const maxDayDurationMin = Math.max(
     1,
     ...weeklySummary.days.map((d) => Math.max(d.minutesDone, d.minutesRemaining))
   );
 
   return (
-    <div className="min-h-screen obsidian-ambient text-[#F5F7F1] flex flex-col md:flex-row">
+    <div className="min-h-screen obsidian-ambient text-[#063725] flex flex-col md:flex-row">
       {/* Desktop & Tablet Detached Sidebar */}
-      <aside className="hidden md:flex md:w-64 md:shrink-0 md:flex-col md:sticky md:top-0 md:h-screen md:overflow-y-auto border-r border-white/[0.08] bg-[#0C0F0A]">
-        <div className="p-5 border-b border-white/[0.08]">
+      <aside className="hidden md:flex md:w-64 md:shrink-0 md:flex-col md:sticky md:top-0 md:h-screen md:overflow-y-auto border-r border-[#D5E2DA] bg-white">
+        <div className="p-5 border-b border-[#E2EBE5]">
           <div className="flex items-center gap-2.5">
             <img
-              src="/brand/terrain-mark.png"
+              src="/brand/terrain-logo.png"
               alt="Terrain+"
               decoding="async"
               referrerPolicy="no-referrer"
-              className="h-8 w-8 rounded-lg object-contain shrink-0"
+              className="h-9 w-auto max-w-[165px] object-contain shrink-0"
             />
-            <span className="font-display text-lg font-bold tracking-tight text-[#F5F7F1]">
-              Terrain<span className="text-[#C8F62D]">+</span>
-            </span>
           </div>
-          <div className={`mt-2.5 text-xs font-semibold ${sportTheme.accentTextClass}`}>
+          <div className="mt-2.5 text-xs font-semibold text-[#0D6E46]">
             {sportTheme.nom} · {LEVEL_LABELS[data.profile.niveau]}
           </div>
-          <div className="mt-1 font-mono text-[11px] font-medium text-[#8E9784]">
+          <div className="mt-0.5 font-mono text-[11px] font-medium text-[#5B7064]">
             {currentPlanShortLabel}
           </div>
         </div>
@@ -961,8 +991,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 onClick={() => setTab(item.id)}
                 className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm transition-colors min-h-[44px] ${
                   active
-                    ? 'bg-[#C8F62D] text-[#080A07] font-bold shadow-[0_6px_20px_rgba(200,246,45,0.22)]'
-                    : 'font-medium text-[#B4BCA9] hover:bg-white/[0.06] hover:text-[#F5F7F1]'
+                    ? 'bg-[#0D6E46] text-white font-bold shadow-[0_6px_18px_rgba(13,110,70,0.20)]'
+                    : 'font-medium text-[#3D5246] hover:bg-[#F1F6F3] hover:text-[#063725]'
                 }`}
               >
                 <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -972,11 +1002,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
           })}
         </nav>
 
-        <div className="p-4 border-t border-white/[0.08] space-y-3">
+        <div className="p-4 border-t border-[#E2EBE5] space-y-3">
           <button
             type="button"
             onClick={() => setShowPainModal(true)}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-red-400/35 bg-red-950/50 px-3 py-2.5 text-xs font-semibold text-red-200 hover:bg-red-950/80 min-h-[44px] transition-colors"
+            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700 hover:bg-red-100 min-h-[44px] transition-colors"
           >
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
             <span>Signaler une douleur</span>
@@ -987,7 +1017,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
           <button
             type="button"
             onClick={handleLogout}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-white/12 px-3 py-2 text-xs font-medium text-[#B4BCA9] hover:bg-white/[0.06] hover:text-[#F5F7F1] min-h-[40px] transition-colors"
+            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-[#D5E2DA] px-3 py-2 text-xs font-medium text-[#3D5246] hover:bg-[#F1F6F3] hover:text-[#063725] min-h-[40px] transition-colors"
           >
             <LogOut className="h-4 w-4" aria-hidden="true" />
             <span>Déconnexion</span>
@@ -997,49 +1027,44 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
       {/* Main Column */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Compact Mobile Top Bar (non-sticky; navigation is fixed at bottom on mobile) */}
-        <header className="md:hidden flex items-center justify-between gap-3 border-b border-white/[0.08] bg-[#0B0E09]/95 backdrop-blur-md px-4 h-[52px]">
-          <div className="flex items-center gap-2 min-w-0">
-            <img
-              src="/brand/terrain-mark.png"
-              alt="Terrain+"
-              decoding="async"
-              referrerPolicy="no-referrer"
-              className="h-7 w-7 rounded-md object-contain shrink-0"
-            />
-            <span className="font-display text-sm font-bold text-[#F5F7F1] whitespace-nowrap">
-              Terrain<span className="text-[#C8F62D]">+</span>
-            </span>
-            <span className={`text-xs font-semibold truncate ${sportTheme.accentTextClass}`}>
-              · {sportTheme.nom}
-            </span>
+        {/* Compact Mobile Top Bar with Hamburger Navigation Drawer */}
+        <header className="md:hidden border-b border-[#D5E2DA] bg-white/95 backdrop-blur-md">
+          <div className="flex items-center justify-between gap-3 px-4 h-[56px]">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((prev) => !prev)}
+                aria-label={mobileMenuOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
+                aria-expanded={mobileMenuOpen}
+                className="p-2 rounded-xl border border-[#C3D6CA] bg-white text-[#063725] hover:bg-[#F1F6F3] min-h-[38px] min-w-[38px] flex items-center justify-center shrink-0"
+              >
+                {mobileMenuOpen ? <X className="h-4 w-4" aria-hidden="true" /> : <Menu className="h-4 w-4" aria-hidden="true" />}
+              </button>
+              <img
+                src="/brand/terrain-logo.png"
+                alt="Terrain+"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                className="h-7 w-auto object-contain shrink-0"
+              />
+              <span className="text-xs font-semibold truncate text-[#0D6E46]">
+                · {sportTheme.nom}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowPainModal(true)}
+                className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 min-h-[36px]"
+              >
+                <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Douleur</span>
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setShowPainModal(true)}
-              className="inline-flex items-center gap-1 rounded-full bg-red-950/60 border border-red-400/35 px-2.5 py-1.5 text-xs font-semibold text-red-200 min-h-[36px]"
-            >
-              <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Douleur</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="p-2 text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[40px] min-w-[40px] flex items-center justify-center"
-              aria-label="Déconnexion"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        </header>
 
-        {/* Main Viewport */}
-        <main className="flex-1 pb-24 md:pb-12">
-          <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-            {/* Desktop/Tablet Quick Cross-Page Bar (hidden on mobile where bottom tab bar is fixed) */}
-            <div className="hidden md:flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/[0.08] bg-[#121610] px-3 py-2.5">
-              <div className="flex items-center gap-1 overflow-x-auto">
+          {mobileMenuOpen && (
+            <nav aria-label="Menu athlète mobile" className="border-t border-[#E2EBE5] bg-white px-4 py-3 space-y-1.5">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const active = tab === item.id;
@@ -1047,42 +1072,84 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setTab(item.id)}
-                    className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs transition-colors min-h-[38px] whitespace-nowrap shrink-0 ${
-                      active
-                        ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                        : 'font-semibold text-[#B4BCA9] hover:bg-white/[0.06] hover:text-[#F5F7F1]'
+                    onClick={() => {
+                      setTab(item.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-xs font-semibold min-h-[40px] ${
+                      active ? 'bg-[#0D6E46] text-white' : 'bg-[#F6F8F5] text-[#063725]'
                     }`}
                   >
-                    <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
                     <span>{item.label}</span>
                   </button>
                 );
               })}
-            </div>
-            <span className="text-xs text-[#8E9784] hidden sm:inline">
-              {data.user.prenom} {data.user.nom} · {sportTheme.nom}
-            </span>
-          </div>
-          {error && (
-            <div className="rounded-xl border border-amber-400/30 bg-amber-950/50 px-4 py-3 text-xs text-amber-200 flex items-center gap-2">
-              <WifiOff className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {feedbackBanner && (
-            <div className="obsidian-card px-4 py-3 text-sm text-[#F5F7F1] flex items-center justify-between gap-4">
-              <span>{feedbackBanner}</span>
               <button
                 type="button"
-                onClick={() => setFeedbackBanner(null)}
-                className="text-xs font-medium text-[#B4BCA9] hover:text-[#F5F7F1]"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handleLogout();
+                }}
+                className="w-full flex items-center gap-2.5 rounded-xl border border-[#D5E2DA] px-3.5 py-2.5 text-xs font-semibold text-[#3D5246] min-h-[40px]"
               >
-                Fermer
+                <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>Déconnexion</span>
               </button>
-            </div>
+            </nav>
           )}
+        </header>
+
+        {/* Main Viewport */}
+        <main className="flex-1 pb-24 md:pb-12">
+          <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-8 space-y-6">
+            {/* Desktop/Tablet Quick Cross-Page Bar (hidden on mobile where bottom tab bar is fixed) */}
+            <div className="hidden md:flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#D5E2DA] bg-white px-3 py-2.5 shadow-sm">
+              <div className="flex items-center gap-1 overflow-x-auto">
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const active = tab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setTab(item.id)}
+                      className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs transition-colors min-h-[38px] whitespace-nowrap shrink-0 ${
+                        active
+                          ? 'bg-[#0D6E46] text-white font-bold shadow-sm'
+                          : 'font-semibold text-[#3D5246] hover:bg-[#F1F6F3] hover:text-[#063725]'
+                      }`}
+                    >
+                      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="text-xs font-medium text-[#5B7064] hidden sm:inline">
+                {data.user.prenom} {data.user.nom} · {sportTheme.nom}
+              </span>
+            </div>
+
+            {error && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 flex items-center gap-2">
+                <WifiOff className="h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {feedbackBanner && (
+              <div className="obsidian-card rounded-2xl px-4 py-3 text-sm text-[#063725] flex items-center justify-between gap-4">
+                <span>{feedbackBanner}</span>
+                <button
+                  type="button"
+                  onClick={() => setFeedbackBanner(null)}
+                  className="text-xs font-semibold text-[#0D6E46] hover:underline"
+                >
+                  Fermer
+                </button>
+              </div>
+            )}
 
           {/* ---------------- TAB 1: DASHBOARD ---------------- */}
           {tab === 'dashboard' && (
@@ -1091,25 +1158,39 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
                 <div className="lg:col-span-7 obsidian-card-glow rounded-3xl p-6 flex flex-col justify-between">
                   <div>
-                    <div className="text-xs font-medium text-[#B4BCA9]">
-                      Bonjour {data.user.prenom} · <span className="text-[#C8F62D]">{sportTheme.nom}</span> · {data.profile.poste || 'Tout poste'}
+                    <div className="text-xs font-medium text-[#3D5246]">
+                      Bonjour {data.user.prenom} · <span className="font-semibold text-[#0D6E46]">{sportTheme.nom}</span> · {data.profile.poste || 'Tout poste'}
                     </div>
-                    <h1 className="mt-2 font-display text-2xl sm:text-3xl font-bold tracking-tight text-[#F5F7F1]">
+                    <h1 className="mt-2 font-display text-2xl sm:text-3xl font-bold tracking-tight text-[#063725]">
                       {todaySession?.session ? todaySession.session.titre : 'Séance de récupération'}
                     </h1>
-                    <p className="mt-2 text-sm text-[#B4BCA9]">
-                      Objectif de la semaine : {data.program?.objectif || data.profile.objectif || 'Maintenir la régularité'}
-                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[#3D5246]">
+                      <span>
+                        Objectif :{' '}
+                        <strong className="text-[#063725]">
+                          {resolveObjectiveSpec(data.program?.objectif || data.profile.objectif).shortLabel}
+                        </strong>
+                        {' · '}
+                        {resolveObjectiveSpec(data.program?.objectif || data.profile.objectif).sportGuidance[data.profile.sport_code]}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setTab('profil')}
+                        className="text-xs font-semibold text-[#0D6E46] hover:underline"
+                      >
+                        Modifier
+                      </button>
+                    </div>
 
                     {todaySession?.ajustee_par_coach && todaySession.motif_ajustement && (
-                      <div className="mt-3 obsidian-inset px-3.5 py-2.5 text-xs text-[#F5F7F1]">
+                      <div className="mt-3 obsidian-inset rounded-xl px-3.5 py-2.5 text-xs text-[#063725] font-medium">
                         Ajustement coach : {todaySession.motif_ajustement}
                       </div>
                     )}
                   </div>
 
-                  <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.08] pt-4">
-                    <div className="text-xs text-[#B4BCA9] font-mono tabular-nums">
+                  <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-[#E2EBE5] pt-4">
+                    <div className="text-xs text-[#3D5246] font-mono tabular-nums">
                       {todaySession?.session
                         ? `${todaySession.session.duree_min} min · Prévention ${todaySession.session.prevention_focus}`
                         : 'Repos actif'}
@@ -1124,7 +1205,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             scheduledId: todaySession.id,
                           })
                         }
-                        className="inline-flex items-center gap-2 rounded-full bg-[#C8F62D] px-6 py-3 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] transition-colors min-h-[44px] shadow-[0_10px_28px_rgba(200,246,45,0.28)]"
+                        className="inline-flex items-center gap-2 rounded-full bg-[#0D6E46] px-6 py-3 text-sm font-bold text-white hover:bg-[#095637] transition-colors min-h-[44px] shadow-[0_10px_24px_rgba(13,110,70,0.22)]"
                       >
                         <Play className="h-4 w-4" aria-hidden="true" />
                         <span>{todaySession.completed ? 'Refaire la séance' : 'Commencer la séance'}</span>
@@ -1136,27 +1217,27 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 {/* Sport visual + Circular Regularity Gauge */}
                 <div className="lg:col-span-5 obsidian-card rounded-3xl overflow-hidden flex flex-col">
                   {!ecoMode && isOnline ? (
-                    <div className="relative h-40 lg:h-44 bg-[#0D100B]">
+                    <div className="relative h-40 lg:h-44 bg-[#063725]">
                       <img
                         src={sportTheme.imageUrl}
                         alt={sportTheme.nom}
                         loading="lazy"
                         decoding="async"
                         referrerPolicy="no-referrer"
-                        className="h-full w-full object-cover opacity-85"
+                        className="h-full w-full object-cover opacity-90"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#080A07] via-[#080A07]/40 to-transparent" />
-                      <div className="absolute bottom-3 left-4 right-4 text-[#F5F7F1]">
-                        <div className="text-[11px] uppercase tracking-wider text-[#C8F62D] font-semibold">
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#063725]/90 via-[#063725]/35 to-transparent" />
+                      <div className="absolute bottom-3 left-4 right-4 text-white">
+                        <div className="text-[11px] uppercase tracking-wider text-emerald-200 font-semibold">
                           Prévention prioritaire
                         </div>
                         <div className="text-sm font-semibold">{sportTheme.preventionZones.join(' & ')}</div>
                       </div>
                     </div>
                   ) : (
-                    <div className="p-4 border-b border-white/[0.08] bg-[#161B13]">
-                      <div className="text-xs font-semibold text-[#C8F62D]">Mode éco données actif</div>
-                      <p className="mt-1 text-xs text-[#B4BCA9]">
+                    <div className="p-4 border-b border-[#E2EBE5] bg-[#F1F6F3]">
+                      <div className="text-xs font-semibold text-[#0D6E46]">Mode éco données actif</div>
+                      <p className="mt-1 text-xs text-[#3D5246]">
                         Images masquées pour économiser votre forfait mobile. Prévention : {sportTheme.preventionZones.join(' & ')}.
                       </p>
                     </div>
@@ -1165,16 +1246,16 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   <div className="p-5 flex-1 flex items-center justify-between gap-4">
                     <div className="space-y-3 min-w-0">
                       <div>
-                        <div className="text-xs text-[#8E9784]">Semaine en cours</div>
-                        <div className="mt-0.5 font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                        <div className="text-xs text-[#5B7064]">Semaine en cours</div>
+                        <div className="mt-0.5 font-mono text-2xl font-bold tabular-nums text-[#063725]">
                           {data.stats.weeklyCompleted}/{data.stats.weeklyTarget}
-                          <span className="ml-1.5 text-xs font-normal text-[#B4BCA9]">séances</span>
+                          <span className="ml-1.5 text-xs font-normal text-[#3D5246]">séances</span>
                         </div>
                       </div>
-                      <div className="text-xs text-[#B4BCA9] font-mono tabular-nums">
-                        Difficulté moy. : <span className="text-[#F5F7F1]">{data.stats.avgRpe ? `${data.stats.avgRpe}/10` : '—'}</span>
+                      <div className="text-xs text-[#3D5246] font-mono tabular-nums">
+                        Difficulté moy. : <span className="font-semibold text-[#063725]">{data.stats.avgRpe ? `${data.stats.avgRpe}/10` : '—'}</span>
                         <br />
-                        Sommeil moy. : <span className="text-[#F5F7F1]">{data.stats.avgSleep ? `${data.stats.avgSleep}/10` : '—'}</span>
+                        Sommeil moy. : <span className="font-semibold text-[#063725]">{data.stats.avgSleep ? `${data.stats.avgSleep}/10` : '—'}</span>
                       </div>
                     </div>
 
@@ -1185,7 +1266,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           cy="60"
                           r="48"
                           fill="none"
-                          stroke="rgba(255,255,255,0.08)"
+                          stroke="#E2EBE5"
                           strokeWidth="10"
                         />
                         <circle
@@ -1193,7 +1274,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           cy="60"
                           r="48"
                           fill="none"
-                          stroke="#C8F62D"
+                          stroke="#0D6E46"
                           strokeWidth="10"
                           strokeLinecap="round"
                           strokeDasharray={regularityCircumference}
@@ -1201,10 +1282,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         />
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                        <span className="font-mono text-lg font-bold tabular-nums text-[#F5F7F1]">
+                        <span className="font-mono text-lg font-bold tabular-nums text-[#063725]">
                           {regularityPct}%
                         </span>
-                        <span className="text-[9px] uppercase tracking-wider text-[#8E9784]">
+                        <span className="text-[9px] uppercase tracking-wider text-[#5B7064] font-semibold">
                           Régularité
                         </span>
                       </div>
@@ -1213,21 +1294,18 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 </div>
               </div>
 
-              {/* Training Statistics Summary & Weekly Completed Sessions */}
+              {/* Simplified Weekly Summary with Progressive Bars + Concrete 7-Day Timeline */}
               <section
                 aria-labelledby="training-stats-heading"
                 className="obsidian-card rounded-3xl p-6 space-y-6"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <BarChart3 className="h-4 w-4 text-[#C8F62D]" aria-hidden="true" />
-                      <h2 id="training-stats-heading" className="text-base font-semibold text-[#F5F7F1]">
-                        Statistiques d’entraînement de la semaine
-                      </h2>
-                    </div>
-                    <p className="mt-0.5 text-xs text-[#8E9784]">
-                      Récapitulatif de votre volume réalisé, de votre charge ressentie et de vos séances validées.
+                    <h2 id="training-stats-heading" className="text-base font-semibold text-[#063725]">
+                      Progression de la semaine
+                    </h2>
+                    <p className="mt-0.5 text-xs text-[#5B7064]">
+                      Avancement clair de vos séances, minutes effectuées et planning concret jour par jour.
                     </p>
                   </div>
 
@@ -1237,535 +1315,365 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       setProgrammeView('calendar');
                       setTab('programme');
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px] self-start sm:self-auto"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#C3D6CA] bg-[#F1F6F3] px-4 py-2 text-xs font-semibold text-[#063725] hover:bg-[#E2EBE5] min-h-[40px] self-start sm:self-auto"
                   >
                     <span>Voir le calendrier</span>
                     <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                 </div>
 
-                {/* 4 Key Weekly KPIs */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="obsidian-inset rounded-2xl p-4 space-y-2">
-                    <div className="text-xs text-[#8E9784]">Séances effectuées</div>
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
-                        {weeklySummary.completedSessions.length}/{data.stats.weeklyTarget}
-                      </span>
-                      <span className="font-mono text-xs font-semibold tabular-nums text-[#C8F62D]">
+                {/* Progressive Bars (Barres progressives) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Bar 1: Sessions done */}
+                  <div className="obsidian-inset rounded-2xl p-4 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-[#3D5246]">Séances effectuées</span>
+                      <span className="font-mono text-xs font-bold tabular-nums text-[#0D6E46]">
                         {weeklySummary.completionPct}%
                       </span>
                     </div>
-                    <div className="h-1.5 w-full rounded-full bg-white/[0.08] overflow-hidden">
+                    <div className="font-mono text-xl font-bold tabular-nums text-[#063725]">
+                      {weeklySummary.completedSessions.length}
+                      <span className="text-xs font-normal text-[#5B7064]"> / {data.stats.weeklyTarget} prévues</span>
+                    </div>
+                    <div className="h-3 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
                       <div
-                        className="h-full transition-all bg-[#C8F62D]"
+                        className="h-full rounded-full bg-[#0D6E46] transition-all duration-500"
                         style={{ width: `${weeklySummary.completionPct}%` }}
                       />
                     </div>
                   </div>
 
-                  <div className="obsidian-inset rounded-2xl p-4 space-y-1.5">
-                    <div className="text-xs text-[#8E9784]">Temps d’entraînement</div>
-                    <div className="font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
-                      {weeklySummary.totalMinutesDone} min
-                    </div>
-                    <div className="flex items-end justify-between gap-2">
-                      <span className="text-xs font-mono tabular-nums text-[#8E9784]">
-                        sur {weeklySummary.totalMinutesPlanned} min
+                  {/* Bar 2: Minutes achieved */}
+                  <div className="obsidian-inset rounded-2xl p-4 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-[#3D5246]">Temps d’entraînement</span>
+                      <span className="font-mono text-xs font-bold tabular-nums text-[#0D6E46]">
+                        {weeklySummary.minutesPct}%
                       </span>
-                      <div className="flex items-end gap-1 h-4" aria-hidden="true">
-                        {weeklySummary.days.map((d) => {
-                          const totalDay = d.minutesDone + d.minutesRemaining;
-                          const heightPct = totalDay > 0 ? Math.max(20, Math.round((totalDay / maxWeeklyDayMinutes) * 100)) : 15;
-                          return (
-                            <span
-                              key={d.dayNum}
-                              className={`w-1 rounded-full ${
-                                d.minutesDone > 0
-                                  ? 'bg-[#C8F62D]'
-                                  : d.minutesRemaining > 0
-                                    ? 'bg-white/25'
-                                    : 'bg-white/[0.07]'
-                              }`}
-                              style={{ height: `${heightPct}%` }}
-                            />
-                          );
-                        })}
-                      </div>
+                    </div>
+                    <div className="font-mono text-xl font-bold tabular-nums text-[#063725]">
+                      {weeklySummary.totalMinutesDone} min
+                      <span className="text-xs font-normal text-[#5B7064]"> / {weeklySummary.totalMinutesPlanned} min</span>
+                    </div>
+                    <div className="h-3 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-[#15803D] transition-all duration-500"
+                        style={{ width: `${weeklySummary.minutesPct}%` }}
+                      />
                     </div>
                   </div>
 
-                  <div className="obsidian-inset rounded-2xl p-4 space-y-1.5">
-                    <div className="text-xs text-[#8E9784]">Charge et fatigue</div>
-                    <div className="font-mono text-2xl font-bold tabular-nums text-[#FB923C]">
-                      {data.stats.avgRpe !== null ? `${data.stats.avgRpe}/10` : '—'}
+                  {/* Bar 3: 4-week consistency */}
+                  <div className="obsidian-inset rounded-2xl p-4 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-[#3D5246]">Régularité (4 semaines)</span>
+                      <span className="font-mono text-xs font-bold tabular-nums text-[#0D6E46]">
+                        {regularityPct}%
+                      </span>
                     </div>
-                    <div className="text-xs font-mono tabular-nums text-[#8E9784]">
-                      Fatigue moy. : {weeklySummary.avgFatigue !== null ? `${weeklySummary.avgFatigue}/10` : '—'}
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-mono text-xl font-bold tabular-nums text-[#063725]">
+                        {data.stats.avgRpe !== null ? `${data.stats.avgRpe}/10` : '—'}
+                        <span className="ml-1 text-xs font-normal text-[#5B7064]">effort</span>
+                      </span>
+                      <span className="font-mono text-xs text-[#3D5246]">
+                        Sommeil {data.stats.avgSleep !== null ? `${data.stats.avgSleep}/10` : '—'}
+                      </span>
                     </div>
-                  </div>
-
-                  <div className="obsidian-inset rounded-2xl p-4 space-y-1.5">
-                    <div className="text-xs text-[#8E9784]">Sommeil et constance</div>
-                    <div className="font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
-                      {data.stats.avgSleep !== null ? `${data.stats.avgSleep}/10` : '—'}
-                    </div>
-                    <div className="text-xs font-mono tabular-nums text-[#C8F62D]">
-                      Régularité 4 sem. : {data.stats.fourWeekRegularityPct}%
+                    <div className="h-3 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-[#0D6E46] transition-all duration-500"
+                        style={{ width: `${regularityPct}%` }}
+                      />
                     </div>
                   </div>
                 </div>
 
-                {/* 7-Day Breakdown + Weekly Sessions List */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-4 border-t border-white/[0.08]">
-                  {/* Left: 7-day strip + minutes BarChart */}
-                  <div className="lg:col-span-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-[#F5F7F1]">Répartition hebdomadaire</h3>
-                      <span className="text-xs font-mono tabular-nums text-[#8E9784]">
-                        {weeklySummary.restDaysCount} j de repos
-                      </span>
+                {/* Concrete Weekly Distribution (Répartition hebdomadaire visuelle & concrète) */}
+                <div className="space-y-3 pt-4 border-t border-[#E2EBE5]">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-[#063725]">
+                        Répartition hebdomadaire · Lundi à Dimanche
+                      </h3>
+                      <p className="text-xs text-[#5B7064]">
+                        Cliquez directement sur une séance planifiée pour la démarrer ou revoir votre séance terminée.
+                      </p>
                     </div>
-
-                    <div className="grid grid-cols-7 gap-1.5">
-                      {weeklySummary.days.map((d) => (
-                        <div
-                          key={d.dayNum}
-                          className={`rounded-xl border p-2 text-center flex flex-col items-center justify-between gap-1 ${
-                            d.status === 'done'
-                              ? 'border-[#C8F62D]/40 bg-[#C8F62D]/10'
-                              : d.status === 'planned'
-                                ? 'border-white/12 bg-[#181D15]'
-                                : 'border-white/[0.05] bg-[#0D100B]'
-                          }`}
-                        >
-                          <span className="text-[11px] font-semibold text-[#F5F7F1]">{d.dayLabel}</span>
-                          <span className="text-[10px] font-mono tabular-nums text-[#8E9784]">{d.dateLabel}</span>
-                          {d.status === 'done' ? (
-                            <CheckCircle2 className="h-4 w-4 text-[#C8F62D]" aria-label="Séance effectuée" />
-                          ) : d.status === 'planned' ? (
-                            <Clock className="h-4 w-4 text-[#8E9784]" aria-label="Séance planifiée" />
-                          ) : (
-                            <span className="text-[10px] font-medium text-[#8E9784] leading-4">Repos</span>
-                          )}
-                          <span className="text-[10px] font-mono tabular-nums text-[#B4BCA9]">
-                            {d.status === 'done'
-                              ? `${d.minutesDone}m`
-                              : d.status === 'planned'
-                                ? `${d.minutesRemaining}m`
-                                : '—'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="h-44 w-full pt-1">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={weeklySummary.days}
-                          margin={{ top: 8, right: 4, left: -24, bottom: 0 }}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.07)" vertical={false} />
-                          <XAxis dataKey="dayLabel" tick={{ fontSize: 11, fill: '#8E9784' }} axisLine={false} tickLine={false} />
-                          <YAxis tick={{ fontSize: 11, fill: '#8E9784' }} unit="m" axisLine={false} tickLine={false} />
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: '#121610',
-                              borderColor: 'rgba(255,255,255,0.14)',
-                              borderRadius: '12px',
-                              color: '#F5F7F1',
-                            }}
-                            formatter={(value, name) => [
-                              `${value ?? 0} min`,
-                              name === 'minutesDone' ? 'Effectuées' : 'Planifiées restantes',
-                            ]}
-                          />
-                          <Bar
-                            dataKey="minutesDone"
-                            stackId="week"
-                            name="minutesDone"
-                            fill="#C8F62D"
-                            radius={[4, 4, 0, 0]}
-                          />
-                          <Bar
-                            dataKey="minutesRemaining"
-                            stackId="week"
-                            name="minutesRemaining"
-                            fill="rgba(255,255,255,0.14)"
-                            radius={[4, 4, 0, 0]}
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
+                    <span className="font-mono text-xs font-medium text-[#5B7064]">
+                      {weeklySummary.restDaysCount} jour{weeklySummary.restDaysCount > 1 ? 's' : ''} de récupération
+                    </span>
                   </div>
 
-                  {/* Right: Completed vs Remaining Sessions Summary */}
-                  <div className="lg:col-span-7 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-sm font-semibold text-[#F5F7F1]">
-                        Résumé des séances de la semaine
-                      </h3>
+                  <div className="space-y-2.5">
+                    {weeklySummary.days.map((d) => {
+                      const targetMin = d.status === 'done' ? d.minutesDone : d.minutesRemaining;
+                      const barScalePct =
+                        targetMin > 0 ? Math.max(18, Math.round((targetMin / maxDayDurationMin) * 100)) : 0;
 
-                      <div className="inline-flex items-center gap-1 rounded-full bg-[#181D15] border border-white/[0.08] p-1">
-                        <button
-                          type="button"
-                          onClick={() => setWeekDetailFilter('completed')}
-                          className={`rounded-full px-3 py-1.5 text-xs min-h-[34px] transition-colors ${
-                            weekDetailFilter === 'completed'
-                              ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                              : 'font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
-                          }`}
-                        >
-                          Effectuées ({weeklySummary.completedSessions.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setWeekDetailFilter('remaining')}
-                          className={`rounded-full px-3 py-1.5 text-xs min-h-[34px] transition-colors ${
-                            weekDetailFilter === 'remaining'
-                              ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                              : 'font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
-                          }`}
-                        >
-                          À venir ({weeklySummary.remainingSessions.length})
-                        </button>
-                      </div>
-                    </div>
-
-                    {weekDetailFilter === 'completed' ? (
-                      weeklySummary.completedSessions.length === 0 ? (
-                        <div className="obsidian-inset rounded-2xl p-5 text-center space-y-3">
-                          <p className="text-xs text-[#B4BCA9]">
-                            Aucune séance validée cette semaine pour le moment. Lancez votre séance du jour pour enregistrer vos premiers indicateurs.
-                          </p>
-                          {todaySession?.session && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setActivePlayer({
-                                  session: todaySession.session!,
-                                  scheduledId: todaySession.id,
-                                })
-                              }
-                              className="inline-flex items-center gap-1.5 rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
-                            >
-                              <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                              <span>Commencer maintenant</span>
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl border border-white/[0.08] bg-[#141811] divide-y divide-white/[0.06]">
-                          {weeklySummary.completedSessions.map((slot) => (
-                            <div
-                              key={slot.id}
-                              className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                            >
-                              <div className="space-y-1 min-w-0">
-                                <div className="flex flex-wrap items-center gap-2 text-xs text-[#8E9784]">
-                                  <span className="font-semibold text-[#F5F7F1]">
-                                    {DAY_NAMES[slot.jour_semaine - 1] || `Jour ${slot.jour_semaine}`}
-                                  </span>
-                                  <span>·</span>
-                                  <span className="font-mono tabular-nums">
-                                    {slot.completed_at ? slot.completed_at.slice(0, 10) : slot.date_prevue}
-                                  </span>
-                                  {slot.session && (
-                                    <>
-                                      <span>·</span>
-                                      <span className="font-mono tabular-nums font-medium text-[#C8F62D]">
-                                        {slot.session.duree_min} min
-                                      </span>
-                                    </>
+                      if (d.status === 'rest') {
+                        return (
+                          <div
+                            key={d.dayNum}
+                            className={`rounded-2xl border border-dashed px-4 py-3 flex items-center justify-between gap-3 ${
+                              d.isToday
+                                ? 'border-[#0D6E46] bg-[#ECF7F1]/50'
+                                : 'border-[#D5E2DA] bg-[#F6F8F5]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-16 shrink-0">
+                                <div className="text-xs font-bold text-[#063725] flex items-center gap-1.5">
+                                  <span>{d.dayLabel}</span>
+                                  {d.isToday && (
+                                    <span className="rounded bg-[#0D6E46] px-1.5 py-0.5 text-[9px] font-bold text-white">
+                                      Auj.
+                                    </span>
                                   )}
                                 </div>
-
-                                <div className="text-sm font-semibold text-[#F5F7F1] truncate">
-                                  {slot.session ? slot.session.titre : 'Séance complétée'}
-                                </div>
-
-                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#B4BCA9] font-mono tabular-nums">
-                                  <span>Difficulté {slot.difficulte ?? '—'}/10</span>
-                                  <span>Fatigue {slot.ressenti_fatigue ?? '—'}/10</span>
-                                  <span>Sommeil {slot.qualite_sommeil ?? '—'}/10</span>
-                                </div>
+                                <div className="font-mono text-[11px] text-[#5B7064]">{d.dateLabel}</div>
                               </div>
-
-                              {slot.session && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setActivePlayer({ session: slot.session!, scheduledId: slot.id })
-                                  }
-                                  className="inline-flex items-center justify-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px] shrink-0"
-                                >
-                                  <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                                  <span>Refaire</span>
-                                </button>
-                              )}
+                              <div className="text-xs text-[#5B7064]">
+                                Jour de récupération · Sommeil & hydratation
+                              </div>
                             </div>
-                          ))}
-                        </div>
-                      )
-                    ) : weeklySummary.remainingSessions.length === 0 ? (
-                      <div className="rounded-2xl border border-[#C8F62D]/30 bg-[#C8F62D]/10 p-5 text-xs text-[#F5F7F1]">
-                        Toutes les séances planifiées de la semaine ont été réalisées. Vous pouvez choisir une séance complémentaire dans la bibliothèque du programme.
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-white/[0.08] bg-[#141811] divide-y divide-white/[0.06]">
-                        {weeklySummary.remainingSessions.map((slot) => (
-                          <div
-                            key={slot.id}
-                            className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                          >
-                            <div className="space-y-1 min-w-0">
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-[#8E9784]">
-                                <span className="font-semibold text-[#F5F7F1]">
-                                  {DAY_NAMES[slot.jour_semaine - 1] || `Jour ${slot.jour_semaine}`}
+                            <span className="text-[11px] font-medium text-[#5B7064] shrink-0">Repos</span>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={d.dayNum}
+                          className={`rounded-2xl border px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                            d.status === 'done'
+                              ? 'border-[#BFE0CD] bg-[#ECF7F1]'
+                              : d.isToday
+                                ? 'border-[#0D6E46] bg-white shadow-sm ring-1 ring-[#0D6E46]/20'
+                                : 'border-[#D5E2DA] bg-white hover:border-[#0D6E46]/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="w-16 shrink-0">
+                              <div className="text-xs font-bold text-[#063725] flex items-center gap-1.5">
+                                <span>{d.dayLabel}</span>
+                                {d.isToday && (
+                                  <span className="rounded bg-[#0D6E46] px-1.5 py-0.5 text-[9px] font-bold text-white">
+                                    Auj.
+                                  </span>
+                                )}
+                              </div>
+                              <div className="font-mono text-[11px] text-[#5B7064]">{d.dateLabel}</div>
+                            </div>
+
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-sm font-semibold text-[#063725] truncate">
+                                  {d.sessionTitle || (d.status === 'done' ? 'Séance réalisée' : 'Séance programmée')}
+                                </div>
+                                <span className="font-mono text-xs font-semibold tabular-nums text-[#0D6E46] shrink-0">
+                                  {targetMin} min
                                 </span>
-                                <span>·</span>
-                                <span className="font-mono tabular-nums">{slot.date_prevue}</span>
-                                {slot.session && (
-                                  <>
-                                    <span>·</span>
-                                    <span className="font-mono tabular-nums font-medium text-[#C8F62D]">
-                                      {slot.session.duree_min} min
-                                    </span>
-                                  </>
-                                )}
-                                {slot.ajustee_par_coach && (
-                                  <>
-                                    <span>·</span>
-                                    <span className="font-semibold text-[#C8F62D]">
-                                      Ajustée coach
-                                    </span>
-                                  </>
-                                )}
                               </div>
-                              <div className="text-sm font-semibold text-[#F5F7F1] truncate">
-                                {slot.session ? slot.session.titre : 'Séance planifiée'}
+
+                              {/* Concrete visual progress bar for the day's session */}
+                              <div className="h-2 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${
+                                    d.status === 'done' ? 'bg-[#0D6E46]' : 'bg-[#0D6E46]/35'
+                                  }`}
+                                  style={{ width: `${barScalePct}%` }}
+                                />
                               </div>
-                              {slot.session && (
-                                <div className="text-xs text-[#B4BCA9]">
-                                  Prévention : {slot.session.prevention_focus}
+
+                              {d.primarySlot?.completed && (
+                                <div className="text-[11px] font-mono text-[#3D5246] tabular-nums">
+                                  Difficulté {d.primarySlot.difficulte ?? '—'}/10 · Fatigue {d.primarySlot.ressenti_fatigue ?? '—'}/10 · Sommeil {d.primarySlot.qualite_sommeil ?? '—'}/10
                                 </div>
                               )}
                             </div>
+                          </div>
 
-                            {slot.session && (
+                          <div className="flex items-center justify-end gap-2 shrink-0">
+                            {d.status === 'done' ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#0D6E46]">
+                                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                                <span>Fait</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-[#5B7064]">
+                                <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                                <span>À faire</span>
+                              </span>
+                            )}
+                            {d.primarySlot?.session && (
                               <button
                                 type="button"
                                 onClick={() =>
-                                  setActivePlayer({ session: slot.session!, scheduledId: slot.id })
+                                  setActivePlayer({
+                                    session: d.primarySlot!.session!,
+                                    scheduledId: d.primarySlot!.id,
+                                  })
                                 }
-                                className="inline-flex items-center justify-center gap-1.5 rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px] shrink-0"
+                                className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold min-h-[36px] transition-colors ${
+                                  d.status === 'done'
+                                    ? 'border border-[#C3D6CA] bg-white text-[#063725] hover:bg-[#F1F6F3]'
+                                    : 'bg-[#0D6E46] text-white hover:bg-[#095637]'
+                                }`}
                               >
                                 <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                                <span>Lancer</span>
+                                <span>{d.status === 'done' ? 'Refaire' : 'Lancer'}</span>
                               </button>
                             )}
                           </div>
-                        ))}
-                      </div>
-                    )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </section>
 
-              {/* Indicators + Coach + Alerts */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Weight & Eval Chart */}
-                <div className="lg:col-span-7 obsidian-card rounded-3xl p-6">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-base font-semibold text-[#F5F7F1]">Indicateurs de suivi</h2>
-                      <p className="text-xs text-[#8E9784]">
-                        Évolution du poids (sans classement public) et dernier score d’évaluation
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-[#8E9784]">Dernière évaluation</div>
-                      <div className="font-mono text-lg font-bold tabular-nums text-[#C8F62D]">
-                        {latestEval ? `${latestEval.score_global}/100` : 'À faire'}
-                      </div>
-                    </div>
+              {/* Coach & Alerts (balanced 2-column row without Indicateurs de suivi chart) */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="obsidian-card-glow rounded-3xl p-6">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-base font-semibold text-[#063725]">Ma formule & Mon coach</h2>
+                    <span className="font-mono text-xs font-semibold text-[#0D6E46]">
+                      {currentPlanShortLabel}
+                    </span>
                   </div>
-
-                  <div className="mt-4 h-52 w-full">
-                    {data.weights.length > 0 ? (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={data.weights} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.07)" />
-                          <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#8E9784' }} axisLine={false} tickLine={false} />
-                          <YAxis domain={['dataMin - 2', 'dataMax + 2']} tick={{ fontSize: 11, fill: '#8E9784' }} axisLine={false} tickLine={false} />
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: '#121610',
-                              borderColor: 'rgba(255,255,255,0.14)',
-                              borderRadius: '12px',
-                              color: '#F5F7F1',
-                            }}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="poids_kg"
-                            name="Poids (kg)"
-                            stroke="#C8F62D"
-                            strokeWidth={2.5}
-                            dot={{ r: 4, fill: '#C8F62D', strokeWidth: 0 }}
-                            activeDot={{ r: 6, fill: '#F5F7F1' }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-xs text-[#8E9784]">
-                        Ajoutez votre poids dans Profil pour afficher la courbe.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Coach & Alerts */}
-                <div className="lg:col-span-5 space-y-6">
-                  <div className="obsidian-card-glow rounded-3xl p-5">
-                    <div className="flex items-center justify-between gap-2">
-                      <h2 className="text-base font-semibold text-[#F5F7F1]">Ma formule & Mon coach</h2>
-                      <span className="font-mono text-xs font-semibold text-[#C8F62D]">
-                        {currentPlanShortLabel}
-                      </span>
-                    </div>
-                    {currentPlanTier === 'COACH_PRIVE' && data.coach ? (
-                      <div className="mt-3 space-y-2.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-sm font-semibold text-[#F5F7F1]">
-                            {data.coach.prenom} {data.coach.nom}
-                          </div>
-                          <span className="text-[11px] font-semibold text-[#C8F62D]">
-                            Suivi Coach actif · {data.coach.zone}
-                          </span>
+                  {currentPlanTier === 'COACH_PRIVE' && data.coach ? (
+                    <div className="mt-3 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-[#063725]">
+                          {data.coach.prenom} {data.coach.nom}
                         </div>
-                        <div className="text-xs text-[#8E9784]">{data.coach.qualification}</div>
-                        {latestEval?.comments[0] && (
-                          <div className="obsidian-inset p-3 text-xs text-[#F5F7F1] leading-relaxed">
-                            Dernier commentaire : « {latestEval.comments[0].texte} »
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setTab('profil')}
-                          className="text-xs font-semibold text-[#C8F62D] underline hover:text-[#D7FA59]"
-                        >
-                          Gérer ma formule ou changer de coach
-                        </button>
+                        <span className="text-[11px] font-semibold text-[#0D6E46]">
+                          Suivi Coach actif · {data.coach.zone}
+                        </span>
                       </div>
-                    ) : currentPlanTier === 'PROGRESSION' ? (
-                      <div className="mt-2.5 space-y-3">
-                        <p className="text-xs text-[#B4BCA9] leading-relaxed">
-                          Votre formule <strong className="text-[#F5F7F1]">Progression+</strong> débloque le hors-ligne illimité, les cycles avancés et les courbes complètes d’évaluation. Ajoutez un coach dédié à tout moment pour passer à 5 000 FCFA / mois.
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setTab('profil')}
-                          className="rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
-                        >
-                          Ajouter un coach ou gérer ma formule
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="mt-2.5 space-y-3">
-                        <p className="text-xs text-[#B4BCA9] leading-relaxed">
-                          Vous utilisez l’accès <strong className="text-[#F5F7F1]">Essentiel (0 FCFA)</strong>. Débloquez tous les cycles avancés et le hors-ligne illimité dès 1 500 FCFA / mois, ou choisissez un coach dédié (5 000 FCFA / mois).
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => setTab('profil')}
-                          className="rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
-                        >
-                          Comparer les formules Terrain+
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="obsidian-card rounded-3xl p-5 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <h2 className="text-base font-semibold text-[#F5F7F1]">Alertes et rappels</h2>
+                      <div className="text-xs text-[#5B7064]">{data.coach.qualification}</div>
+                      {latestEval?.comments[0] && (
+                        <div className="obsidian-inset rounded-xl p-3 text-xs text-[#063725] leading-relaxed">
+                          Dernier commentaire : « {latestEval.comments[0].texte} »
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={() => setTab('profil')}
-                        className="text-xs font-medium text-[#B4BCA9] underline hover:text-[#F5F7F1]"
+                        className="text-xs font-semibold text-[#0D6E46] underline hover:text-[#095637]"
                       >
-                        Régler l’heure
+                        Gérer ma formule ou changer de coach
                       </button>
                     </div>
+                  ) : currentPlanTier === 'PROGRESSION' ? (
+                    <div className="mt-2.5 space-y-3">
+                      <p className="text-xs text-[#3D5246] leading-relaxed">
+                        Votre formule <strong className="text-[#063725]">Progression+</strong> débloque le hors-ligne illimité, les cycles avancés et les courbes complètes d’évaluation. Ajoutez un coach dédié à tout moment pour passer à 5 000 FCFA / mois.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTab('profil')}
+                        className="rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
+                      >
+                        Ajouter un coach ou gérer ma formule
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-2.5 space-y-3">
+                      <p className="text-xs text-[#3D5246] leading-relaxed">
+                        Vous utilisez l’accès <strong className="text-[#063725]">Essentiel (0 FCFA)</strong>. Débloquez tous les cycles avancés et le hors-ligne illimité dès 1 500 FCFA / mois, ou choisissez un coach dédié (5 000 FCFA / mois).
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setTab('profil')}
+                        className="rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
+                      >
+                        Comparer les formules Terrain+
+                      </button>
+                    </div>
+                  )}
+                </div>
 
-                    {notifEnabled && notifPermission === 'default' && !notifBannerDismissed && (
-                      <div className="obsidian-inset p-3.5 space-y-2.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2 text-xs font-semibold text-[#F5F7F1]">
-                            <BellRing className="h-4 w-4 text-[#C8F62D] shrink-0" aria-hidden="true" />
-                            <span>Activer les rappels push PWA avant vos séances</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setNotifBannerDismissed(true)}
-                            aria-label="Masquer"
-                            className="text-[#8E9784] hover:text-[#F5F7F1]"
-                          >
-                            <X className="h-3.5 w-3.5" aria-hidden="true" />
-                          </button>
+                <div className="obsidian-card rounded-3xl p-6 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-base font-semibold text-[#063725]">Alertes et rappels</h2>
+                    <button
+                      type="button"
+                      onClick={() => setTab('profil')}
+                      className="text-xs font-semibold text-[#0D6E46] underline hover:text-[#095637]"
+                    >
+                      Régler l’heure
+                    </button>
+                  </div>
+
+                  {notifEnabled && notifPermission === 'default' && !notifBannerDismissed && (
+                    <div className="obsidian-inset rounded-xl p-3.5 space-y-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 text-xs font-semibold text-[#063725]">
+                          <BellRing className="h-4 w-4 text-[#0D6E46] shrink-0" aria-hidden="true" />
+                          <span>Activer les rappels push PWA avant vos séances</span>
                         </div>
-                        <p className="text-[11px] text-[#B4BCA9] leading-relaxed">
-                          Recevez une alerte locale directement sur votre téléphone ou ordinateur ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()} votre horaire de {reminderTime}).
-                        </p>
                         <button
                           type="button"
-                          onClick={handleEnablePwaNotifications}
-                          className="inline-flex items-center gap-1.5 rounded-full bg-[#C8F62D] px-3.5 py-1.5 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[36px]"
+                          onClick={() => setNotifBannerDismissed(true)}
+                          aria-label="Masquer"
+                          className="text-[#5B7064] hover:text-[#063725]"
                         >
-                          <Bell className="h-3.5 w-3.5" aria-hidden="true" />
-                          <span>Autoriser les rappels PWA</span>
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       </div>
-                    )}
+                      <p className="text-[11px] text-[#3D5246] leading-relaxed">
+                        Recevez une alerte locale directement sur votre téléphone ou ordinateur ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()} votre horaire de {reminderTime}).
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleEnablePwaNotifications}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[36px]"
+                      >
+                        <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+                        <span>Autoriser les rappels PWA</span>
+                      </button>
+                    </div>
+                  )}
 
-                    {notifEnabled && notifPermission === 'granted' && nextReminder && (
-                      <div className="rounded-xl border border-[#C8F62D]/30 bg-[#C8F62D]/10 p-3 text-xs text-[#F5F7F1] flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="font-semibold flex items-center gap-1.5">
-                            <Bell className="h-3.5 w-3.5 text-[#C8F62D] shrink-0" aria-hidden="true" />
-                            <span className="truncate">Prochain rappel : {nextReminder.sessionTitle}</span>
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-[#B4BCA9] font-mono tabular-nums">
-                            {nextReminder.datePrevue} · {reminderTime} ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()})
-                          </div>
+                  {notifEnabled && notifPermission === 'granted' && nextReminder && (
+                    <div className="rounded-xl border border-[#BFE0CD] bg-[#ECF7F1] p-3 text-xs text-[#063725] flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-semibold flex items-center gap-1.5">
+                          <Bell className="h-3.5 w-3.5 text-[#0D6E46] shrink-0" aria-hidden="true" />
+                          <span className="truncate">Prochain rappel : {nextReminder.sessionTitle}</span>
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-[#3D5246] font-mono tabular-nums">
+                          {nextReminder.datePrevue} · {reminderTime} ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()})
                         </div>
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {data.alerts.length === 0 ? (
-                      <p className="text-xs text-[#8E9784]">Aucune alerte active.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {data.alerts.slice(0, 3).map((al) => (
-                          <button
-                            key={al.id}
-                            type="button"
-                            onClick={() => setTab(al.type === 'DOULEUR' ? 'evaluation' : 'profil')}
-                            className="w-full text-left rounded-xl border border-white/10 bg-[#181D15]/70 p-3 hover:bg-[#181D15] transition-colors"
-                          >
-                            <div className="flex items-center justify-between text-xs">
-                              <span className={`font-semibold ${al.type === 'DOULEUR' ? 'text-red-300' : 'text-[#F5F7F1]'}`}>
-                                {al.type === 'DOULEUR' ? 'Signal douleur' : al.type}
-                              </span>
-                              <span className="text-[#8E9784]">{al.traitee ? 'Traitée' : 'En cours'}</span>
-                            </div>
-                            <p className="mt-1 text-xs text-[#B4BCA9] line-clamp-2">{al.message}</p>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  {data.alerts.length === 0 ? (
+                    <p className="text-xs text-[#5B7064]">Aucune alerte active.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {data.alerts.slice(0, 3).map((al) => (
+                        <button
+                          key={al.id}
+                          type="button"
+                          onClick={() => setTab(al.type === 'DOULEUR' ? 'evaluation' : 'profil')}
+                          className="w-full text-left rounded-xl border border-[#D5E2DA] bg-[#F6F8F5] p-3 hover:bg-[#ECF7F1] transition-colors"
+                        >
+                          <div className="flex items-center justify-between text-xs">
+                            <span className={`font-semibold ${al.type === 'DOULEUR' ? 'text-red-700' : 'text-[#063725]'}`}>
+                              {al.type === 'DOULEUR' ? 'Signal douleur' : al.type}
+                            </span>
+                            <span className="text-[#5B7064]">{al.traitee ? 'Traitée' : 'En cours'}</span>
+                          </div>
+                          <p className="mt-1 text-xs text-[#3D5246] line-clamp-2">{al.message}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1773,8 +1681,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               <div className="obsidian-card rounded-3xl p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
-                    <h2 className="text-base font-semibold text-[#F5F7F1]">Groupes ASC / Campus et défis collectifs</h2>
-                    <p className="text-xs text-[#8E9784]">
+                    <h2 className="text-base font-semibold text-[#063725]">Groupes ASC / Campus et défis collectifs</h2>
+                    <p className="text-xs text-[#5B7064]">
                       Valorisation de la régularité collective · Aucun classement individuel public.
                     </p>
                   </div>
@@ -1784,11 +1692,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   {data.groups.map((grp) => (
                     <div key={grp.id} className="obsidian-inset rounded-2xl p-4 flex flex-col justify-between gap-3">
                       <div>
-                        <div className="text-xs text-[#8E9784]">
+                        <div className="text-xs text-[#5B7064]">
                           {grp.partner_type} · {grp.partner_nom} · {grp.zone}
                         </div>
-                        <div className="mt-1 text-sm font-semibold text-[#F5F7F1]">{grp.nom}</div>
-                        <div className="mt-1 text-xs text-[#B4BCA9] font-mono tabular-nums">
+                        <div className="mt-1 text-sm font-semibold text-[#063725]">{grp.nom}</div>
+                        <div className="mt-1 text-xs text-[#3D5246] font-mono tabular-nums">
                           Capitaine Prépa : {grp.captain_name} · {grp.member_count} membres
                         </div>
                       </div>
@@ -1797,8 +1705,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         onClick={() => handleToggleGroup(grp.id)}
                         className={`rounded-full px-3.5 py-2 text-xs min-h-[40px] border transition-colors ${
                           grp.joined
-                            ? 'border-white/15 bg-white/[0.04] font-medium text-[#B4BCA9] hover:bg-white/[0.08] hover:text-[#F5F7F1]'
-                            : 'border-[#C8F62D] bg-[#C8F62D] font-bold text-[#080A07] hover:bg-[#D7FA59]'
+                            ? 'border-[#C3D6CA] bg-white font-medium text-[#3D5246] hover:bg-[#F1F6F3] hover:text-[#063725]'
+                            : 'border-[#0D6E46] bg-[#0D6E46] font-bold text-white hover:bg-[#095637]'
                         }`}
                       >
                         {grp.joined ? 'Quitter le groupe' : 'Rejoindre le groupe'}
@@ -1807,19 +1715,19 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   ))}
                 </div>
 
-                <div className="mt-6 border-t border-white/[0.08] pt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="mt-6 border-t border-[#E2EBE5] pt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                   {data.challenges.map((ch) => {
                     const pct = Math.min(100, Math.round((ch.current_sessions / ch.target_sessions) * 100));
                     return (
                       <div key={ch.id} className="obsidian-inset rounded-2xl p-3.5">
-                        <div className="text-xs text-[#8E9784]">{ch.partner_nom} · {ch.periode}</div>
-                        <div className="mt-1 text-sm font-semibold text-[#F5F7F1]">{ch.titre}</div>
-                        <div className="mt-2 h-2 w-full rounded-full bg-white/[0.08] overflow-hidden">
-                          <div className="h-full bg-[#C8F62D]" style={{ width: `${pct}%` }} />
+                        <div className="text-xs text-[#5B7064]">{ch.partner_nom} · {ch.periode}</div>
+                        <div className="mt-1 text-sm font-semibold text-[#063725]">{ch.titre}</div>
+                        <div className="mt-2 h-2 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
+                          <div className="h-full bg-[#0D6E46]" style={{ width: `${pct}%` }} />
                         </div>
-                        <div className="mt-1.5 flex justify-between text-xs font-mono tabular-nums text-[#B4BCA9]">
+                        <div className="mt-1.5 flex justify-between text-xs font-mono tabular-nums text-[#3D5246]">
                           <span>{ch.indicateur}</span>
-                          <span className="text-[#C8F62D]">{ch.current_sessions}/{ch.target_sessions}</span>
+                          <span className="font-semibold text-[#0D6E46]">{ch.current_sessions}/{ch.target_sessions}</span>
                         </div>
                       </div>
                     );
@@ -1834,22 +1742,22 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="font-display text-2xl font-bold text-[#F5F7F1]">
+                  <h1 className="font-display text-2xl font-bold text-[#063725]">
                     Programme {sportTheme.nom}
                   </h1>
-                  <p className="mt-1 text-sm text-[#B4BCA9]">
+                  <p className="mt-1 text-sm text-[#3D5246]">
                     Visualisez vos séances passées et programmées, ajustements du coach et téléchargement hors ligne.
                   </p>
                 </div>
 
-                <div className="inline-flex items-center gap-1 rounded-full bg-[#121610] border border-white/[0.08] p-1 self-start">
+                <div className="inline-flex items-center gap-1 rounded-full bg-white border border-[#D5E2DA] p-1 self-start shadow-sm">
                   <button
                     type="button"
                     onClick={() => setProgrammeView('calendar')}
                     className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs min-h-[38px] transition-colors ${
                       programmeView === 'calendar'
-                        ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                        : 'font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
+                        ? 'bg-[#0D6E46] text-white font-bold shadow-sm'
+                        : 'font-medium text-[#3D5246] hover:text-[#063725]'
                     }`}
                   >
                     <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1860,8 +1768,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     onClick={() => setProgrammeView('list')}
                     className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs min-h-[38px] transition-colors ${
                       programmeView === 'list'
-                        ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                        : 'font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
+                        ? 'bg-[#0D6E46] text-white font-bold shadow-sm'
+                        : 'font-medium text-[#3D5246] hover:text-[#063725]'
                     }`}
                   >
                     <ClipboardCheck className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1876,10 +1784,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   <div className="lg:col-span-7 obsidian-card rounded-3xl p-4 sm:p-6 space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <h2 className="text-base font-semibold text-[#F5F7F1]">
+                        <h2 className="text-base font-semibold text-[#063725]">
                           {formatMonthTitle(calendarMonth.year, calendarMonth.month)}
                         </h2>
-                        <div className="mt-0.5 text-xs font-mono tabular-nums text-[#8E9784]">
+                        <div className="mt-0.5 text-xs font-mono tabular-nums text-[#5B7064]">
                           {calendarGrid.completedInMonth} effectuée{calendarGrid.completedInMonth > 1 ? 's' : ''} ·{' '}
                           {calendarGrid.plannedInMonth} programmée{calendarGrid.plannedInMonth > 1 ? 's' : ''}
                         </div>
@@ -1896,14 +1804,14 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             )
                           }
                           aria-label="Mois précédent"
-                          className="inline-flex items-center justify-center rounded-full border border-white/15 bg-[#181D15] text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px] min-w-[40px]"
+                          className="inline-flex items-center justify-center rounded-full border border-[#C3D6CA] bg-[#F1F6F3] text-[#063725] hover:bg-[#E2EBE5] min-h-[40px] min-w-[40px]"
                         >
                           <ChevronLeft className="h-4 w-4" aria-hidden="true" />
                         </button>
                         <button
                           type="button"
                           onClick={() => jumpToCalendarDate(todayIso)}
-                          className="rounded-full border border-white/15 bg-[#181D15] px-3.5 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px]"
+                          className="rounded-full border border-[#C3D6CA] bg-[#F1F6F3] px-3.5 py-2 text-xs font-semibold text-[#063725] hover:bg-[#E2EBE5] min-h-[40px]"
                         >
                           Aujourd’hui
                         </button>
@@ -1917,7 +1825,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             )
                           }
                           aria-label="Mois suivant"
-                          className="inline-flex items-center justify-center rounded-full border border-white/15 bg-[#181D15] text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px] min-w-[40px]"
+                          className="inline-flex items-center justify-center rounded-full border border-[#C3D6CA] bg-[#F1F6F3] text-[#063725] hover:bg-[#E2EBE5] min-h-[40px] min-w-[40px]"
                         >
                           <ChevronRight className="h-4 w-4" aria-hidden="true" />
                         </button>
@@ -1925,8 +1833,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     </div>
 
                     {/* Filter + Legend */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-y border-white/[0.08] py-2.5">
-                      <div className="inline-flex items-center gap-1 rounded-full bg-[#181D15] border border-white/[0.08] p-1">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-y border-[#E2EBE5] py-2.5">
+                      <div className="inline-flex items-center gap-1 rounded-full bg-[#F1F6F3] border border-[#D5E2DA] p-1">
                         {(
                           [
                             { id: 'all', label: 'Toutes' },
@@ -1940,8 +1848,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             onClick={() => setCalendarFilter(f.id)}
                             className={`rounded-full px-3 py-1 text-xs min-h-[32px] transition-colors ${
                               calendarFilter === f.id
-                                ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                                : 'font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
+                                ? 'bg-[#0D6E46] text-white font-bold shadow-sm'
+                                : 'font-medium text-[#3D5246] hover:text-[#063725]'
                             }`}
                           >
                             {f.label}
@@ -1949,21 +1857,21 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         ))}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-[#B4BCA9]">
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-[#3D5246]">
                         <span className="inline-flex items-center gap-1">
-                          <CheckCircle2 className="h-3.5 w-3.5 text-[#C8F62D]" aria-hidden="true" />
+                          <CheckCircle2 className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
                           <span>Effectuée</span>
                         </span>
                         <span className="inline-flex items-center gap-1">
-                          <Clock className={`h-3.5 w-3.5 ${sportTheme.accentTextClass}`} aria-hidden="true" />
+                          <Clock className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
                           <span>Programmée</span>
                         </span>
-                        <span className="text-[#8E9784]">Repos</span>
+                        <span className="text-[#5B7064]">Repos</span>
                       </div>
                     </div>
 
                     {/* Weekday Headers */}
-                    <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-center text-xs font-medium text-[#8E9784]">
+                    <div className="grid grid-cols-7 gap-1 sm:gap-1.5 text-center text-xs font-semibold text-[#5B7064]">
                       {DAY_NAMES.map((dayName) => (
                         <div key={dayName} className="py-1">
                           {dayName}
@@ -1992,30 +1900,30 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             }`}
                             className={`min-h-[58px] sm:min-h-[76px] rounded-xl border p-1.5 sm:p-2 text-left flex flex-col justify-between transition-colors ${
                               isSelected
-                                ? 'border-[#C8F62D] ring-1 ring-[#C8F62D] bg-[#1A2016]'
+                                ? 'border-[#0D6E46] ring-2 ring-[#0D6E46]/30 bg-[#ECF7F1]'
                                 : !cell.inCurrentMonth
-                                  ? 'border-white/[0.04] bg-[#0B0E09] text-[#8E9784] opacity-55 hover:opacity-90'
+                                  ? 'border-[#E2EBE5] bg-[#F6F8F5] text-[#5B7064] opacity-55 hover:opacity-90'
                                   : cell.completedCount > 0
-                                    ? 'border-[#C8F62D]/35 bg-[#C8F62D]/10 hover:bg-[#C8F62D]/15'
+                                    ? 'border-[#BFE0CD] bg-[#ECF7F1]/80 hover:bg-[#ECF7F1]'
                                     : cell.plannedCount > 0
-                                      ? 'border-white/12 bg-[#181D15] hover:bg-white/[0.08]'
-                                      : 'border-white/[0.06] bg-[#0E120C] hover:bg-[#141811]'
+                                      ? 'border-[#C3D6CA] bg-white hover:bg-[#F1F6F3]'
+                                      : 'border-[#E2EBE5] bg-[#FAFCFA] hover:bg-[#F1F6F3]'
                             }`}
                           >
                             <div className="flex items-center justify-between gap-1 w-full">
                               <span
                                 className={`font-mono text-xs font-semibold tabular-nums ${
                                   cell.isToday
-                                    ? 'text-[#C8F62D]'
+                                    ? 'text-[#0D6E46] font-bold'
                                     : cell.inCurrentMonth
-                                      ? 'text-[#F5F7F1]'
-                                      : 'text-[#8E9784]'
+                                      ? 'text-[#063725]'
+                                      : 'text-[#5B7064]'
                                 }`}
                               >
                                 {cell.dayNumber}
                               </span>
                               {cell.isToday && (
-                                <span className="hidden sm:inline text-[10px] font-semibold text-[#C8F62D]">
+                                <span className="hidden sm:inline text-[10px] font-bold text-[#0D6E46]">
                                   Auj.
                                 </span>
                               )}
@@ -2023,23 +1931,23 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
                             <div className="w-full space-y-0.5">
                               {cell.completedCount > 0 && (
-                                <div className="flex items-center gap-1 text-[10px] font-mono tabular-nums text-[#C8F62D]">
-                                  <CheckCircle2 className="h-3 w-3 shrink-0 text-[#C8F62D]" aria-hidden="true" />
+                                <div className="flex items-center gap-1 text-[10px] font-mono tabular-nums text-[#0D6E46] font-semibold">
+                                  <CheckCircle2 className="h-3 w-3 shrink-0 text-[#0D6E46]" aria-hidden="true" />
                                   <span className="hidden sm:inline truncate">
                                     {cell.totalMinutes > 0 ? `${cell.totalMinutes}m` : 'Fait'}
                                   </span>
                                 </div>
                               )}
                               {cell.plannedCount > 0 && (
-                                <div className={`flex items-center gap-1 text-[10px] font-mono tabular-nums ${sportTheme.accentTextClass}`}>
-                                  <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
+                                <div className="flex items-center gap-1 text-[10px] font-mono tabular-nums text-[#3D5246] font-medium">
+                                  <Clock className="h-3 w-3 shrink-0 text-[#0D6E46]" aria-hidden="true" />
                                   <span className="hidden sm:inline truncate">
                                     {cell.totalMinutes > 0 ? `${cell.totalMinutes}m` : 'Prévu'}
                                   </span>
                                 </div>
                               )}
                               {!hasActivity && cell.hasRest && (
-                                <div className="hidden sm:block text-[10px] text-[#8E9784]">Repos</div>
+                                <div className="hidden sm:block text-[10px] text-[#5B7064]">Repos</div>
                               )}
                             </div>
                           </button>
@@ -2051,29 +1959,29 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   {/* Selected Day Detail + Quick Chronology */}
                   <div className="lg:col-span-5 space-y-6">
                     <div className="obsidian-card rounded-3xl p-5 space-y-4">
-                      <div className="flex items-baseline justify-between gap-2 border-b border-white/[0.08] pb-3">
+                      <div className="flex items-baseline justify-between gap-2 border-b border-[#E2EBE5] pb-3">
                         <div>
-                          <div className="text-xs text-[#8E9784]">
+                          <div className="text-xs text-[#5B7064]">
                             {selectedCalendarDate === todayIso
                               ? 'Aujourd’hui'
                               : selectedCalendarDate < todayIso
                                 ? 'Date passée'
                                 : 'Date à venir'}
                           </div>
-                          <h2 className="text-base font-semibold text-[#F5F7F1]">
+                          <h2 className="text-base font-semibold text-[#063725]">
                             {formatFrenchDateLong(selectedCalendarDate)}
                           </h2>
                         </div>
                       </div>
 
                       {selectedDaySlots.length === 0 ? (
-                        <div className="obsidian-inset rounded-2xl p-4 text-xs text-[#B4BCA9] space-y-2">
+                        <div className="obsidian-inset rounded-2xl p-4 text-xs text-[#3D5246] space-y-2">
                           <p>
                             {calendarFilter === 'all'
                               ? 'Aucune séance programmée ou enregistrée à cette date.'
                               : 'Aucune séance ne correspond au filtre sélectionné à cette date.'}
                           </p>
-                          <p className="text-[#8E9784]">
+                          <p className="text-[#5B7064]">
                             Vous pouvez lancer une séance libre depuis la bibliothèque ci-dessous à tout moment.
                           </p>
                         </div>
@@ -2086,11 +1994,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             >
                               {slot.is_rest_day || !slot.session ? (
                                 <div className="space-y-1">
-                                  <div className="text-xs font-medium text-[#8E9784]">Récupération</div>
-                                  <div className="text-sm font-semibold text-[#F5F7F1]">
+                                  <div className="text-xs font-medium text-[#5B7064]">Récupération</div>
+                                  <div className="text-sm font-semibold text-[#063725]">
                                     Repos et récupération
                                   </div>
-                                  <p className="text-xs text-[#B4BCA9]">
+                                  <p className="text-xs text-[#3D5246]">
                                     Journée dédiée au sommeil, à l’hydratation et à la récupération musculaire.
                                   </p>
                                 </div>
@@ -2099,7 +2007,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                   <div className="space-y-1">
                                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                                       {slot.completed ? (
-                                        <span className="inline-flex items-center gap-1 font-semibold text-[#C8F62D]">
+                                        <span className="inline-flex items-center gap-1 font-semibold text-[#0D6E46]">
                                           <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
                                           <span>
                                             Effectuée
@@ -2107,44 +2015,44 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                           </span>
                                         </span>
                                       ) : (
-                                        <span className={`inline-flex items-center gap-1 font-semibold ${sportTheme.accentTextClass}`}>
+                                        <span className="inline-flex items-center gap-1 font-semibold text-[#0D6E46]">
                                           <Clock className="h-3.5 w-3.5" aria-hidden="true" />
                                           <span>
                                             {slot.date_prevue < todayIso ? 'Planifiée (en attente)' : 'Programmée'}
                                           </span>
                                         </span>
                                       )}
-                                      <span className="font-mono tabular-nums text-[#B4BCA9]">
+                                      <span className="font-mono tabular-nums text-[#3D5246]">
                                         {slot.session.duree_min} min
                                       </span>
                                     </div>
 
-                                    <div className="text-sm font-semibold text-[#F5F7F1]">
+                                    <div className="text-sm font-semibold text-[#063725]">
                                       {slot.session.titre}
                                     </div>
-                                    <div className="text-xs text-[#B4BCA9]">
+                                    <div className="text-xs text-[#3D5246]">
                                       Objectif : {slot.session.objectif} · Prévention {slot.session.prevention_focus}
                                     </div>
 
                                     {slot.ajustee_par_coach && (
-                                      <div className="rounded-lg bg-[#121610] border border-white/10 px-3 py-2 text-xs text-[#F5F7F1]">
+                                      <div className="rounded-lg bg-white border border-[#BFE0CD] px-3 py-2 text-xs text-[#063725] font-medium">
                                         Ajustée par le coach
                                         {slot.motif_ajustement ? ` : ${slot.motif_ajustement}` : ''}
                                       </div>
                                     )}
 
                                     {slot.completed && (
-                                      <div className="pt-1 text-xs font-mono tabular-nums text-[#B4BCA9]">
+                                      <div className="pt-1 text-xs font-mono tabular-nums text-[#3D5246]">
                                         Difficulté {slot.difficulte ?? '—'}/10 · Fatigue {slot.ressenti_fatigue ?? '—'}/10 · Sommeil {slot.qualite_sommeil ?? '—'}/10
                                       </div>
                                     )}
                                   </div>
 
-                                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/[0.08]">
+                                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#E2EBE5]">
                                     <button
                                       type="button"
                                       onClick={() => handleToggleOfflineSession(slot.session!)}
-                                      className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px]"
+                                      className="inline-flex items-center gap-1.5 rounded-full border border-[#C3D6CA] bg-white px-3.5 py-2 text-xs font-medium text-[#063725] hover:bg-[#F1F6F3] min-h-[40px]"
                                     >
                                       <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
                                       <span>{offlineMap[slot.session.id] ? 'Hors ligne OK' : 'Télécharger'}</span>
@@ -2154,7 +2062,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                       onClick={() =>
                                         setActivePlayer({ session: slot.session!, scheduledId: slot.id })
                                       }
-                                      className="inline-flex items-center gap-1.5 rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+                                      className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
                                     >
                                       <Play className="h-3.5 w-3.5" aria-hidden="true" />
                                       <span>{slot.completed ? 'Refaire' : 'Lancer'}</span>
@@ -2170,10 +2078,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
                     {/* Quick chronological access to all past & scheduled sessions */}
                     <div className="obsidian-card rounded-3xl p-5 space-y-3">
-                      <h3 className="text-sm font-semibold text-[#F5F7F1]">
+                      <h3 className="text-sm font-semibold text-[#063725]">
                         Toutes les séances du programme
                       </h3>
-                      <div className="divide-y divide-white/[0.06]">
+                      <div className="divide-y divide-[#E2EBE5]">
                         {data.schedule
                           .filter((s) => !s.is_rest_day && s.session)
                           .map((slot) => {
@@ -2185,28 +2093,28 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                 type="button"
                                 onClick={() => jumpToCalendarDate(slotDate)}
                                 className={`w-full py-2.5 px-2.5 -mx-2 rounded-xl text-left flex items-center justify-between gap-3 transition-colors min-h-[44px] ${
-                                  isCurrentSelected ? 'bg-[#C8F62D]/12 border border-[#C8F62D]/30' : 'hover:bg-white/[0.04]'
+                                  isCurrentSelected ? 'bg-[#ECF7F1] border border-[#BFE0CD]' : 'hover:bg-[#F1F6F3]'
                                 }`}
                               >
                                 <div className="min-w-0">
-                                  <div className="flex items-center gap-2 text-xs text-[#8E9784] font-mono tabular-nums">
+                                  <div className="flex items-center gap-2 text-xs text-[#5B7064] font-mono tabular-nums">
                                     <span>{DAY_NAMES[slot.jour_semaine - 1] || `J${slot.jour_semaine}`}</span>
                                     <span>·</span>
                                     <span>{slotDate}</span>
                                   </div>
-                                  <div className="text-xs font-semibold text-[#F5F7F1] truncate">
+                                  <div className="text-xs font-semibold text-[#063725] truncate">
                                     {slot.session!.titre}
                                   </div>
                                 </div>
-                                <div className="shrink-0 flex items-center gap-1.5 text-xs font-medium">
+                                <div className="shrink-0 flex items-center gap-1.5 text-xs font-semibold">
                                   {slot.completed ? (
-                                    <span className="inline-flex items-center gap-1 text-[#C8F62D]">
+                                    <span className="inline-flex items-center gap-1 text-[#0D6E46]">
                                       <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
                                       <span>Fait</span>
                                     </span>
                                   ) : (
-                                    <span className={`inline-flex items-center gap-1 ${sportTheme.accentTextClass}`}>
-                                      <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                                    <span className="inline-flex items-center gap-1 text-[#3D5246]">
+                                      <Clock className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
                                       <span>Prévu</span>
                                     </span>
                                   )}
@@ -2220,12 +2128,12 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 </div>
               ) : (
                 /* Weekly Schedule List View */
-                <div className="obsidian-card rounded-3xl divide-y divide-white/[0.06]">
+                <div className="obsidian-card rounded-3xl divide-y divide-[#E2EBE5]">
                   {data.schedule.map((slot) => (
                     <div key={slot.id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-[#8E9784]">
-                          <span className="font-semibold text-[#F5F7F1]">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-[#5B7064]">
+                          <span className="font-semibold text-[#063725]">
                             {DAY_NAMES[slot.jour_semaine - 1] || `Jour ${slot.jour_semaine}`}
                           </span>
                           <span>·</span>
@@ -2233,23 +2141,23 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           {slot.ajustee_par_coach && (
                             <>
                               <span>·</span>
-                              <span className="font-semibold text-[#C8F62D]">
+                              <span className="font-semibold text-[#0D6E46]">
                                 Ajustée par le coach {slot.date_ajustement ? `(${slot.date_ajustement.slice(0, 10)})` : ''}
                               </span>
                             </>
                           )}
                         </div>
 
-                        <div className="text-base font-semibold text-[#F5F7F1]">
+                        <div className="text-base font-semibold text-[#063725]">
                           {slot.is_rest_day || !slot.session ? 'Repos et récupération' : slot.session.titre}
                         </div>
 
                         {slot.motif_ajustement && (
-                          <p className="text-xs text-[#B4BCA9]">Motif : {slot.motif_ajustement}</p>
+                          <p className="text-xs text-[#3D5246]">Motif : {slot.motif_ajustement}</p>
                         )}
 
                         {slot.completed && (
-                          <div className="inline-flex items-center gap-1.5 text-xs text-[#C8F62D] font-medium">
+                          <div className="inline-flex items-center gap-1.5 text-xs text-[#0D6E46] font-semibold">
                             <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
                             <span>
                               Terminée · Fatigue {slot.ressenti_fatigue}/10 · Difficulté {slot.difficulte}/10
@@ -2263,7 +2171,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           <button
                             type="button"
                             onClick={() => handleToggleOfflineSession(slot.session!)}
-                            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px]"
+                            className="inline-flex items-center gap-1.5 rounded-full border border-[#C3D6CA] bg-white px-3.5 py-2 text-xs font-medium text-[#063725] hover:bg-[#F1F6F3] min-h-[40px]"
                           >
                             <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
                             <span>{offlineMap[slot.session.id] ? 'Hors ligne OK' : 'Télécharger'}</span>
@@ -2273,7 +2181,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             onClick={() =>
                               setActivePlayer({ session: slot.session!, scheduledId: slot.id })
                             }
-                            className="inline-flex items-center gap-1.5 rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+                            className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
                           >
                             <Play className="h-3.5 w-3.5" aria-hidden="true" />
                             <span>{slot.completed ? 'Refaire' : 'Lancer'}</span>
@@ -2290,34 +2198,68 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold text-[#F5F7F1]">
+                      <h2 className="text-lg font-semibold text-[#063725]">
                         Bibliothèque {sportTheme.nom} (relue avant diffusion)
                       </h2>
-                      <span className="font-mono text-xs text-[#8E9784]">
+                      <span className="font-mono text-xs text-[#5B7064]">
                         {Object.keys(offlineMap).length}
                         {isProgressionUnlocked ? ' hors ligne (illimité)' : '/2 hors ligne (Essentiel)'}
                       </span>
                     </div>
-                    <p className="text-xs text-[#8E9784]">
+                    <p className="text-xs text-[#5B7064]">
                       Toutes les séances incluent des consignes français/wolof et une variante facile ou exigeante.
                     </p>
                   </div>
 
-                  <div className="inline-flex items-center gap-1 rounded-full bg-[#121610] border border-white/[0.08] p-1 self-start overflow-x-auto max-w-full">
-                    {(['all', 'debutant', 'intermediaire', 'avance'] as const).map((lvl) => (
-                      <button
-                        key={lvl}
-                        type="button"
-                        onClick={() => setLevelFilter(lvl)}
-                        className={`rounded-full px-3 py-1.5 text-xs min-h-[36px] whitespace-nowrap transition-colors ${
-                          levelFilter === lvl
-                            ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                            : 'font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
+                  {/* Downward slide-down level filter */}
+                  <div className="relative self-start sm:self-auto w-full sm:w-56 z-20">
+                    <button
+                      type="button"
+                      aria-expanded={levelDropdownOpen}
+                      onClick={() => setLevelDropdownOpen((prev) => !prev)}
+                      className="w-full flex items-center justify-between gap-2 rounded-2xl border border-[#C3D6CA] bg-white px-4 py-2.5 text-xs font-semibold text-[#063725] shadow-xs hover:border-[#0D6E46] transition-colors min-h-[42px]"
+                    >
+                      <span className="truncate">
+                        Niveau : {levelFilter === 'all' ? 'Tous niveaux' : LEVEL_LABELS[levelFilter]}
+                      </span>
+                      <ChevronDown
+                        className={`h-4 w-4 text-[#0D6E46] shrink-0 transition-transform duration-200 ${
+                          levelDropdownOpen ? 'rotate-180' : ''
                         }`}
-                      >
-                        {lvl === 'all' ? 'Tous niveaux' : LEVEL_LABELS[lvl]}
-                      </button>
-                    ))}
+                        aria-hidden="true"
+                      />
+                    </button>
+                    <div
+                      className={`overflow-hidden transition-all duration-200 ease-out origin-top ${
+                        levelDropdownOpen
+                          ? 'max-h-64 opacity-100 mt-1.5'
+                          : 'max-h-0 opacity-0 pointer-events-none'
+                      }`}
+                    >
+                      <div className="rounded-2xl border border-[#D5E2DA] bg-white p-1.5 shadow-lg space-y-1">
+                        {(['all', 'debutant', 'intermediaire', 'avance'] as const).map((lvl) => {
+                          const active = levelFilter === lvl;
+                          return (
+                            <button
+                              key={lvl}
+                              type="button"
+                              onClick={() => {
+                                setLevelFilter(lvl);
+                                setLevelDropdownOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs text-left transition-colors ${
+                                active
+                                  ? 'bg-[#0D6E46] text-white font-semibold'
+                                  : 'text-[#3D5246] hover:bg-[#ECF7F1] hover:text-[#063725] font-medium'
+                              }`}
+                            >
+                              <span>{lvl === 'all' ? 'Tous niveaux' : LEVEL_LABELS[lvl]}</span>
+                              {active && <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -2328,39 +2270,41 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     return (
                       <div key={sess.id} className="obsidian-card rounded-3xl p-5 flex flex-col justify-between gap-4">
                         <div>
-                          <div className="flex items-center justify-between gap-2 text-xs text-[#8E9784]">
+                          <div className="flex items-center justify-between gap-2 text-xs text-[#5B7064]">
                             <span>
                               {LEVEL_LABELS[sess.niveau]} · {sess.duree_min} min · {sess.exercises.length} exercices
                             </span>
                             {sess.access_tier === 'PROGRESSION' ? (
                               <span
-                                className={`inline-flex items-center gap-1 font-semibold ${
-                                  isLockedProgression ? 'text-amber-300' : 'text-[#C8F62D]'
+                                className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[11px] font-semibold ${
+                                  isLockedProgression
+                                    ? 'border-amber-200 bg-amber-50 text-amber-800'
+                                    : 'border-[#BFE0CD] bg-[#ECF7F1] text-[#0D6E46]'
                                 }`}
                               >
                                 {isLockedProgression && <Lock className="h-3 w-3" aria-hidden="true" />}
                                 <span>Progression+</span>
                               </span>
                             ) : (
-                              <span className="font-medium text-[#8E9784]">Essentiel gratuit</span>
+                              <span className="font-medium text-[#5B7064]">Essentiel gratuit</span>
                             )}
                           </div>
-                          <h3 className="mt-1.5 text-base font-semibold text-[#F5F7F1]">{sess.titre}</h3>
-                          <p className="mt-1 text-xs text-[#B4BCA9]">Objectif : {sess.objectif}</p>
-                          <p className="mt-1 text-xs text-[#8E9784]">
+                          <h3 className="mt-1.5 text-base font-semibold text-[#063725]">{sess.titre}</h3>
+                          <p className="mt-1 text-xs text-[#3D5246]">Objectif : {sess.objectif}</p>
+                          <p className="mt-1 text-xs text-[#5B7064]">
                             Prévention : {sess.prevention_focus} {sess.relue_par ? `· Relue par ${sess.relue_par}` : ''}
                           </p>
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/[0.08]">
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-[#E2EBE5]">
                           <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
                               onClick={() => handleToggleOfflineSession(sess)}
-                              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium min-h-[40px] ${
+                              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium min-h-[40px] transition-colors ${
                                 cachedOffline
-                                  ? 'border-[#C8F62D]/40 bg-[#C8F62D]/12 text-[#C8F62D]'
-                                  : 'border-white/15 bg-white/[0.04] text-[#B4BCA9] hover:text-[#F5F7F1]'
+                                  ? 'border-[#BFE0CD] bg-[#ECF7F1] text-[#0D6E46]'
+                                  : 'border-[#D5E2DA] bg-[#F1F6F3] text-[#3D5246] hover:text-[#063725] hover:border-[#0D6E46]/40'
                               }`}
                             >
                               <HardDriveDownload className="h-4 w-4" aria-hidden="true" />
@@ -2379,9 +2323,9 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                 }
                                 setVideoPreviewSession({ session: sess, stepIdx: 0 });
                               }}
-                              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-3 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px]"
+                              className="inline-flex items-center gap-1.5 rounded-full border border-[#D5E2DA] bg-white px-3 py-2 text-xs font-medium text-[#063725] hover:bg-[#ECF7F1] hover:border-[#BFE0CD] min-h-[40px] transition-colors"
                             >
-                              <Video className="h-4 w-4" aria-hidden="true" />
+                              <Video className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
                               <span>Guides vidéo</span>
                             </button>
                           </div>
@@ -2389,10 +2333,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           <button
                             type="button"
                             onClick={() => handleLaunchLibrarySession(sess)}
-                            className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold min-h-[40px] ${
+                            className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold min-h-[40px] transition-colors ${
                               isLockedProgression
-                                ? 'border border-amber-400/35 bg-amber-950/50 text-amber-200 hover:bg-amber-950/80'
-                                : 'bg-[#C8F62D] text-[#080A07] hover:bg-[#D7FA59]'
+                                ? 'border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                : 'bg-[#0D6E46] text-white hover:bg-[#095637]'
                             }`}
                           >
                             {isLockedProgression ? (
@@ -2414,14 +2358,57 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 </div>
               </div>
 
+              {/* Curated Platform Guide Videos (if configured) */}
+              {getCuratedVideosForSport(data.profile.sport_code).length > 0 && (
+                <div className="space-y-4 pt-4 border-t border-[#E2EBE5]">
+                  <div>
+                    <h2 className="text-lg font-semibold text-[#063725]">
+                      Guides vidéo {sportTheme.nom} (chargés à la demande)
+                    </h2>
+                    <p className="text-xs text-[#5B7064]">
+                      Démonstrations optimisées pour éviter tout ralentissement sur mobile.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {getCuratedVideosForSport(data.profile.sport_code).map((gv) => (
+                      <div key={gv.id} className="obsidian-card rounded-3xl p-4 space-y-3">
+                        <h3 className="text-sm font-semibold text-[#063725]">{gv.titre}</h3>
+                        <CoachVideoPlayer
+                          video={{
+                            id: 0,
+                            coach_user_id: 0,
+                            coach_nom: 'Terrain+',
+                            athlete_user_id: null,
+                            athlete_nom: null,
+                            session_id: null,
+                            session_titre: null,
+                            sport_code: gv.sport_code === 'all' ? data.profile.sport_code : gv.sport_code,
+                            titre: gv.titre,
+                            description: gv.description,
+                            source_type: gv.source_type ?? 'EXTERNAL_URL',
+                            playback_url: gv.url,
+                            mime_type: gv.source_type === 'LOCAL_STORAGE' ? 'video/mp4' : null,
+                            file_size_bytes: gv.size_bytes ?? 0,
+                            created_at: '',
+                          }}
+                          ecoMode={ecoMode}
+                          theme="light"
+                        />
+                        <p className="text-xs text-[#3D5246] leading-relaxed">{gv.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Coach-shared Session Videos */}
               {(data.coachVideos || []).length > 0 && (
-                <div className="space-y-4 pt-4 border-t border-white/[0.08]">
+                <div className="space-y-4 pt-4 border-t border-[#E2EBE5]">
                   <div>
-                    <h2 className="text-lg font-semibold text-[#F5F7F1]">
+                    <h2 className="text-lg font-semibold text-[#063725]">
                       Vidéos de mon coach ({(data.coachVideos || []).length})
                     </h2>
-                    <p className="text-xs text-[#8E9784]">
+                    <p className="text-xs text-[#5B7064]">
                       Démonstrations et consignes partagées par {data.coach ? `${data.coach.prenom} ${data.coach.nom}` : 'votre coach'}.
                       {ecoMode ? ' Mode éco données actif : cliquez sur une vidéo pour la charger.' : ''}
                     </p>
@@ -2431,21 +2418,21 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     {(data.coachVideos || []).map((vid) => (
                       <div key={vid.id} className="obsidian-card rounded-3xl p-4 space-y-3">
                         <div className="space-y-0.5">
-                          <div className="text-[11px] font-mono text-[#8E9784]">
+                          <div className="text-[11px] font-mono text-[#5B7064]">
                             {SPORTS_CONFIG[vid.sport_code].nom} ·{' '}
                             {vid.athlete_user_id ? 'Vidéo personnalisée' : 'Partagée au groupe'} ·{' '}
                             {formatVideoSizeMb(vid.file_size_bytes)}
                           </div>
-                          <h3 className="text-sm font-semibold text-[#F5F7F1]">{vid.titre}</h3>
+                          <h3 className="text-sm font-semibold text-[#063725]">{vid.titre}</h3>
                           {vid.session_titre && (
-                            <div className="text-xs text-[#C8F62D]">Séance : {vid.session_titre}</div>
+                            <div className="text-xs font-medium text-[#0D6E46]">Séance : {vid.session_titre}</div>
                           )}
                         </div>
 
-                        <CoachVideoPlayer video={vid} ecoMode={ecoMode} />
+                        <CoachVideoPlayer video={vid} ecoMode={ecoMode} theme="light" />
 
                         {vid.description && (
-                          <p className="text-xs text-[#B4BCA9] leading-relaxed">{vid.description}</p>
+                          <p className="text-xs text-[#3D5246] leading-relaxed">{vid.description}</p>
                         )}
                       </div>
                     ))}
@@ -2454,37 +2441,69 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               )}
 
               {/* Illustrated Exercise & Anatomy Technique Sheets */}
-              <div className="space-y-4 pt-4 border-t border-white/[0.08]">
+              <div className="space-y-4 pt-4 border-t border-[#E2EBE5]">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-lg font-semibold text-[#F5F7F1]">
+                    <h2 className="text-lg font-semibold text-[#063725]">
                       Fiches techniques illustrées (Postures & Anatomie)
                     </h2>
-                    <p className="text-xs text-[#8E9784]">
+                    <p className="text-xs text-[#5B7064]">
                       Repères visuels d’alignement et muscles sollicités pour exécuter chaque mouvement sans vous blesser.
                     </p>
                   </div>
 
-                  <div className="inline-flex items-center gap-1 rounded-full bg-[#121610] border border-white/[0.08] p-1 self-start">
-                    {(['Toutes', 'Squats', 'Pompes', 'Gainage'] as const).map((cat) => (
-                      <button
-                        key={cat}
-                        type="button"
-                        onClick={() => setFicheCategoryFilter(cat)}
-                        className={`rounded-full px-3 py-1.5 text-xs min-h-[36px] whitespace-nowrap transition-colors ${
-                          ficheCategoryFilter === cat
-                            ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                            : 'font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
+                  {/* Downward slide-down category filter */}
+                  <div className="relative self-start sm:self-auto w-full sm:w-52 z-20">
+                    <button
+                      type="button"
+                      aria-expanded={ficheDropdownOpen}
+                      onClick={() => setFicheDropdownOpen((prev) => !prev)}
+                      className="w-full flex items-center justify-between gap-2 rounded-2xl border border-[#C3D6CA] bg-white px-4 py-2.5 text-xs font-semibold text-[#063725] shadow-xs hover:border-[#0D6E46] transition-colors min-h-[42px]"
+                    >
+                      <span className="truncate">Catégorie : {ficheCategoryFilter}</span>
+                      <ChevronDown
+                        className={`h-4 w-4 text-[#0D6E46] shrink-0 transition-transform duration-200 ${
+                          ficheDropdownOpen ? 'rotate-180' : ''
                         }`}
-                      >
-                        {cat}
-                      </button>
-                    ))}
+                        aria-hidden="true"
+                      />
+                    </button>
+                    <div
+                      className={`overflow-hidden transition-all duration-200 ease-out origin-top ${
+                        ficheDropdownOpen
+                          ? 'max-h-64 opacity-100 mt-1.5'
+                          : 'max-h-0 opacity-0 pointer-events-none'
+                      }`}
+                    >
+                      <div className="rounded-2xl border border-[#D5E2DA] bg-white p-1.5 shadow-lg space-y-1">
+                        {(['Toutes', 'Squats', 'Pompes', 'Gainage'] as const).map((cat) => {
+                          const active = ficheCategoryFilter === cat;
+                          return (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => {
+                                setFicheCategoryFilter(cat);
+                                setFicheDropdownOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs text-left transition-colors ${
+                                active
+                                  ? 'bg-[#0D6E46] text-white font-semibold'
+                                  : 'text-[#3D5246] hover:bg-[#ECF7F1] hover:text-[#063725] font-medium'
+                              }`}
+                            >
+                              <span>{cat}</span>
+                              {active && <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {ecoMode ? (
-                  <div className="obsidian-card rounded-3xl p-5 text-xs text-[#B4BCA9]">
+                  <div className="obsidian-card rounded-3xl p-5 text-xs text-[#3D5246]">
                     Mode éco données actif : les {filteredFiches.length} planches techniques illustrées sont masquées pour préserver votre forfait mobile. Désactivez le mode éco données dans Profil pour les afficher.
                   </div>
                 ) : (
@@ -2496,7 +2515,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           key={fiche.id}
                           className="obsidian-card rounded-3xl overflow-hidden flex flex-col justify-between"
                         >
-                          <div className="relative bg-[#F5F7F1] border-b border-white/[0.08] p-3">
+                          <div className="relative bg-[#F6F8F5] border-b border-[#E2EBE5] p-3">
                             <img
                               src={fiche.imageUrl}
                               alt={fiche.titre}
@@ -2506,8 +2525,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                               className={`h-44 w-full object-contain ${locked ? 'opacity-75' : ''}`}
                             />
                             <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
-                              <span className="font-semibold text-neutral-700">{fiche.category}</span>
-                              <span className={locked ? 'font-semibold text-amber-800' : 'font-semibold text-emerald-800'}>
+                              <span className="font-semibold text-[#3D5246]">{fiche.category}</span>
+                              <span className={locked ? 'font-semibold text-amber-800' : 'font-semibold text-[#0D6E46]'}>
                                 {fiche.tier === 'PROGRESSION' ? 'Progression+' : 'Essentiel gratuit'}
                               </span>
                             </div>
@@ -2515,9 +2534,9 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
                           <div className="p-4 flex-1 flex flex-col justify-between gap-3">
                             <div>
-                              <h3 className="text-sm font-semibold text-[#F5F7F1]">{fiche.titre}</h3>
-                              <div className="mt-1 text-[11px] font-medium text-[#C8F62D]">{fiche.muscles}</div>
-                              <p className="mt-1.5 text-xs text-[#B4BCA9] leading-relaxed">{fiche.caption}</p>
+                              <h3 className="text-sm font-semibold text-[#063725]">{fiche.titre}</h3>
+                              <div className="mt-1 text-[11px] font-semibold text-[#0D6E46]">{fiche.muscles}</div>
+                              <p className="mt-1.5 text-xs text-[#3D5246] leading-relaxed">{fiche.caption}</p>
                             </div>
 
                             <button
@@ -2525,18 +2544,18 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                               onClick={() => handleOpenTechniqueFiche(fiche)}
                               className={`w-full inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-xs min-h-[38px] transition-colors ${
                                 locked
-                                  ? 'border border-amber-400/35 bg-amber-950/40 font-semibold text-amber-200 hover:bg-amber-950/70'
-                                  : 'border border-white/15 bg-white/[0.05] font-medium text-[#F5F7F1] hover:bg-white/[0.1]'
+                                  ? 'border border-amber-200 bg-amber-50 font-semibold text-amber-800 hover:bg-amber-100'
+                                  : 'border border-[#BFE0CD] bg-[#ECF7F1] font-semibold text-[#0D6E46] hover:bg-[#DCF0E5]'
                               }`}
                             >
                               {locked ? (
                                 <>
-                                  <Lock className="h-3.5 w-3.5 text-amber-300" aria-hidden="true" />
+                                  <Lock className="h-3.5 w-3.5 text-amber-700" aria-hidden="true" />
                                   <span>Débloquer avec Progression+</span>
                                 </>
                               ) : (
                                 <>
-                                  <Video className="h-3.5 w-3.5 text-[#C8F62D]" aria-hidden="true" />
+                                  <Video className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
                                   <span>Voir la vidéo guidée & posture</span>
                                 </>
                               )}
@@ -2556,10 +2575,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h1 className="font-display text-2xl font-bold text-[#F5F7F1]">
+                  <h1 className="font-display text-2xl font-bold text-[#063725]">
                     Auto-évaluation {sportTheme.nom}
                   </h1>
-                  <p className="mt-1 text-sm text-[#B4BCA9]">
+                  <p className="mt-1 text-sm text-[#3D5246]">
                     Tests physiques sans matériel à réaliser toutes les 4 semaines pour mesurer votre progression.
                   </p>
                 </div>
@@ -2567,7 +2586,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowPainModal(true)}
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-red-400/35 bg-red-950/50 px-4 py-2.5 text-xs font-semibold text-red-200 hover:bg-red-950/80 min-h-[44px] self-start"
+                  className="inline-flex items-center justify-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-700 hover:bg-red-100 min-h-[44px] self-start transition-colors"
                 >
                   <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                   <span>Signaler une douleur</span>
@@ -2577,28 +2596,28 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* New Evaluation Form */}
                 <form onSubmit={handleEvaluationSubmit} className="lg:col-span-7 obsidian-card rounded-3xl p-6 space-y-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] pb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2EBE5] pb-4">
                     <div>
-                      <h2 className="text-base font-semibold text-[#F5F7F1]">Nouvelle batterie de tests</h2>
-                      <p className="text-xs text-[#8E9784]">Barème adapté au niveau : {LEVEL_LABELS[data.profile.niveau]}</p>
+                      <h2 className="text-base font-semibold text-[#063725]">Nouvelle batterie de tests</h2>
+                      <p className="text-xs text-[#5B7064]">Barème adapté au niveau : {LEVEL_LABELS[data.profile.niveau]}</p>
                     </div>
 
                     {/* Built-in Stopwatch / Countdown */}
                     <div className="flex items-center gap-2 obsidian-inset rounded-full px-3.5 py-1.5">
-                      <span className="font-mono text-base font-bold tabular-nums text-[#C8F62D] min-w-[44px]">
+                      <span className="font-mono text-base font-bold tabular-nums text-[#0D6E46] min-w-[44px]">
                         {chronoSeconds}s
                       </span>
                       <button
                         type="button"
                         onClick={() => handleStartChrono('30')}
-                        className="rounded-full bg-white/[0.06] border border-white/15 px-2.5 py-1 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.12]"
+                        className="rounded-full bg-white border border-[#C3D6CA] px-2.5 py-1 text-xs font-medium text-[#063725] hover:bg-[#ECF7F1] transition-colors"
                       >
                         30s
                       </button>
                       <button
                         type="button"
                         onClick={() => handleStartChrono('20')}
-                        className="rounded-full bg-white/[0.06] border border-white/15 px-2.5 py-1 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.12]"
+                        className="rounded-full bg-white border border-[#C3D6CA] px-2.5 py-1 text-xs font-medium text-[#063725] hover:bg-[#ECF7F1] transition-colors"
                       >
                         20s
                       </button>
@@ -2611,7 +2630,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             handleStartChrono('up');
                           }
                         }}
-                        className="rounded-full bg-[#C8F62D] text-[#080A07] px-3 py-1 text-xs font-bold hover:bg-[#D7FA59]"
+                        className="rounded-full bg-[#0D6E46] text-white px-3 py-1 text-xs font-bold hover:bg-[#095637] transition-colors"
                       >
                         {chronoRunning ? 'Stop' : 'Chrono'}
                       </button>
@@ -2622,14 +2641,14 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     {sportTheme.tests.map((testSpec) => (
                       <div key={testSpec.code} className="obsidian-inset rounded-2xl p-4 space-y-2.5">
                         <div className="flex items-center justify-between gap-2">
-                          <label htmlFor={testSpec.code} className="text-sm font-semibold text-[#F5F7F1]">
+                          <label htmlFor={testSpec.code} className="text-sm font-semibold text-[#063725]">
                             {testSpec.nom}
                           </label>
-                          <span className="text-xs font-mono text-[#C8F62D]">{testSpec.unite}</span>
+                          <span className="text-xs font-mono font-semibold text-[#0D6E46]">{testSpec.unite}</span>
                         </div>
-                        <p className="text-xs text-[#B4BCA9] leading-relaxed">{testSpec.consigne}</p>
+                        <p className="text-xs text-[#3D5246] leading-relaxed">{testSpec.consigne}</p>
                         {!ecoMode && isOnline && testSpec.imageUrl && (
-                          <div className="rounded-xl border border-white/10 bg-[#F5F7F1] p-2">
+                          <div className="rounded-xl border border-[#E2EBE5] bg-white p-2">
                             <img
                               src={testSpec.imageUrl}
                               alt={`Repère technique : ${testSpec.nom}`}
@@ -2651,7 +2670,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             setEvalValues((prev) => ({ ...prev, [testSpec.code]: e.target.value }))
                           }
                           placeholder={`Résultat en ${testSpec.unite}`}
-                          className="w-full rounded-xl border border-white/15 bg-[#0D100B] px-3.5 py-2.5 font-mono text-sm text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[44px]"
+                          className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3.5 py-2.5 font-mono text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[44px]"
                         />
                       </div>
                     ))}
@@ -2660,7 +2679,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   <button
                     type="submit"
                     disabled={evalSubmitting}
-                    className="w-full rounded-full bg-[#C8F62D] py-3 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[48px]"
+                    className="w-full rounded-full bg-[#0D6E46] py-3 text-sm font-bold text-white hover:bg-[#095637] disabled:opacity-50 min-h-[48px] transition-colors"
                   >
                     {evalSubmitting ? 'Calcul et enregistrement...' : 'Enregistrer mon auto-évaluation'}
                   </button>
@@ -2669,21 +2688,21 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 {/* Comparison & History */}
                 <div className="lg:col-span-5 space-y-6">
                   <div className="obsidian-card rounded-3xl p-5">
-                    <h2 className="text-base font-semibold text-[#F5F7F1]">Comparaison récente</h2>
+                    <h2 className="text-base font-semibold text-[#063725]">Comparaison récente</h2>
                     {latestEval ? (
                       <div className="mt-3 space-y-3">
                         <div className="flex items-baseline justify-between">
-                          <span className="text-xs text-[#8E9784]">
+                          <span className="text-xs text-[#5B7064]">
                             {latestEval.type === 'INITIALE' ? 'Évaluation initiale' : 'Bilan périodique'} · {latestEval.date}
                           </span>
-                          <div className="font-mono text-2xl font-bold tabular-nums text-[#F5F7F1]">
+                          <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
                             {latestEval.score_global}/100
                             {previousEval && (
                               <span
                                 className={`ml-2 text-xs font-semibold ${
                                   latestEval.score_global - previousEval.score_global >= 0
-                                    ? 'text-[#C8F62D]'
-                                    : 'text-[#FB923C]'
+                                    ? 'text-[#0D6E46]'
+                                    : 'text-amber-700'
                                 }`}
                               >
                                 {latestEval.score_global - previousEval.score_global >= 0 ? '+' : ''}
@@ -2693,22 +2712,22 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           </div>
                         </div>
 
-                        <div className="divide-y divide-white/[0.06]">
+                        <div className="divide-y divide-[#E2EBE5]">
                           {latestEval.results.map((r) => (
                             <div key={r.test_code} className="py-2.5 flex items-center justify-between gap-2 text-xs">
                               <div>
-                                <div className="font-medium text-[#F5F7F1]">{r.test_nom}</div>
-                                <div className="text-[#8E9784] font-mono tabular-nums">
+                                <div className="font-medium text-[#063725]">{r.test_nom}</div>
+                                <div className="text-[#5B7064] font-mono tabular-nums">
                                   {r.valeur} {r.unite}
                                 </div>
                               </div>
                               <span
                                 className={`font-semibold ${
                                   r.niveau_obtenu === 'Bon pour le niveau'
-                                    ? 'text-[#C8F62D]'
+                                    ? 'text-[#0D6E46]'
                                     : r.niveau_obtenu === 'Moyen'
-                                      ? 'text-amber-300'
-                                      : 'text-red-300'
+                                      ? 'text-amber-700'
+                                      : 'text-red-700'
                                 }`}
                               >
                                 {r.niveau_obtenu}
@@ -2718,7 +2737,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <p className="mt-2 text-xs text-[#B4BCA9]">
+                      <p className="mt-2 text-xs text-[#3D5246]">
                         Réalisez votre première évaluation pour établir vos repères de départ.
                       </p>
                     )}
@@ -2727,39 +2746,41 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   {/* Full History & Coach Comments */}
                   <div className="obsidian-card rounded-3xl p-5 space-y-4">
                     <div className="flex items-center justify-between gap-2">
-                      <h2 className="text-base font-semibold text-[#F5F7F1]">Historique et avis du coach</h2>
+                      <h2 className="text-base font-semibold text-[#063725]">Historique et avis du coach</h2>
                       {!isProgressionUnlocked && data.evaluations.length > 1 && (
-                        <span className="text-[11px] font-semibold text-amber-300">Progression+</span>
+                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                          Progression+
+                        </span>
                       )}
                     </div>
 
                     {isProgressionUnlocked && evalChartData.length >= 2 && (
                       <div className="obsidian-inset rounded-2xl p-3">
-                        <div className="text-[11px] font-medium text-[#8E9784] mb-2">
+                        <div className="text-[11px] font-medium text-[#5B7064] mb-2">
                           Courbe d’évolution (score / 100)
                         </div>
                         <div className="h-36 w-full">
                           <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={evalChartData} margin={{ top: 6, right: 8, left: -24, bottom: 0 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.07)" />
-                              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#8E9784' }} axisLine={false} tickLine={false} />
-                              <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#8E9784' }} axisLine={false} tickLine={false} />
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(6,55,37,0.08)" />
+                              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#5B7064' }} axisLine={false} tickLine={false} />
+                              <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#5B7064' }} axisLine={false} tickLine={false} />
                               <Tooltip
                                 contentStyle={{
-                                  backgroundColor: '#121610',
-                                  borderColor: 'rgba(255,255,255,0.14)',
+                                  backgroundColor: '#FFFFFF',
+                                  borderColor: '#D5E2DA',
                                   borderRadius: '12px',
-                                  color: '#F5F7F1',
+                                  color: '#063725',
                                 }}
                               />
                               <Line
                                 type="monotone"
                                 dataKey="score"
                                 name="Score"
-                                stroke="#C8F62D"
+                                stroke="#0D6E46"
                                 strokeWidth={2.5}
-                                dot={{ r: 3.5, fill: '#C8F62D', strokeWidth: 0 }}
-                                activeDot={{ r: 5, fill: '#F5F7F1' }}
+                                dot={{ r: 3.5, fill: '#0D6E46', strokeWidth: 0 }}
+                                activeDot={{ r: 5, fill: '#063725' }}
                               />
                             </LineChart>
                           </ResponsiveContainer>
@@ -2768,47 +2789,47 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     )}
 
                     {data.evaluations.length === 0 ? (
-                      <p className="text-xs text-[#8E9784]">Aucune évaluation enregistrée.</p>
+                      <p className="text-xs text-[#5B7064]">Aucune évaluation enregistrée.</p>
                     ) : (
                       <div className="space-y-4">
                         {(isProgressionUnlocked ? data.evaluations : data.evaluations.slice(0, 1)).map((ev) => (
                           <div key={ev.id} className="obsidian-inset rounded-2xl p-3.5 space-y-2">
                             <div className="flex items-center justify-between text-xs">
-                              <span className="font-semibold text-[#F5F7F1]">
+                              <span className="font-semibold text-[#063725]">
                                 {ev.type} · {ev.date}
                               </span>
-                              <span className="font-mono font-bold tabular-nums text-[#C8F62D]">
+                              <span className="font-mono font-bold tabular-nums text-[#0D6E46]">
                                 {ev.score_global}/100
                               </span>
                             </div>
                             {ev.comments.length > 0 ? (
                               ev.comments.map((c) => (
-                                <div key={c.id} className="rounded-lg bg-[#0D100B] border border-white/[0.06] p-2.5 text-xs text-[#B4BCA9]">
-                                  <span className="font-semibold text-[#F5F7F1]">{c.coach_nom} : </span>
+                                <div key={c.id} className="rounded-lg bg-white border border-[#E2EBE5] p-2.5 text-xs text-[#3D5246]">
+                                  <span className="font-semibold text-[#063725]">{c.coach_nom} : </span>
                                   {c.texte}
                                 </div>
                               ))
                             ) : (
-                              <div className="text-xs text-[#8E9784]">En attente de commentaire du coach.</div>
+                              <div className="text-xs text-[#5B7064]">En attente de commentaire du coach.</div>
                             )}
                           </div>
                         ))}
 
                         {!isProgressionUnlocked && data.evaluations.length > 1 && (
-                          <div className="rounded-2xl border border-amber-400/30 bg-amber-950/40 p-4 space-y-2.5">
-                            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-200">
+                          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-2.5">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800">
                               <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                               <span>
                                 {data.evaluations.length - 1} autre{data.evaluations.length - 1 > 1 ? 's' : ''} bilan{data.evaluations.length - 1 > 1 ? 's' : ''} et la courbe multi-mois disponibles
                               </span>
                             </div>
-                            <p className="text-xs text-amber-100/80 leading-relaxed">
-                              Votre évaluation du moment reste 100 % gratuite. Activez <strong className="text-[#F5F7F1]">Progression+ (1 500 FCFA / mois)</strong> pour consulter la courbe d’évolution et tout votre historique comparatif.
+                            <p className="text-xs text-amber-900 leading-relaxed">
+                              Votre évaluation du moment reste 100 % gratuite. Activez <strong className="text-[#063725]">Progression+ (1 500 FCFA / mois)</strong> pour consulter la courbe d’évolution et tout votre historique comparatif.
                             </p>
                             <button
                               type="button"
                               onClick={() => setTab('profil')}
-                              className="rounded-full bg-[#C8F62D] px-4 py-1.5 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59]"
+                              className="rounded-full bg-[#0D6E46] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#095637] transition-colors"
                             >
                               Activer Progression+
                             </button>
@@ -2826,8 +2847,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
           {tab === 'profil' && (
             <div className="space-y-6">
               <div>
-                <h1 className="font-display text-2xl font-bold text-[#F5F7F1]">Profil et confidentialité</h1>
-                <p className="mt-1 text-sm text-[#B4BCA9]">
+                <h1 className="font-display text-2xl font-bold text-[#063725]">Profil et confidentialité</h1>
+                <p className="mt-1 text-sm text-[#3D5246]">
                   Gérez vos coordonnées, votre poids, votre sport, le mode éco données et vos droits sur vos données.
                 </p>
               </div>
@@ -2835,37 +2856,37 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 {/* Personal Info & Preferences */}
                 <form onSubmit={handleSaveProfile} className="lg:col-span-7 obsidian-card rounded-3xl p-6 space-y-4">
-                  <h2 className="text-base font-semibold text-[#F5F7F1]">Informations et préférences</h2>
+                  <h2 className="text-base font-semibold text-[#063725]">Informations et préférences</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Prénom</label>
+                      <label className="block text-xs font-medium text-[#3D5246] mb-1">Prénom</label>
                       <input
                         type="text"
                         required
                         value={profilePrenom}
                         onChange={(e) => setProfilePrenom(e.target.value)}
-                        className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-sm text-[#F5F7F1] min-h-[44px]"
+                        className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] min-h-[44px]"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Nom</label>
+                      <label className="block text-xs font-medium text-[#3D5246] mb-1">Nom</label>
                       <input
                         type="text"
                         required
                         value={profileNom}
                         onChange={(e) => setProfileNom(e.target.value)}
-                        className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-sm text-[#F5F7F1] min-h-[44px]"
+                        className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] min-h-[44px]"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Niveau</label>
+                      <label className="block text-xs font-medium text-[#3D5246] mb-1">Niveau</label>
                       <select
                         value={profileNiveau}
                         onChange={(e) => setProfileNiveau(e.target.value as AthleteLevel)}
-                        className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-sm text-[#F5F7F1] min-h-[44px]"
+                        className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] min-h-[44px]"
                       >
                         <option value="debutant">Débutant</option>
                         <option value="intermediaire">Intermédiaire</option>
@@ -2873,11 +2894,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Poste</label>
+                      <label className="block text-xs font-medium text-[#3D5246] mb-1">Poste</label>
                       <select
                         value={profilePoste}
                         onChange={(e) => setProfilePoste(e.target.value)}
-                        className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-sm text-[#F5F7F1] min-h-[44px]"
+                        className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] min-h-[44px]"
                       >
                         <option value="">Non précisé</option>
                         {sportTheme.positions.map((pos) => (
@@ -2888,39 +2909,73 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Taille (cm)</label>
+                      <label className="block text-xs font-medium text-[#3D5246] mb-1">Taille (cm)</label>
                       <input
                         type="number"
                         value={profileTaille}
                         onChange={(e) => setProfileTaille(e.target.value)}
-                        className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 font-mono text-sm text-[#F5F7F1] min-h-[44px]"
+                        className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-sm text-[#063725] min-h-[44px]"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div>
-                      <label className="block text-xs font-medium text-[#B4BCA9] mb-1">Langue des consignes</label>
+                      <label className="block text-xs font-medium text-[#3D5246] mb-1">Langue des consignes</label>
                       <select
                         value={profileLangue}
                         onChange={(e) => setProfileLangue(e.target.value as 'fr' | 'wo')}
-                        className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-sm text-[#F5F7F1] min-h-[44px]"
+                        className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] min-h-[44px]"
                       >
                         <option value="fr">Français</option>
                         <option value="wo">Wolof + Français</option>
                       </select>
                     </div>
                     <div className="flex flex-col justify-end">
-                      <label className="flex items-center gap-2.5 rounded-xl border border-white/15 bg-[#181D15] px-3 py-2.5 cursor-pointer min-h-[44px]">
+                      <label className="flex items-center gap-2.5 rounded-xl border border-[#C3D6CA] bg-white px-3 py-2.5 cursor-pointer min-h-[44px]">
                         <input
                           type="checkbox"
                           checked={ecoMode}
                           onChange={(e) => setEcoMode(e.target.checked)}
-                          className="h-4 w-4 accent-[#C8F62D]"
+                          className="h-4 w-4 accent-[#0D6E46]"
                         />
-                        <span className="text-xs font-medium text-[#F5F7F1]">Mode éco données</span>
+                        <span className="text-xs font-medium text-[#063725]">Mode éco données</span>
                       </label>
                     </div>
+                  </div>
+
+                  <div className="rounded-2xl obsidian-inset p-3.5 space-y-2.5">
+                    <div>
+                      <label htmlFor="profile-objectif" className="block text-xs font-semibold text-[#063725] mb-1">
+                        Objectif d’entraînement ({sportTheme.nom})
+                      </label>
+                      <select
+                        id="profile-objectif"
+                        value={profileObjectiveCode}
+                        onChange={(e) => setProfileObjectiveCode(e.target.value as ObjectiveCode)}
+                        className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] min-h-[44px]"
+                      >
+                        {TRAINING_OBJECTIVES.map((obj) => (
+                          <option key={obj.code} value={obj.code}>
+                            {obj.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1.5 text-[11px] text-[#3D5246]">
+                        {resolveObjectiveSpec(profileObjectiveCode).sportGuidance[data.profile.sport_code]}
+                      </p>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={adaptProgramOnSave}
+                        onChange={(e) => setAdaptProgramOnSave(e.target.checked)}
+                        className="h-4 w-4 accent-[#0D6E46]"
+                      />
+                      <span className="text-xs text-[#3D5246]">
+                        Adapter mes prochaines séances de la semaine à cet objectif
+                      </span>
+                    </label>
                   </div>
 
                   <label className="flex items-center gap-2.5 cursor-pointer">
@@ -2928,14 +2983,14 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       type="checkbox"
                       checked={notifEnabled}
                       onChange={(e) => setNotifEnabled(e.target.checked)}
-                      className="h-4 w-4 accent-[#C8F62D]"
+                      className="h-4 w-4 accent-[#0D6E46]"
                     />
-                    <span className="text-xs text-[#B4BCA9]">Recevoir les rappels de séance et retours coach</span>
+                    <span className="text-xs text-[#3D5246]">Recevoir les rappels de séance et retours coach</span>
                   </label>
 
                   <button
                     type="submit"
-                    className="rounded-full bg-[#C8F62D] px-6 py-2.5 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[44px]"
+                    className="rounded-full bg-[#0D6E46] px-6 py-2.5 text-sm font-bold text-white hover:bg-[#095637] min-h-[44px] transition-colors"
                   >
                     Enregistrer le profil
                   </button>
@@ -2944,10 +2999,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 {/* Weight & Sport Switch */}
                 <div className="lg:col-span-5 space-y-6">
                   <form onSubmit={handleSaveWeight} className="obsidian-card rounded-3xl p-5 space-y-3">
-                    <h2 className="text-base font-semibold text-[#F5F7F1]">Suivi du poids</h2>
-                    <p className="text-xs text-[#8E9784]">
+                    <h2 className="text-base font-semibold text-[#063725]">Suivi du poids</h2>
+                    <p className="text-xs text-[#5B7064]">
                       Dernière mesure :{' '}
-                      <span className="font-mono font-semibold text-[#C8F62D]">
+                      <span className="font-mono font-semibold text-[#0D6E46]">
                         {data.weights[data.weights.length - 1]?.poids_kg ?? '—'} kg
                       </span>
                     </p>
@@ -2961,11 +3016,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         value={newWeight}
                         onChange={(e) => setNewWeight(e.target.value)}
                         placeholder="Nouveau poids (kg)"
-                        className="flex-1 rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 font-mono text-sm text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[44px]"
+                        className="flex-1 rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[44px]"
                       />
                       <button
                         type="submit"
-                        className="rounded-full bg-[#C8F62D] px-5 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[44px]"
+                        className="rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[44px] transition-colors"
                       >
                         Ajouter
                       </button>
@@ -2977,23 +3032,23 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       <div>
                         <div className="flex items-center gap-2">
                           {notifEnabled && notifPermission === 'granted' ? (
-                            <BellRing className="h-4 w-4 text-[#C8F62D] shrink-0" aria-hidden="true" />
+                            <BellRing className="h-4 w-4 text-[#0D6E46] shrink-0" aria-hidden="true" />
                           ) : (
-                            <BellOff className="h-4 w-4 text-[#8E9784] shrink-0" aria-hidden="true" />
+                            <BellOff className="h-4 w-4 text-[#5B7064] shrink-0" aria-hidden="true" />
                           )}
-                          <h2 className="text-base font-semibold text-[#F5F7F1]">Rappels push locaux (PWA)</h2>
+                          <h2 className="text-base font-semibold text-[#063725]">Rappels push locaux (PWA)</h2>
                         </div>
-                        <p className="mt-0.5 text-xs text-[#8E9784]">
+                        <p className="mt-0.5 text-xs text-[#5B7064]">
                           Alertes locales avant vos séances programmées · zéro SMS payant requis.
                         </p>
                       </div>
                       <span
                         className={`text-[11px] font-semibold shrink-0 ${
                           notifPermission === 'granted' && notifEnabled
-                            ? 'text-[#C8F62D]'
+                            ? 'text-[#0D6E46]'
                             : notifPermission === 'denied'
-                              ? 'text-red-300'
-                              : 'text-amber-300'
+                              ? 'text-red-700'
+                              : 'text-amber-700'
                         }`}
                       >
                         {notifPermission === 'unsupported'
@@ -3010,7 +3065,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label htmlFor="pwa-reminder-time" className="block text-xs font-medium text-[#B4BCA9] mb-1">
+                        <label htmlFor="pwa-reminder-time" className="block text-xs font-medium text-[#3D5246] mb-1">
                           Heure habituelle
                         </label>
                         <input
@@ -3018,18 +3073,18 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           type="time"
                           value={reminderTime}
                           onChange={(e) => setReminderTime(e.target.value || '18:00')}
-                          className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 font-mono text-sm text-[#F5F7F1] min-h-[42px]"
+                          className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-sm text-[#063725] min-h-[42px]"
                         />
                       </div>
                       <div>
-                        <label htmlFor="pwa-reminder-lead" className="block text-xs font-medium text-[#B4BCA9] mb-1">
+                        <label htmlFor="pwa-reminder-lead" className="block text-xs font-medium text-[#3D5246] mb-1">
                           Délai de rappel
                         </label>
                         <select
                           id="pwa-reminder-lead"
                           value={reminderLeadMinutes}
                           onChange={(e) => setReminderLeadMinutes(Number(e.target.value))}
-                          className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs font-medium text-[#F5F7F1] min-h-[42px]"
+                          className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs font-medium text-[#063725] min-h-[42px]"
                         >
                           <option value={0}>À l’heure prévue</option>
                           <option value={15}>15 min avant</option>
@@ -3041,29 +3096,31 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     </div>
 
                     {nextReminder ? (
-                      <div className="obsidian-inset rounded-2xl p-3 text-xs text-[#B4BCA9] space-y-0.5">
-                        <div className="font-semibold text-[#F5F7F1]">
+                      <div className="obsidian-inset rounded-2xl p-3 text-xs text-[#3D5246] space-y-0.5">
+                        <div className="font-semibold text-[#063725]">
                           Prochain rappel ciblé : {nextReminder.sessionTitle}
                         </div>
-                        <div className="font-mono text-[11px] text-[#C8F62D] tabular-nums">
+                        <div className="font-mono text-[11px] font-semibold text-[#0D6E46] tabular-nums">
                           {nextReminder.datePrevue} · séance à {reminderTime} ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()})
                         </div>
                       </div>
                     ) : (
-                      <p className="text-xs text-[#8E9784]">
+                      <p className="text-xs text-[#5B7064]">
                         Toutes les séances de la semaine en cours sont déjà réalisées.
                       </p>
                     )}
 
                     {notifPermission === 'denied' && (
-                      <p className="rounded-xl border border-red-400/35 bg-red-950/50 p-3 text-xs text-red-200 leading-relaxed">
+                      <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 leading-relaxed">
                         Les notifications sont actuellement bloquées dans votre navigateur. Réactivez-les depuis les paramètres du site (icône cadenas dans la barre d’adresse).
                       </p>
                     )}
 
-                    <div className="text-[11px] text-[#8E9784] leading-relaxed">
-                      Service Worker PWA : {swReady ? 'prêt' : 'initialisation'}{' '}
-                      {supportsTriggerApi ? '· planification OS native active' : '· rappel actif à l’ouverture et en arrière-plan'}. Sur iPhone/iPad (iOS 16.4+), installez l’app sur l’écran d’accueil pour recevoir les notifications.
+                    <div className="text-[11px] text-[#5B7064] leading-relaxed">
+                      {swReady
+                        ? 'Rappels locaux programmés et actifs sur cet appareil.'
+                        : 'Initialisation des rappels sur cet appareil.'}{' '}
+                      Sur iPhone/iPad (iOS 16.4+), installez l’app sur l’écran d’accueil pour recevoir les notifications.
                     </div>
 
                     <div className="flex flex-wrap gap-2">
@@ -3071,7 +3128,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         <button
                           type="button"
                           onClick={handleEnablePwaNotifications}
-                          className="inline-flex items-center gap-1.5 rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+                          className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px] transition-colors"
                         >
                           <Bell className="h-3.5 w-3.5" aria-hidden="true" />
                           <span>Autoriser les notifications</span>
@@ -3081,28 +3138,28 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         type="button"
                         disabled={reminderSubmitting}
                         onClick={() => handleSaveReminders(notifEnabled, reminderTime, reminderLeadMinutes)}
-                        className="rounded-full bg-[#C8F62D] px-4 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[40px]"
+                        className="rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50 min-h-[40px] transition-colors"
                       >
                         {reminderSubmitting ? 'Enregistrement...' : 'Enregistrer les rappels'}
                       </button>
                       <button
                         type="button"
                         onClick={handleTestPwaNotification}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px]"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#063725] hover:bg-[#ECF7F1] min-h-[40px] transition-colors"
                       >
-                        <BellRing className="h-3.5 w-3.5" aria-hidden="true" />
+                        <BellRing className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
                         <span>Tester</span>
                       </button>
                     </div>
                   </div>
 
                   <div className="obsidian-card rounded-3xl p-5 space-y-3">
-                    <h2 className="text-base font-semibold text-[#F5F7F1]">Discipline active : {sportTheme.nom}</h2>
-                    <p className="text-xs text-[#B4BCA9]">
+                    <h2 className="text-base font-semibold text-[#063725]">Discipline active : {sportTheme.nom}</h2>
+                    <p className="text-xs text-[#3D5246]">
                       Changer de sport adapte l’interface, les séances et la batterie de tests.
                     </p>
                     <div className="flex flex-wrap gap-2">
-                      {(['football', 'basket', 'handball', 'volleyball', 'athletisme'] as SportCode[]).map((code) => (
+                      {ALL_SPORT_CODES.map((code) => (
                         <button
                           key={code}
                           type="button"
@@ -3110,8 +3167,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           onClick={() => setPendingSportChange(code)}
                           className={`rounded-full border px-3.5 py-2 text-xs min-h-[40px] transition-colors ${
                             code === data.profile.sport_code
-                              ? 'border-[#C8F62D] bg-[#C8F62D] font-bold text-[#080A07]'
-                              : 'border-white/15 bg-[#181D15] font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
+                              ? 'border-[#0D6E46] bg-[#0D6E46] font-bold text-white'
+                              : 'border-[#D5E2DA] bg-[#F1F6F3] font-medium text-[#3D5246] hover:text-[#063725] hover:border-[#0D6E46]/40'
                           }`}
                         >
                           {SPORTS_CONFIG[code].nom}
@@ -3126,23 +3183,23 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 <div className="lg:col-span-6 obsidian-card rounded-3xl p-5 space-y-4">
                   <div className="flex items-center justify-between gap-2">
-                    <h2 className="text-base font-semibold text-[#F5F7F1]">
+                    <h2 className="text-base font-semibold text-[#063725]">
                       Ma formule Terrain+ & Coach
                     </h2>
-                    <span className="font-mono text-xs font-semibold text-[#C8F62D]">
+                    <span className="font-mono text-xs font-semibold text-[#0D6E46]">
                       {currentPlanShortLabel}
                     </span>
                   </div>
 
                   {currentPlanTier === 'COACH_PRIVE' && data.coach && (
-                    <div className="rounded-2xl border border-[#C8F62D]/35 bg-[#C8F62D]/10 p-3.5 space-y-1.5">
+                    <div className="rounded-2xl border border-[#BFE0CD] bg-[#ECF7F1] p-3.5 space-y-1.5">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-[#F5F7F1]">
+                        <span className="text-sm font-semibold text-[#063725]">
                           Coach actif : {data.coach.prenom} {data.coach.nom}
                         </span>
-                        <span className="text-xs font-semibold text-[#C8F62D]">{data.coach.zone}</span>
+                        <span className="text-xs font-semibold text-[#0D6E46]">{data.coach.zone}</span>
                       </div>
-                      <div className="text-xs text-[#B4BCA9]">
+                      <div className="text-xs text-[#3D5246]">
                         {data.coach.specialite} · {data.coach.qualification}
                       </div>
                     </div>
@@ -3188,18 +3245,18 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             }}
                             className={`w-full rounded-2xl border p-3.5 text-left transition-colors ${
                               selected
-                                ? 'border-[#C8F62D] bg-[#C8F62D]/10'
-                                : 'border-white/10 bg-[#181D15] hover:border-white/25'
+                                ? 'border-[#0D6E46] bg-[#ECF7F1]'
+                                : 'border-[#D5E2DA] bg-white hover:border-[#0D6E46]/40'
                             }`}
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-xs font-semibold text-[#F5F7F1]">
+                              <span className="text-xs font-semibold text-[#063725]">
                                 {opt.title}
                                 {activeNow ? ' (Formule actuelle)' : ''}
                               </span>
-                              <span className="font-mono text-xs font-bold text-[#C8F62D]">{opt.price}</span>
+                              <span className="font-mono text-xs font-bold text-[#0D6E46]">{opt.price}</span>
                             </div>
-                            <p className="mt-1 text-[11px] text-[#B4BCA9] leading-relaxed">{opt.desc}</p>
+                            <p className="mt-1 text-[11px] text-[#3D5246] leading-relaxed">{opt.desc}</p>
                           </button>
                         );
                       })}
@@ -3210,10 +3267,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         <button
                           type="button"
                           onClick={() => setPlanSwitchBilling('MENSUEL')}
-                          className={`rounded-full border px-3 py-2 text-xs min-h-[38px] ${
+                          className={`rounded-full border px-3 py-2 text-xs min-h-[38px] transition-colors ${
                             planSwitchBilling === 'MENSUEL'
-                              ? 'border-[#C8F62D] bg-[#C8F62D] font-bold text-[#080A07]'
-                              : 'border-white/15 bg-[#181D15] font-medium text-[#B4BCA9]'
+                              ? 'border-[#0D6E46] bg-[#0D6E46] font-bold text-white'
+                              : 'border-[#D5E2DA] bg-[#F1F6F3] font-medium text-[#3D5246]'
                           }`}
                         >
                           Mensuel · 1 500 F
@@ -3221,10 +3278,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         <button
                           type="button"
                           onClick={() => setPlanSwitchBilling('TRIMESTRIEL')}
-                          className={`rounded-full border px-3 py-2 text-xs min-h-[38px] ${
+                          className={`rounded-full border px-3 py-2 text-xs min-h-[38px] transition-colors ${
                             planSwitchBilling === 'TRIMESTRIEL'
-                              ? 'border-[#C8F62D] bg-[#C8F62D] font-bold text-[#080A07]'
-                              : 'border-white/15 bg-[#181D15] font-medium text-[#B4BCA9]'
+                              ? 'border-[#0D6E46] bg-[#0D6E46] font-bold text-white'
+                              : 'border-[#D5E2DA] bg-[#F1F6F3] font-medium text-[#3D5246]'
                           }`}
                         >
                           Trimestriel · 4 000 F
@@ -3233,8 +3290,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     )}
 
                     {targetPlanDraft === 'COACH_PRIVE' && data.availableCoaches.length > 0 && (
-                      <div className="space-y-2 border-t border-white/[0.08] pt-3">
-                        <div className="text-xs font-semibold text-[#F5F7F1]">
+                      <div className="space-y-2 border-t border-[#E2EBE5] pt-3">
+                        <div className="text-xs font-semibold text-[#063725]">
                           Choisir ou changer votre coach vérifié :
                         </div>
                         <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
@@ -3248,20 +3305,20 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                 onClick={() => setSelectedCoachDraftId(c.id)}
                                 className={`w-full rounded-2xl border p-3 text-left flex items-center justify-between gap-3 transition-colors ${
                                   isSelected
-                                    ? 'border-[#C8F62D] bg-[#C8F62D]/10'
-                                    : 'border-white/10 bg-[#181D15] hover:border-white/25'
+                                    ? 'border-[#0D6E46] bg-[#ECF7F1]'
+                                    : 'border-[#D5E2DA] bg-white hover:border-[#0D6E46]/40'
                                 }`}
                               >
                                 <div className="min-w-0">
-                                  <div className="text-xs font-semibold text-[#F5F7F1]">
+                                  <div className="text-xs font-semibold text-[#063725]">
                                     {c.prenom} {c.nom} · {c.zone}
                                     {isCurrent ? ' (Actuel)' : ''}
                                   </div>
-                                  <div className="text-[11px] text-[#8E9784] truncate">
+                                  <div className="text-[11px] text-[#5B7064] truncate">
                                     {c.specialite} · {c.qualification}
                                   </div>
                                 </div>
-                                <span className="font-mono text-xs font-bold text-[#C8F62D] shrink-0">
+                                <span className="font-mono text-xs font-bold text-[#0D6E46] shrink-0">
                                   {c.athlete_monthly_fee_fcfa.toLocaleString('fr-FR')} F/mois
                                 </span>
                               </button>
@@ -3277,9 +3334,9 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           type="checkbox"
                           checked={confirmPlanSwitch}
                           onChange={(e) => setConfirmPlanSwitch(e.target.checked)}
-                          className="mt-0.5 h-4 w-4 accent-[#C8F62D]"
+                          className="mt-0.5 h-4 w-4 accent-[#0D6E46]"
                         />
-                        <span className="text-[11px] text-[#B4BCA9] leading-relaxed">
+                        <span className="text-[11px] text-[#3D5246] leading-relaxed">
                           {targetPlanDraft === 'COACH_PRIVE'
                             ? 'Je confirme la formule Suivi Coach à 5 000 FCFA / mois (dont 80 % reversés au coach sélectionné).'
                             : `Je confirme la formule Progression+ (${planSwitchBilling === 'TRIMESTRIEL' ? '4 000 FCFA / trimestre' : '1 500 FCFA / mois'}).`}
@@ -3290,7 +3347,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     <button
                       type="submit"
                       disabled={coachActionSubmitting}
-                      className="w-full rounded-full bg-[#C8F62D] px-4 py-2.5 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[42px]"
+                      className="w-full rounded-full bg-[#0D6E46] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50 min-h-[42px] transition-colors"
                     >
                       {coachActionSubmitting
                         ? 'Mise à jour...'
@@ -3302,17 +3359,17 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     </button>
                   </form>
 
-                  <form onSubmit={handleRequestCoachChange} className="flex gap-2 border-t border-white/[0.08] pt-3">
+                  <form onSubmit={handleRequestCoachChange} className="flex gap-2 border-t border-[#E2EBE5] pt-3">
                     <input
                       type="text"
                       value={coachChangeMotif}
                       onChange={(e) => setCoachChangeMotif(e.target.value)}
                       placeholder="Note optionnelle pour l’administrateur"
-                      className="flex-1 rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                      className="flex-1 rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
                     <button
                       type="submit"
-                      className="rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[40px] whitespace-nowrap"
+                      className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#063725] hover:bg-[#ECF7F1] min-h-[40px] whitespace-nowrap transition-colors"
                     >
                       Signaler
                     </button>
@@ -3322,19 +3379,52 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 <div className="lg:col-span-6 obsidian-card rounded-3xl p-5 space-y-5">
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4 text-[#C8F62D]" aria-hidden="true" />
-                      <h2 className="text-base font-semibold text-[#F5F7F1]">Confidentialité et sécurité</h2>
+                      <ShieldCheck className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
+                      <h2 className="text-base font-semibold text-[#063725]">Confidentialité et sécurité</h2>
                     </div>
-                    <p className="text-xs text-[#B4BCA9]">
+                    <p className="text-xs text-[#3D5246]">
                       Consentements actifs : {data.consents.map((c) => `${c.type} (${c.version})`).join(' · ')}
                     </p>
+                    <p className="text-[11px] text-[#5B7064] leading-relaxed">
+                      Conformément à la <strong className="text-[#063725]">Loi n° 2008-12 (CDP Sénégal)</strong>, vous disposez d’un droit d’accès, de portabilité JSON, de rectification et d’effacement immédiat de vos données personnelles.
+                    </p>
+                    <div className="flex flex-wrap gap-2 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={() => setLegalTab('confidentialite')}
+                        className="rounded-lg border border-[#D5E2DA] bg-[#F1F6F3] px-2.5 py-1.5 text-[#3D5246] hover:text-[#0D6E46] hover:border-[#0D6E46]/40 transition-colors"
+                      >
+                        Confidentialité (CDP)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLegalTab('cgu')}
+                        className="rounded-lg border border-[#D5E2DA] bg-[#F1F6F3] px-2.5 py-1.5 text-[#3D5246] hover:text-[#0D6E46] hover:border-[#0D6E46]/40 transition-colors"
+                      >
+                        CGU
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLegalTab('cgv')}
+                        className="rounded-lg border border-[#D5E2DA] bg-[#F1F6F3] px-2.5 py-1.5 text-[#3D5246] hover:text-[#0D6E46] hover:border-[#0D6E46]/40 transition-colors"
+                      >
+                        CGV
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLegalTab('mentions')}
+                        className="rounded-lg border border-[#D5E2DA] bg-[#F1F6F3] px-2.5 py-1.5 text-[#3D5246] hover:text-[#0D6E46] hover:border-[#0D6E46]/40 transition-colors"
+                      >
+                        Mentions légales
+                      </button>
+                    </div>
                     <div className="flex flex-wrap gap-3 pt-1">
                       <button
                         type="button"
                         onClick={handleExportData}
-                        className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-medium text-[#F5F7F1] hover:bg-white/[0.08] min-h-[44px]"
+                        className="inline-flex items-center gap-2 rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#063725] hover:bg-[#ECF7F1] min-h-[44px] transition-colors"
                       >
-                        <Download className="h-4 w-4" aria-hidden="true" />
+                        <Download className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
                         <span>Exporter mes données (JSON)</span>
                       </button>
                       <button
@@ -3343,7 +3433,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           setDeletePassword('');
                           setShowDeleteConfirm(true);
                         }}
-                        className="inline-flex items-center gap-2 rounded-full border border-red-400/35 bg-red-950/50 px-4 py-2 text-xs font-medium text-red-200 hover:bg-red-950/80 min-h-[44px]"
+                        className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-100 min-h-[44px] transition-colors"
                       >
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
                         <span>Supprimer mon compte</span>
@@ -3351,8 +3441,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     </div>
                   </div>
 
-                  <form onSubmit={handleChangePassword} className="space-y-3 border-t border-white/[0.08] pt-4">
-                    <h3 className="text-sm font-semibold text-[#F5F7F1]">Changer mon mot de passe</h3>
+                  <form onSubmit={handleChangePassword} className="space-y-3 border-t border-[#E2EBE5] pt-4">
+                    <h3 className="text-sm font-semibold text-[#063725]">Changer mon mot de passe</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <input
                         type="password"
@@ -3360,7 +3450,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         value={currentPasswordInput}
                         onChange={(e) => setCurrentPasswordInput(e.target.value)}
                         placeholder="Mot de passe actuel"
-                        className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                        className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                       />
                       <input
                         type="password"
@@ -3369,13 +3459,13 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         value={newPasswordInput}
                         onChange={(e) => setNewPasswordInput(e.target.value)}
                         placeholder="Nouveau (8+ car., lettres+chiffres)"
-                        className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3 py-2 text-xs text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[40px]"
+                        className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                       />
                     </div>
                     <button
                       type="submit"
                       disabled={passwordSubmitting}
-                      className="rounded-full bg-[#C8F62D] px-5 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] disabled:opacity-50 min-h-[40px]"
+                      className="rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50 min-h-[40px] transition-colors"
                     >
                       {passwordSubmitting ? 'Mise à jour...' : 'Mettre à jour le mot de passe'}
                     </button>
@@ -3384,12 +3474,13 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               </div>
             </div>
           )}
+            <LegalFooter />
           </div>
         </main>
       </div>
 
       {/* Floating Mobile Bottom Tab Bar (<= 15% viewport height) */}
-      <nav className="md:hidden fixed bottom-3 left-3 right-3 z-40 rounded-2xl border border-white/12 bg-[#121610]/95 backdrop-blur-md p-1.5 shadow-2xl pb-safe">
+      <nav className="md:hidden fixed bottom-3 left-3 right-3 z-40 rounded-2xl border border-[#D5E2DA] bg-white/95 backdrop-blur-md p-1.5 shadow-xl pb-safe">
         <div className="grid grid-cols-4 gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -3401,8 +3492,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 onClick={() => setTab(item.id)}
                 className={`flex flex-col items-center justify-center gap-1 rounded-xl py-2 text-[11px] transition-colors whitespace-nowrap ${
                   active
-                    ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                    : 'font-medium text-[#8E9784] hover:text-[#F5F7F1]'
+                    ? 'bg-[#0D6E46] text-white font-bold'
+                    : 'font-medium text-[#5B7064] hover:text-[#063725]'
                 }`}
               >
                 <Icon className="h-4 w-4" aria-hidden="true" />
@@ -3415,26 +3506,26 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
       {/* Sport Change Confirmation Modal */}
       {pendingSportChange && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4">
           <div className="w-full max-w-md obsidian-card-glow rounded-3xl p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-[#F5F7F1]">
+            <h3 className="text-lg font-semibold text-[#063725]">
               Passer au {SPORTS_CONFIG[pendingSportChange].nom} ?
             </h3>
-            <p className="text-sm text-[#B4BCA9] leading-relaxed">
+            <p className="text-sm text-[#3D5246] leading-relaxed">
               Ce changement adapte immédiatement les couleurs de l’interface, les séances de votre semaine et les tests d’auto-évaluation. Votre historique de poids et d’évaluations passées est conservé.
             </p>
             <div className="flex justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setPendingSportChange(null)}
-                className="rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-sm font-medium text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[44px]"
+                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-sm font-medium text-[#3D5246] hover:text-[#063725] min-h-[44px] transition-colors"
               >
                 Annuler
               </button>
               <button
                 type="button"
                 onClick={handleConfirmSportChange}
-                className="rounded-full bg-[#C8F62D] px-5 py-2 text-sm font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[44px]"
+                className="rounded-full bg-[#0D6E46] px-5 py-2 text-sm font-bold text-white hover:bg-[#095637] min-h-[44px] transition-colors"
               >
                 Confirmer le changement
               </button>
@@ -3445,17 +3536,17 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
       {/* Delete Account Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4">
           <form
             onSubmit={handleDeleteAccount}
             className="w-full max-w-md obsidian-card-glow rounded-3xl p-6 space-y-4"
           >
-            <h3 className="text-lg font-semibold text-[#F5F7F1]">Supprimer définitivement votre compte ?</h3>
-            <p className="text-sm text-[#B4BCA9] leading-relaxed">
+            <h3 className="text-lg font-semibold text-[#063725]">Supprimer définitivement votre compte ?</h3>
+            <p className="text-sm text-[#3D5246] leading-relaxed">
               Toutes vos données personnelles, mesures de poids, évaluations et séances planifiées seront supprimées de la base Terrain+. Saisissez votre mot de passe actuel pour confirmer cette action irréversible.
             </p>
             <div>
-              <label htmlFor="delete-account-password" className="block text-xs font-medium text-[#B4BCA9] mb-1">
+              <label htmlFor="delete-account-password" className="block text-xs font-medium text-[#3D5246] mb-1">
                 Mot de passe actuel *
               </label>
               <input
@@ -3465,7 +3556,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 value={deletePassword}
                 onChange={(e) => setDeletePassword(e.target.value)}
                 placeholder="Confirmez votre mot de passe"
-                className="w-full rounded-xl border border-white/15 bg-[#181D15] px-3.5 py-2.5 text-sm text-[#F5F7F1] placeholder:text-[#8E9784] min-h-[44px]"
+                className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3.5 py-2.5 text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[44px]"
               />
             </div>
             <div className="flex justify-end gap-3">
@@ -3475,13 +3566,13 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   setDeletePassword('');
                   setShowDeleteConfirm(false);
                 }}
-                className="rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-sm font-medium text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[44px]"
+                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-sm font-medium text-[#3D5246] hover:text-[#063725] min-h-[44px] transition-colors"
               >
                 Annuler
               </button>
               <button
                 type="submit"
-                className="rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-white hover:bg-red-700 min-h-[44px]"
+                className="rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-white hover:bg-red-700 min-h-[44px] transition-colors"
               >
                 Supprimer définitivement
               </button>
@@ -3522,33 +3613,33 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       )}
 
       {selectedFicheModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="w-full max-w-2xl obsidian-card-glow rounded-3xl overflow-hidden my-auto">
-            <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-5 py-3.5">
+            <div className="flex items-center justify-between gap-4 border-b border-[#E2EBE5] px-5 py-3.5">
               <div>
-                <div className="text-[11px] font-semibold text-[#C8F62D]">
+                <div className="text-[11px] font-semibold text-[#0D6E46]">
                   {selectedFicheModal.category} · {selectedFicheModal.muscles}
                 </div>
-                <h3 className="text-base font-semibold text-[#F5F7F1]">{selectedFicheModal.titre}</h3>
+                <h3 className="text-base font-semibold text-[#063725]">{selectedFicheModal.titre}</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedFicheModal(null)}
                 aria-label="Fermer la fiche"
-                className="rounded-full border border-white/15 bg-white/[0.04] p-2 text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[40px] min-w-[40px] flex items-center justify-center"
+                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] p-2 text-[#3D5246] hover:text-[#063725] min-h-[40px] min-w-[40px] flex items-center justify-center transition-colors"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
             <div className="px-5 pt-3 flex items-center justify-between gap-2">
-              <div className="inline-flex items-center gap-1 rounded-full bg-[#181D15] border border-white/[0.08] p-1">
+              <div className="inline-flex items-center gap-1 rounded-full bg-[#F1F6F3] border border-[#D5E2DA] p-1">
                 <button
                   type="button"
                   onClick={() => setFicheModalMode('video')}
                   className={`rounded-full px-3.5 py-1.5 text-xs min-h-[34px] transition-colors ${
                     ficheModalMode === 'video'
-                      ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                      : 'font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
+                      ? 'bg-[#0D6E46] text-white font-bold'
+                      : 'font-medium text-[#3D5246] hover:text-[#063725]'
                   }`}
                 >
                   Vidéo guidée
@@ -3558,24 +3649,24 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   onClick={() => setFicheModalMode('photo')}
                   className={`rounded-full px-3.5 py-1.5 text-xs min-h-[34px] transition-colors ${
                     ficheModalMode === 'photo'
-                      ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                      : 'font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
+                      ? 'bg-[#0D6E46] text-white font-bold'
+                      : 'font-medium text-[#3D5246] hover:text-[#063725]'
                   }`}
                 >
                   Planche anatomique
                 </button>
               </div>
-              <span className="text-[11px] text-[#8E9784]">Vitesse réglable (0.75x à 1.25x)</span>
+              <span className="text-[11px] text-[#5B7064]">Vitesse réglable (0.75x à 1.25x)</span>
             </div>
             <div className="p-4 sm:p-5">
               {ficheModalMode === 'video' ? (
                 <ExerciseVideoGuide
                   exerciseName={selectedFicheModal.titre}
-                  accentHex={sportTheme.accentHex}
-                  theme="dark"
+                  accentHex="#0D6E46"
+                  theme="light"
                 />
               ) : (
-                <div className="flex items-center justify-center rounded-2xl bg-[#F5F7F1] p-3">
+                <div className="flex items-center justify-center rounded-2xl border border-[#E2EBE5] bg-[#F6F8F5] p-3">
                   <img
                     src={selectedFicheModal.imageUrl}
                     alt={selectedFicheModal.titre}
@@ -3586,7 +3677,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 </div>
               )}
             </div>
-            <div className="border-t border-white/[0.08] bg-[#0D100B] px-5 py-3.5 text-xs text-[#B4BCA9] leading-relaxed">
+            <div className="border-t border-[#E2EBE5] bg-[#F1F6F3] px-5 py-3.5 text-xs text-[#3D5246] leading-relaxed">
               {selectedFicheModal.caption}
             </div>
           </div>
@@ -3594,14 +3685,14 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       )}
 
       {videoPreviewSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="w-full max-w-2xl obsidian-card-glow rounded-3xl overflow-hidden my-auto">
-            <div className="flex items-center justify-between gap-4 border-b border-white/[0.08] px-5 py-3.5">
+            <div className="flex items-center justify-between gap-4 border-b border-[#E2EBE5] px-5 py-3.5">
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold text-[#C8F62D]">
+                <div className="text-[11px] font-semibold text-[#0D6E46]">
                   Guides vidéo · {videoPreviewSession.session.titre}
                 </div>
-                <h3 className="text-base font-semibold text-[#F5F7F1] truncate">
+                <h3 className="text-base font-semibold text-[#063725] truncate">
                   {videoPreviewSession.session.exercises[videoPreviewSession.stepIdx]?.nom}
                 </h3>
               </div>
@@ -3609,7 +3700,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 type="button"
                 onClick={() => setVideoPreviewSession(null)}
                 aria-label="Fermer les guides vidéo"
-                className="rounded-full border border-white/15 bg-white/[0.04] p-2 text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[40px] min-w-[40px] flex items-center justify-center"
+                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] p-2 text-[#3D5246] hover:text-[#063725] min-h-[40px] min-w-[40px] flex items-center justify-center transition-colors"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -3624,8 +3715,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     onClick={() => setVideoPreviewSession({ ...videoPreviewSession, stepIdx: idx })}
                     className={`rounded-full px-3 py-1.5 text-xs whitespace-nowrap min-h-[36px] transition-colors ${
                       videoPreviewSession.stepIdx === idx
-                        ? 'bg-[#C8F62D] text-[#080A07] font-bold'
-                        : 'border border-white/15 bg-[#181D15] font-medium text-[#B4BCA9] hover:text-[#F5F7F1]'
+                        ? 'bg-[#0D6E46] text-white font-bold'
+                        : 'border border-[#D5E2DA] bg-[#F1F6F3] font-medium text-[#3D5246] hover:text-[#063725]'
                     }`}
                   >
                     {idx + 1}. {ex.nom}
@@ -3637,11 +3728,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 <>
                   <ExerciseVideoGuide
                     exerciseName={videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].nom}
-                    accentHex={sportTheme.accentHex}
-                    theme="dark"
+                    accentHex="#0D6E46"
+                    theme="light"
                   />
-                  <div className="obsidian-inset rounded-2xl p-3.5 text-xs text-[#B4BCA9] space-y-1">
-                    <div className="font-semibold text-[#F5F7F1]">
+                  <div className="obsidian-inset rounded-2xl p-3.5 text-xs text-[#3D5246] space-y-1">
+                    <div className="font-semibold text-[#063725]">
                       Consigne Terrain+ ({data.user.langue === 'wo' ? 'Wolof & Français' : 'Français'})
                     </div>
                     <p>
@@ -3654,27 +3745,27 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               )}
 
               {(data.coachVideos || []).some((v) => v.session_id === videoPreviewSession.session.id) && (
-                <div className="space-y-2.5 pt-2 border-t border-white/[0.08]">
-                  <div className="text-xs font-semibold text-[#F5F7F1]">Vidéo(s) du coach pour cette séance</div>
+                <div className="space-y-2.5 pt-2 border-t border-[#E2EBE5]">
+                  <div className="text-xs font-semibold text-[#063725]">Vidéo(s) du coach pour cette séance</div>
                   <div className="space-y-3">
                     {(data.coachVideos || [])
                       .filter((v) => v.session_id === videoPreviewSession.session.id)
                       .map((vid) => (
                         <div key={vid.id} className="space-y-1.5">
-                          <div className="text-xs font-medium text-[#C8F62D]">{vid.titre}</div>
-                          <CoachVideoPlayer video={vid} ecoMode={ecoMode} />
-                          {vid.description && <p className="text-[11px] text-[#B4BCA9]">{vid.description}</p>}
+                          <div className="text-xs font-semibold text-[#0D6E46]">{vid.titre}</div>
+                          <CoachVideoPlayer video={vid} ecoMode={ecoMode} theme="light" />
+                          {vid.description && <p className="text-[11px] text-[#3D5246]">{vid.description}</p>}
                         </div>
                       ))}
                   </div>
                 </div>
               )}
 
-              <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/[0.08]">
+              <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#E2EBE5]">
                 <button
                   type="button"
                   onClick={() => setVideoPreviewSession(null)}
-                  className="rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-medium text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[40px]"
+                  className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#3D5246] hover:text-[#063725] min-h-[40px] transition-colors"
                 >
                   Fermer
                 </button>
@@ -3685,7 +3776,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     setVideoPreviewSession(null);
                     handleLaunchLibrarySession(target);
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-[#C8F62D] px-5 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[40px]"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px] transition-colors"
                 >
                   <Play className="h-3.5 w-3.5" aria-hidden="true" />
                   <span>Démarrer cette séance</span>
@@ -3697,10 +3788,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       )}
 
       {upgradePrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4">
           <div className="w-full max-w-md obsidian-card-glow rounded-3xl p-6 space-y-4">
             <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2 text-amber-300">
+              <div className="flex items-center gap-2 text-amber-700">
                 <Lock className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span className="text-xs font-semibold uppercase tracking-wide">Option Terrain+</span>
               </div>
@@ -3708,18 +3799,18 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 type="button"
                 onClick={() => setUpgradePrompt(null)}
                 aria-label="Fermer"
-                className="text-[#8E9784] hover:text-[#F5F7F1]"
+                className="text-[#5B7064] hover:text-[#063725] transition-colors"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
-            <h3 className="text-lg font-semibold text-[#F5F7F1]">{upgradePrompt.title}</h3>
-            <p className="text-sm text-[#B4BCA9] leading-relaxed">{upgradePrompt.reason}</p>
+            <h3 className="text-lg font-semibold text-[#063725]">{upgradePrompt.title}</h3>
+            <p className="text-sm text-[#3D5246] leading-relaxed">{upgradePrompt.reason}</p>
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setUpgradePrompt(null)}
-                className="rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-xs font-medium text-[#B4BCA9] hover:text-[#F5F7F1] min-h-[42px]"
+                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#3D5246] hover:text-[#063725] min-h-[42px] transition-colors"
               >
                 Rester en Essentiel
               </button>
@@ -3730,7 +3821,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   setTargetPlanDraft('PROGRESSION');
                   setTab('profil');
                 }}
-                className="rounded-full bg-[#C8F62D] px-5 py-2 text-xs font-bold text-[#080A07] hover:bg-[#D7FA59] min-h-[42px]"
+                className="rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[42px] transition-colors"
               >
                 Voir Progression+ / Suivi Coach
               </button>
@@ -3745,6 +3836,13 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
           onSubmitted={() => loadWorkspace()}
         />
       )}
+
+      <LegalModal
+        open={legalTab !== null}
+        activeTab={legalTab || 'confidentialite'}
+        onChangeTab={(next) => setLegalTab(next)}
+        onClose={() => setLegalTab(null)}
+      />
     </div>
   );
 };

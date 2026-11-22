@@ -144,6 +144,7 @@ export async function evaluateDiplomaDocument(
           if (sc === 'handball') return specLower.includes('hand');
           if (sc === 'volleyball') return specLower.includes('volley');
           if (sc === 'athletisme') return specLower.includes('athl') || specLower.includes('sprint') || specLower.includes('fond');
+          if (sc === 'fitness') return specLower.includes('fit') || specLower.includes('musc') || specLower.includes('prépa') || specLower.includes('prepa');
           return false;
         }))
   );
@@ -429,48 +430,3 @@ export async function storeCoachDocumentMetadataRevision(
   };
 }
 
-export function buildSampleDiplomaPdfBuffer(title: string, subtitle: string, reference: string): Buffer {
-  const clean = (txt: string) =>
-    txt
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[()\\]/g, ' ');
-
-  const streamContent = [
-    'BT',
-    '/F1 18 Tf',
-    '56 760 Td',
-    `(${clean(title)}) Tj`,
-    '/F1 12 Tf',
-    '0 -28 Td',
-    `(${clean(subtitle)}) Tj`,
-    '0 -22 Td',
-    `(${clean(`Reference officielle : ${reference}`)}) Tj`,
-    '0 -22 Td',
-    '(Document justificatif depose sur Terrain+ pour verification administrative.) Tj',
-    'ET',
-  ].join('\n');
-
-  const objects: string[] = [
-    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n',
-    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n',
-    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n',
-    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
-    `5 0 obj\n<< /Length ${Buffer.byteLength(streamContent, 'utf8')} >>\nstream\n${streamContent}\nendstream\nendobj\n`,
-  ];
-
-  let pdf = '%PDF-1.4\n';
-  const offsets: number[] = [0];
-  for (const obj of objects) {
-    offsets.push(Buffer.byteLength(pdf, 'utf8'));
-    pdf += obj;
-  }
-  const xrefPos = Buffer.byteLength(pdf, 'utf8');
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += '0000000000 65535 f \n';
-  for (let i = 1; i < offsets.length; i++) {
-    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
-  }
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`;
-  return Buffer.from(pdf, 'utf8');
-}
