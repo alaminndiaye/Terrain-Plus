@@ -1711,7 +1711,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       required
                       value={coachZone}
                       onChange={(e) => setCoachZone(e.target.value)}
-                      placeholder="Ex: Dakar, Thiès"
+                      placeholder="Ville ou zone d’intervention"
                       className="w-full rounded-xl border border-[#C3D6CA] bg-white text-[#063725] px-3 py-2 text-sm min-h-[44px]"
                     />
                   </div>
@@ -1811,7 +1811,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         required
                         value={diplomaNumber}
                         onChange={(e) => setDiplomaNumber(e.target.value)}
-                        placeholder="CAF-C-SN-2024-0815"
+                        placeholder="Numéro figurant sur le diplôme"
                         className="w-full rounded-xl border border-[#C3D6CA] bg-white text-[#063725] px-3 py-2 font-mono text-xs min-h-[40px]"
                       />
                     </div>
@@ -1883,7 +1883,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         required
                         value={proCardNumber}
                         onChange={(e) => setProCardNumber(e.target.value)}
-                        placeholder="Ex: CPRO-SN-2025-1104"
+                        placeholder="Numéro de carte professionnelle"
                         className="w-full rounded-xl border border-[#C3D6CA] bg-white text-[#063725] px-3 py-2 font-mono text-xs min-h-[40px]"
                       />
                     </div>

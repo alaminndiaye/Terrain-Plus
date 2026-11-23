@@ -193,6 +193,9 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
           </a>
 
           <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-[#3D5246]">
+            <a href="#objectif" className="hover:text-[#063725] transition-colors whitespace-nowrap shrink-0">
+              Objectifs
+            </a>
             <a href="#sports" className="hover:text-[#063725] transition-colors whitespace-nowrap shrink-0">
               Sports
             </a>
@@ -241,6 +244,13 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
           >
             <div className="grid grid-cols-2 gap-2 text-sm font-medium text-[#063725]">
               <a
+                href="#objectif"
+                onClick={() => setMobileNavOpen(false)}
+                className="rounded-xl bg-[#F6F8F5] px-3.5 py-2.5 hover:bg-[#ECF7F1]"
+              >
+                Objectifs
+              </a>
+              <a
                 href="#sports"
                 onClick={() => setMobileNavOpen(false)}
                 className="rounded-xl bg-[#F6F8F5] px-3.5 py-2.5 hover:bg-[#ECF7F1]"
@@ -264,7 +274,7 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
               <a
                 href="#partenaires"
                 onClick={() => setMobileNavOpen(false)}
-                className="rounded-xl bg-[#F6F8F5] px-3.5 py-2.5 hover:bg-[#ECF7F1]"
+                className="col-span-2 rounded-xl bg-[#F6F8F5] px-3.5 py-2.5 hover:bg-[#ECF7F1]"
               >
                 Partenaires
               </a>
@@ -325,188 +335,237 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
             <div className="absolute inset-0 bg-gradient-to-b from-[#063725]/88 via-[#063725]/72 to-[#063725]/92 lg:bg-gradient-to-r lg:from-[#063725]/92 lg:via-[#063725]/76 lg:to-[#063725]/55" />
           </div>
 
-          {/* Foreground Responsive Overlay & Goal-First Starter Card */}
-          <div className="relative z-10 mx-auto max-w-6xl px-4 pt-6 pb-8 sm:px-6 sm:pt-10 sm:pb-12 lg:py-14">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
-              {/* Left / Top Overlay Copy + Mobile-First 6-Sport Carousel Strip */}
-              <div className="lg:col-span-7 flex flex-col justify-between text-white">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-mono text-[11px] sm:text-xs font-semibold tracking-wide text-[#FBBF24]">
-                    0{activeSlideIndex + 1} / 06 · {activeSport.nom} · {activeSport.preventionZones[0]}
-                  </p>
-
-                  {/* Carousel Transport Controls */}
-                  <div className="inline-flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleStepCarousel(-1)}
-                      aria-label="Discipline précédente"
-                      className="h-9 w-9 sm:h-10 sm:w-10 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCarouselPaused((p) => !p)}
-                      aria-label={carouselPaused ? 'Relancer le carrousel' : 'Mettre en pause le carrousel'}
-                      className="h-9 w-9 sm:h-10 sm:w-10 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
-                    >
-                      {carouselPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleStepCarousel(1)}
-                      aria-label="Discipline suivante"
-                      className="h-9 w-9 sm:h-10 sm:w-10 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                <h1 className="mt-3 sm:mt-4 font-display text-[1.65rem] leading-[1.15] sm:text-4xl lg:text-[2.8rem] font-bold tracking-tight text-white text-balance">
-                  Votre objectif d’abord, votre parcours{' '}
-                  <span className="text-[#FBBF24]">{activeSport.nom}</span> adapté ensuite
-                </h1>
-
-                <p className="mt-2.5 sm:mt-3.5 text-xs sm:text-base text-white/90 leading-relaxed max-w-xl">
-                  {activeSport.subtitle}. Séances courtes sans matériel en français et wolof, encadrement coach et accès hors ligne.
+          {/* Foreground Responsive Carousel Content (clean layout without floating card) */}
+          <div className="relative z-10 mx-auto max-w-6xl px-4 pt-8 pb-10 sm:px-6 sm:pt-12 sm:pb-14 lg:py-16">
+            <div className="max-w-3xl text-white">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-mono text-[11px] sm:text-xs font-semibold tracking-wide text-[#FBBF24] tabular-nums">
+                  0{activeSlideIndex + 1} / 06 · {activeSport.nom} · {activeSport.preventionZones[0]}
                 </p>
 
-                {/* Responsive Discipline Metrics Summary Over Photo */}
-                <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] sm:text-xs text-white/90">
-                  {activeSport.qualities.slice(0, 2).map((quality) => (
-                    <span key={quality} className="inline-flex items-center gap-1.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#FBBF24] shrink-0" aria-hidden="true" />
-                      <span>{quality}</span>
-                    </span>
-                  ))}
-                  <span className="inline-flex items-center gap-1.5 text-[#FBBF24] font-medium">
-                    <span className="h-1.5 w-1.5 rounded-full bg-white shrink-0" aria-hidden="true" />
-                    <span>Suivi : {activeSport.dashboardMetrics.primary}</span>
-                  </span>
-                </div>
-
-                {/* Mobile-Friendly Horizontal Scrollable 6-Sport Carousel Selector */}
-                <div className="mt-5">
-                  <div className="flex items-center justify-between text-[11px] text-white/75 mb-2">
-                    <span>Structure des 6 sports · Touchez pour changer d’aperçu</span>
-                    <span className="hidden sm:inline font-mono">6 disciplines</span>
-                  </div>
-                  <div
-                    role="tablist"
-                    aria-label="Carrousel des 6 sports"
-                    className="flex items-center gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-1 -mx-1 px-1 sm:flex-wrap sm:overflow-visible"
+                {/* Carousel Transport Controls */}
+                <div className="inline-flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleStepCarousel(-1)}
+                    aria-label="Discipline précédente"
+                    className="h-9 w-9 sm:h-10 sm:w-10 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
                   >
-                    {ALL_SPORT_CODES.map((code, idx) => {
-                      const active = previewSport === code;
-                      return (
-                        <button
-                          key={code}
-                          type="button"
-                          role="tab"
-                          aria-selected={active}
-                          onClick={() => handleSelectCarouselSport(code)}
-                          className={`snap-start inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold transition-all min-h-[42px] whitespace-nowrap shrink-0 ${
-                            active
-                              ? 'bg-white text-[#063725] shadow-md'
-                              : 'border border-white/25 bg-white/15 text-white hover:bg-white/25'
-                          }`}
-                        >
-                          <span
-                            className={`h-2 w-2 rounded-full shrink-0 ${
-                              active ? 'bg-[#F59E0B]' : 'bg-white/50'
-                            }`}
-                            aria-hidden="true"
-                          />
-                          <span className="font-mono text-[10px] opacity-75">0{idx + 1}</span>
-                          <span>{SPORTS_CONFIG[code].nom}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCarouselPaused((p) => !p)}
+                    aria-label={carouselPaused ? 'Relancer le carrousel' : 'Mettre en pause le carrousel'}
+                    className="h-9 w-9 sm:h-10 sm:w-10 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
+                  >
+                    {carouselPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleStepCarousel(1)}
+                    aria-label="Discipline suivante"
+                    className="h-9 w-9 sm:h-10 sm:w-10 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
 
-              {/* Right / Bottom Crisp White Goal-First Card */}
-              <div className="lg:col-span-5">
-                <div className="rounded-2xl sm:rounded-3xl bg-white/95 backdrop-blur-md text-[#063725] p-4 sm:p-6 shadow-2xl border border-white/80 space-y-3.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs sm:text-sm font-bold text-[#063725]">
-                      1. Choisissez votre objectif
-                    </span>
-                    <span className="rounded-full bg-[#ECF7F1] border border-[#BFE0CD] px-2.5 py-0.5 text-[11px] font-semibold text-[#0D6E46]">
-                      Compatible 6 sports
-                    </span>
-                  </div>
+              <h1 className="mt-4 font-display text-[1.75rem] leading-[1.12] sm:text-4xl lg:text-[3rem] font-bold tracking-tight text-white text-balance">
+                Votre objectif d’abord, votre parcours{' '}
+                <span className="text-[#FBBF24]">{activeSport.nom}</span> adapté ensuite
+              </h1>
 
-                  {/* Responsive 2-column grid on phones for comfortable thumb taps */}
-                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5">
-                    {TRAINING_OBJECTIVES.map((obj) => {
-                      const active = selectedObjective === obj.code;
-                      return (
-                        <button
-                          key={obj.code}
-                          type="button"
-                          onClick={() => {
-                            setSelectedObjective(obj.code);
-                            setPreviewSport(obj.recommendedSports[0]);
-                            setCarouselPaused(true);
-                          }}
-                          className={`rounded-xl px-2.5 sm:px-3 py-2 text-[11px] sm:text-xs font-semibold transition-colors min-h-[38px] text-center ${
-                            active
-                              ? 'bg-[#0D6E46] text-white shadow-sm'
-                              : 'border border-[#D5E2DA] bg-[#F6F8F5] text-[#3D5246] hover:border-[#0D6E46]/40 hover:text-[#063725]'
-                          }`}
-                        >
-                          {obj.shortLabel}
-                        </button>
-                      );
-                    })}
-                  </div>
+              <p className="mt-3 sm:mt-4 text-sm sm:text-base text-white/90 leading-relaxed max-w-2xl">
+                {activeSport.subtitle}. Séances courtes sans matériel en français et wolof, encadrement coach et accès hors ligne.
+              </p>
 
-                  <div className="rounded-xl border border-[#D5E2DA] bg-[#F6F8F5] p-3 space-y-1.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <span className="text-[#5B7064]">
-                        Sport conseillé :{' '}
-                        <strong className="text-[#0D6E46]">
-                          {SPORTS_CONFIG[activeObjective.recommendedSports[0]].nom}
-                        </strong>
-                      </span>
-                      <span className="text-[11px] font-semibold text-[#B45309]">
-                        Actif : {activeSport.nom}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[#3D5246] leading-relaxed">
-                      {activeObjective.sportGuidance[previewSport]}
+              {/* Responsive Discipline Metrics Summary Over Photo */}
+              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-white/90">
+                <span>{activeSport.qualities[0]}</span>
+                {activeSport.qualities[1] && (
+                  <>
+                    <span aria-hidden="true" className="text-white/50">·</span>
+                    <span>{activeSport.qualities[1]}</span>
+                  </>
+                )}
+                <span aria-hidden="true" className="text-white/50">·</span>
+                <span className="text-[#FBBF24] font-medium">
+                  Suivi : {activeSport.dashboardMetrics.primary}
+                </span>
+              </div>
+
+              {/* Primary Hero Actions */}
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <a
+                  href="#objectif"
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-5 py-3 text-xs sm:text-sm font-bold text-[#063725] hover:bg-[#ECF7F1] transition-colors min-h-[44px] shadow-md whitespace-nowrap"
+                >
+                  <span>Choisir mon objectif</span>
+                  <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+                </a>
+                <button
+                  type="button"
+                  onClick={() => onOpenAuth('login')}
+                  className="inline-flex items-center justify-center rounded-full border border-white/30 bg-white/15 px-5 py-3 text-xs sm:text-sm font-semibold text-white hover:bg-white/25 transition-colors min-h-[44px] whitespace-nowrap"
+                >
+                  Se connecter
+                </button>
+                <PWAInstallButton compact />
+              </div>
+
+              {/* Mobile-Friendly Horizontal Scrollable 6-Sport Carousel Selector */}
+              <div className="mt-7 pt-5 border-t border-white/15">
+                <div className="flex items-center justify-between text-[11px] text-white/75 mb-2.5">
+                  <span>Structure des 6 sports · Touchez pour changer d’aperçu</span>
+                  <span className="hidden sm:inline font-mono">6 disciplines</span>
+                </div>
+                <div
+                  role="tablist"
+                  aria-label="Carrousel des 6 sports"
+                  className="flex items-center gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-1 -mx-1 px-1 sm:flex-wrap sm:overflow-visible"
+                >
+                  {ALL_SPORT_CODES.map((code, idx) => {
+                    const active = previewSport === code;
+                    return (
+                      <button
+                        key={code}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => handleSelectCarouselSport(code)}
+                        className={`snap-start inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold transition-all min-h-[42px] whitespace-nowrap shrink-0 ${
+                          active
+                            ? 'bg-white text-[#063725] shadow-md'
+                            : 'border border-white/25 bg-white/15 text-white hover:bg-white/25'
+                        }`}
+                      >
+                        <span className="font-mono text-[10px] opacity-75">0{idx + 1}</span>
+                        <span>{SPORTS_CONFIG[code].nom}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 2: Dedicated Goal-First Section ("Choisissez votre objectif") */}
+        <section id="objectif" className="border-b border-[#D5E2DA] bg-white py-10 sm:py-14">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6 space-y-6">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold text-[#0D6E46]">
+                  Étape 1 · Calibration du parcours · Compatible 6 sports
+                </div>
+                <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#063725] text-balance">
+                  Choisissez votre objectif
+                </h2>
+                <p className="text-sm text-[#475E52] max-w-2xl">
+                  Définissez votre priorité (perte de poids, prise de masse, endurance, explosivité, prévention ou performance complète). Terrain+ adapte automatiquement les séances sur votre discipline.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              {/* Interactive Objective Cards */}
+              <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {TRAINING_OBJECTIVES.map((obj) => {
+                  const active = selectedObjective === obj.code;
+                  const recommendedSport = SPORTS_CONFIG[obj.recommendedSports[0]].nom;
+                  return (
+                    <button
+                      key={obj.code}
+                      type="button"
+                      onClick={() => {
+                        setSelectedObjective(obj.code);
+                        setPreviewSport(obj.recommendedSports[0]);
+                        setCarouselPaused(true);
+                      }}
+                      className={`rounded-2xl border p-4 text-left transition-all flex flex-col justify-between gap-2.5 min-h-[116px] ${
+                        active
+                          ? 'border-[#0D6E46] bg-[#ECF7F1] shadow-sm'
+                          : 'border-[#D5E2DA] bg-[#F6F8F5] hover:border-[#0D6E46]/45 hover:bg-white'
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold text-[#063725]">{obj.shortLabel}</span>
+                          {active && <CheckCircle2 className="h-4 w-4 text-[#0D6E46] shrink-0" aria-hidden="true" />}
+                        </div>
+                        <p className="text-xs text-[#475E52] leading-relaxed">{obj.description}</p>
+                      </div>
+                      <div className="text-[11px] font-medium text-[#0D6E46]">
+                        Sport conseillé : {recommendedSport}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Active Objective & Sport Alignment Summary */}
+              <div className="lg:col-span-5 rounded-2xl border border-[#D5E2DA] bg-[#F6F8F5] p-5 sm:p-6 flex flex-col justify-between gap-5">
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold text-[#5B7064]">Votre programme calibré</div>
+                    <h3 className="font-display text-lg font-bold text-[#063725]">
+                      {activeObjective.label}
+                    </h3>
+                    <p className="text-xs text-[#475E52] leading-relaxed">
+                      {activeObjective.programSummary}
                     </p>
                   </div>
 
-                  <div className="space-y-2 pt-0.5">
-                    <button
-                      type="button"
-                      onClick={() => onOpenAuth('register', previewSport, 'athlete', selectedObjective)}
-                      className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-[#0D6E46] px-5 py-3 text-xs sm:text-sm font-bold text-white hover:bg-[#095637] transition-colors min-h-[44px] shadow-sm"
-                    >
-                      <span className="truncate">
-                        Démarrer ({activeObjective.shortLabel} · {activeSport.nom})
-                      </span>
-                      <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
-                    </button>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onOpenAuth('login')}
-                        className="flex-1 inline-flex items-center justify-center rounded-full border border-[#C3D6CA] bg-white px-4 py-2.5 text-xs font-semibold text-[#063725] hover:bg-[#F1F6F3] transition-colors min-h-[42px] whitespace-nowrap"
-                      >
-                        Se connecter
-                      </button>
-                      <PWAInstallButton compact />
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-[#3D5246]">Associer à votre discipline</span>
+                      <span className="font-semibold text-[#0D6E46]">{activeSport.nom}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {ALL_SPORT_CODES.map((code) => {
+                        const isSportActive = previewSport === code;
+                        return (
+                          <button
+                            key={code}
+                            type="button"
+                            onClick={() => handleSelectCarouselSport(code)}
+                            className={`rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors min-h-[38px] truncate ${
+                              isSportActive
+                                ? 'bg-[#0D6E46] text-white shadow-sm'
+                                : 'border border-[#D5E2DA] bg-white text-[#3D5246] hover:text-[#063725]'
+                            }`}
+                          >
+                            {SPORTS_CONFIG[code].nom}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  <p className="text-[11px] text-[#5B7064] leading-snug border-t border-[#E2EBE5] pt-2.5">
+                  <div className="pt-3 border-t border-[#E2EBE5] space-y-1">
+                    <div className="text-xs font-semibold text-[#063725]">
+                      Adaptation {activeSport.nom}
+                    </div>
+                    <p className="text-xs text-[#475E52] leading-relaxed">
+                      {activeObjective.sportGuidance[previewSport]}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5 pt-2 border-t border-[#E2EBE5]">
+                  <button
+                    type="button"
+                    onClick={() => onOpenAuth('register', previewSport, 'athlete', selectedObjective)}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-[#0D6E46] px-5 py-3 text-xs sm:text-sm font-bold text-white hover:bg-[#095637] transition-colors min-h-[44px] shadow-sm"
+                  >
+                    <span className="truncate">
+                      Démarrer ({activeObjective.shortLabel} · {activeSport.nom})
+                    </span>
+                    <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  </button>
+                  <p className="text-[11px] text-[#5B7064] leading-snug">
                     Terrain+ accompagne la régularité sportive et ne remplace ni un coach diplômé ni un avis médical.
                   </p>
                 </div>

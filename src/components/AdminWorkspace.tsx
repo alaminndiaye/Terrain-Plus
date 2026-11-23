@@ -1,24 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity,
   AlertTriangle,
   BookCheck,
   Building2,
   CheckCircle2,
-  Database,
   Download,
   Eye,
   FileSearch,
-  Landmark,
   LogOut,
-  RefreshCw,
-  Server,
+  Menu,
   ShieldCheck,
   Users,
   X,
   XCircle,
 } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
   ApiError,
   apiRequest,
@@ -33,23 +28,19 @@ import { COACH_LEGAL_STATUS_OPTIONS } from '../data/sportsDiplomas';
 import { LegalFooter } from './LegalFooter';
 
 const ADMIN_OVERVIEW_CACHE_KEY = 'terrain_plus_admin_overview_v1';
-const MINISTER_OVERVIEW_CACHE_KEY = 'terrain_plus_minister_overview_v1';
 import type {
-  AdminSystemOverviewPayload,
   AthleteLevel,
   AthleteStatus,
   AuditLogEntry,
   CoachDocumentSummary,
-  MinisterOverviewPayload,
   PartnerRequestRecord,
   PartnerSummary,
   SportCode,
   UserRole,
   ValidationStatus,
 } from '../types';
-import { MinisterOverviewContent, type MinisterSection } from './MinisterWorkspace';
 
-type AdminTab = 'systeme' | 'comptes' | 'contenus' | 'journal' | 'partenaires' | 'ministeres';
+type AdminTab = 'comptes' | 'contenus' | 'journal' | 'partenaires';
 
 interface AdminUserRow {
   id: number;
@@ -133,15 +124,6 @@ interface AdminOverviewResponse {
     current_sessions: number;
   }>;
   partnerRequests: PartnerRequestRecord[];
-  systemOverview?: AdminSystemOverviewPayload;
-}
-
-function formatUptime(totalSec: number): string {
-  if (totalSec < 60) return `${totalSec} s`;
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  if (h === 0) return `${m} min`;
-  return `${h} h ${String(m).padStart(2, '0')} min`;
 }
 
 export const AdminWorkspace: React.FC<{
@@ -155,20 +137,11 @@ export const AdminWorkspace: React.FC<{
         Boolean(v && typeof v === 'object' && Array.isArray((v as AdminOverviewResponse).users) && Array.isArray((v as AdminOverviewResponse).coaches))
     )
   );
-  const [tab, setTab] = useState<AdminTab>('systeme');
+  const [tab, setTab] = useState<AdminTab>('comptes');
   const [data, setData] = useState<AdminOverviewResponse | null>(cachedAdmin);
-  const [ministerData, setMinisterData] = useState<MinisterOverviewPayload | null>(() =>
-    readJsonCache<MinisterOverviewPayload>(
-      MINISTER_OVERVIEW_CACHE_KEY,
-      (v): v is MinisterOverviewPayload =>
-        Boolean(v && typeof v === 'object' && typeof (v as MinisterOverviewPayload).kpis?.totalAthletes === 'number' && Array.isArray((v as MinisterOverviewPayload).bySport))
-    )
-  );
-  const [ministerSection, setMinisterSection] = useState<MinisterSection>('synthese');
   const [loading, setLoading] = useState(!cachedAdmin);
-  const [refreshingSystem, setRefreshingSystem] = useState(false);
-  const [trafficFilter, setTrafficFilter] = useState<'ALL' | 'ERRORS' | 'AUTH'>('ALL');
   const [notice, setNotice] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [reviewerBySession, setReviewerBySession] = useState<Record<number, string>>({});
   const [auditFilter, setAuditFilter] = useState('');
 
@@ -202,16 +175,9 @@ export const AdminWorkspace: React.FC<{
 
   const loadAdmin = useCallback(async () => {
     try {
-      const [res, minRes] = await Promise.all([
-        apiRequest<AdminOverviewResponse>('/api/admin/overview'),
-        apiRequest<MinisterOverviewPayload>('/api/minister/overview').catch(() => null),
-      ]);
+      const res = await apiRequest<AdminOverviewResponse>('/api/admin/overview');
       setData(res);
       writeJsonCache(ADMIN_OVERVIEW_CACHE_KEY, res);
-      if (minRes) {
-        setMinisterData(minRes);
-        writeJsonCache(MINISTER_OVERVIEW_CACHE_KEY, minRes);
-      }
       if (res.partners.length > 0) {
         setNewGroupPartnerId((prev) => prev || String(res.partners[0].id));
         setNewChallPartnerId((prev) => prev || String(res.partners[0].id));
@@ -280,18 +246,6 @@ export const AdminWorkspace: React.FC<{
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [inspectedCoach]);
-
-  const handleRefreshSystemOverview = async () => {
-    setRefreshingSystem(true);
-    try {
-      const sys = await apiRequest<AdminSystemOverviewPayload>('/api/admin/system-overview');
-      setData((prev) => (prev ? { ...prev, systemOverview: sys } : prev));
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Impossible d’actualiser la supervision.');
-    } finally {
-      setRefreshingSystem(false);
-    }
-  };
 
   const handleAssignCoach = async (athleteId: number, coachId: number) => {
     if (!coachId) return;
@@ -475,15 +429,6 @@ export const AdminWorkspace: React.FC<{
     );
   }, [data, auditFilter]);
 
-  const filteredTrafficLogs = useMemo(() => {
-    const logs = data?.systemOverview?.traffic.recentLogs || [];
-    if (trafficFilter === 'ERRORS') return logs.filter((l) => l.status_code >= 400);
-    if (trafficFilter === 'AUTH') {
-      return logs.filter((l) => l.full_path.startsWith('/api/auth/') || [401, 403, 429].includes(l.status_code));
-    }
-    return logs;
-  }, [data?.systemOverview, trafficFilter]);
-
   if (loading && !data) {
     return (
       <div className="min-h-screen obsidian-ambient flex items-center justify-center text-sm text-[#3D5246]">
@@ -504,12 +449,6 @@ export const AdminWorkspace: React.FC<{
     icon: React.ComponentType<{ className?: string }>;
     badge?: number;
   }> = [
-    {
-      id: 'systeme',
-      label: 'Système & Trafic',
-      mobileLabel: 'Système',
-      icon: Activity,
-    },
     {
       id: 'comptes',
       label: 'Comptes & Dossiers',
@@ -532,7 +471,6 @@ export const AdminWorkspace: React.FC<{
       icon: Building2,
       badge: newPartnerRequestsCount,
     },
-    { id: 'ministeres', label: 'Vue Ministères', mobileLabel: 'Ministères', icon: Landmark },
   ];
 
   return (
@@ -601,28 +539,78 @@ export const AdminWorkspace: React.FC<{
 
       {/* Main Column */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Compact Mobile Top Header */}
-        <header className="md:hidden flex items-center justify-between gap-3 border-b border-[#D5E2DA] bg-white/95 backdrop-blur-md px-4 h-[52px]">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <img
-              src="/brand/terrain-logo.png"
-              alt="Terrain+"
-              decoding="async"
-              referrerPolicy="no-referrer"
-              className="h-7 w-auto object-contain shrink-0"
-            />
-            <span className="text-xs font-semibold text-[#5B7064] truncate">
-              · Administration
-            </span>
+        {/* Compact Mobile Top Header with Hamburger Menu */}
+        <header className="md:hidden border-b border-[#D5E2DA] bg-white/95 backdrop-blur-md">
+          <div className="flex items-center justify-between gap-3 px-4 h-[52px]">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((prev) => !prev)}
+                aria-label={mobileMenuOpen ? 'Fermer le menu' : 'Ouvrir le menu'}
+                aria-expanded={mobileMenuOpen}
+                className="p-2 rounded-xl border border-[#C3D6CA] bg-white text-[#063725] hover:bg-[#F1F6F3] min-h-[38px] min-w-[38px] flex items-center justify-center shrink-0"
+              >
+                {mobileMenuOpen ? <X className="h-4 w-4" aria-hidden="true" /> : <Menu className="h-4 w-4" aria-hidden="true" />}
+              </button>
+              <img
+                src="/brand/terrain-logo.png"
+                alt="Terrain+"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                className="h-7 w-auto object-contain shrink-0"
+              />
+              <span className="text-xs font-semibold text-[#5B7064] truncate">
+                · Administration
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="p-2 text-[#3D5246] hover:text-[#063725] min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
+              aria-label="Déconnexion"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="p-2 text-[#3D5246] hover:text-[#063725] min-h-[40px] min-w-[40px] flex items-center justify-center shrink-0"
-            aria-label="Déconnexion"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
+          {mobileMenuOpen && (
+            <nav aria-label="Menu administration mobile" className="border-t border-[#E2EBE5] bg-white px-4 py-3 space-y-1.5">
+              {adminNavItems.map((item) => {
+                const Icon = item.icon;
+                const active = tab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setTab(item.id);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold min-h-[40px] ${
+                      active ? 'bg-[#0D6E46] text-white' : 'bg-[#F6F8F5] text-[#063725]'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </span>
+                    {item.badge && item.badge > 0 ? (
+                      <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                        {item.badge}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full flex items-center gap-2.5 rounded-xl border border-[#D5E2DA] px-3.5 py-2.5 text-xs font-semibold text-[#3D5246] min-h-[40px]"
+              >
+                <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>Déconnexion</span>
+              </button>
+            </nav>
+          )}
         </header>
 
         <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8 pb-24 md:pb-10">
@@ -639,359 +627,6 @@ export const AdminWorkspace: React.FC<{
                 </button>
               </div>
             )}
-
-          {tab === 'systeme' && data && (
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h1 className="font-display text-2xl font-bold text-[#063725]">
-                    Vue d’ensemble Système & Trafic
-                  </h1>
-                  <p className="text-sm text-[#3D5246]">
-                    Supervision temps réel de l’infrastructure Terrain+, des files d’approbation et de l’ensemble des requêtes API.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRefreshSystemOverview}
-                  disabled={refreshingSystem}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#C3D6CA] bg-white px-4 py-2 text-xs font-semibold text-[#063725] hover:bg-[#ECF7F1] min-h-[42px] shrink-0"
-                >
-                  <RefreshCw className={`h-4 w-4 text-[#0D6E46] ${refreshingSystem ? 'animate-spin' : ''}`} aria-hidden="true" />
-                  <span>{refreshingSystem ? 'Actualisation...' : 'Actualiser la télémétrie'}</span>
-                </button>
-              </div>
-
-              {data.systemOverview ? (
-                <>
-                  {/* Action Queues */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setTab('comptes')}
-                      className={`rounded-2xl border p-4 text-left transition-colors ${
-                        data.systemOverview.queues.pendingCoachDossiers > 0
-                          ? 'border-amber-200 bg-amber-50 hover:bg-amber-100/70'
-                          : 'border-[#D5E2DA] bg-white hover:bg-[#F6F8F5]'
-                      }`}
-                    >
-                      <div className="text-xs font-medium text-[#3D5246]">Dossiers Coachs en étude</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.queues.pendingCoachDossiers}
-                      </div>
-                      <div className="mt-1 text-[11px] font-semibold text-[#0D6E46]">
-                        {data.systemOverview.queues.pendingCoachDossiers > 0
-                          ? 'Ouvrir l’étude des diplômes ->'
-                          : 'Aucun dossier bloqué'}
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setTab('contenus')}
-                      className="obsidian-card rounded-2xl p-4 text-left hover:bg-[#F6F8F5] transition-colors"
-                    >
-                      <div className="text-xs font-medium text-[#3D5246]">Séances en relecture</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.queues.pendingSessionsReview}
-                      </div>
-                      <div className="mt-1 text-[11px] text-[#5B7064]">Validation technique requise</div>
-                    </button>
-
-                    <div className="obsidian-card rounded-2xl p-4">
-                      <div className="text-xs font-medium text-[#3D5246]">Alertes douleur ouvertes</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.queues.openPainAlerts}
-                      </div>
-                      <div className="mt-1 text-[11px] text-[#5B7064]">Suivi préventif athlètes</div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setTab('partenaires')}
-                      className="obsidian-card rounded-2xl p-4 text-left hover:bg-[#F6F8F5] transition-colors"
-                    >
-                      <div className="text-xs font-medium text-[#3D5246]">Demandes partenariats</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.queues.newPartnerRequests}
-                      </div>
-                      <div className="mt-1 text-[11px] text-[#5B7064]">ASC, Campus & Ligues</div>
-                    </button>
-                  </div>
-
-                  {/* Primary System & Traffic KPIs */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
-                        <span>Trafic API (24h)</span>
-                        <Activity className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
-                      </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.traffic.requestsLast24h.toLocaleString('fr-FR')} req
-                      </div>
-                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
-                        {data.systemOverview.traffic.requestsLastHour} req / 1h · {data.systemOverview.traffic.bandwidthOutKb24h} Ko sortants
-                      </div>
-                    </div>
-
-                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
-                        <span>Latence & Erreurs HTTP</span>
-                        <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
-                      </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.traffic.avgLatencyMs} ms
-                      </div>
-                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
-                        {data.systemOverview.traffic.errorRatePct}% erreurs · {data.systemOverview.traffic.authBlocks24h} blocages 401/403/429
-                      </div>
-                    </div>
-
-                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
-                        <span>Sessions & Comptes</span>
-                        <Server className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
-                      </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.system.activeSessionsCount} actives
-                      </div>
-                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
-                        {data.systemOverview.platformTotals.totalUsers} comptes · {data.systemOverview.system.lockedAccountsCount} verrouillés · {data.systemOverview.system.unverifiedAccountsCount} OTP en attente
-                      </div>
-                    </div>
-
-                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
-                        <span>Ressources & Stockage</span>
-                        <Database className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
-                      </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.system.memoryRssMb} Mo RAM
-                      </div>
-                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
-                        DB {data.systemOverview.system.dbSizeKb} Ko · {data.systemOverview.system.uploadsCount} diplômes ({data.systemOverview.system.uploadsSizeKb} Ko) · {formatUptime(data.systemOverview.system.uptimeSeconds)}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Chart & Breakdown */}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 obsidian-card rounded-2xl p-5 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <h2 className="text-base font-semibold text-[#063725]">Volume horaire du trafic (24h)</h2>
-                          <p className="text-xs text-[#5B7064]">
-                            Requêtes traitées et réponses d’erreur / refus par tranche horaire.
-                          </p>
-                        </div>
-                        <span className="font-mono text-[11px] text-[#5B7064]">
-                          {data.systemOverview.system.nodeVersion}
-                        </span>
-                      </div>
-                      <div className="h-60 w-full">
-                        {data.systemOverview.traffic.hourlySeries.length > 0 ? (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={data.systemOverview.traffic.hourlySeries}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#E2EBE5" />
-                              <XAxis
-                                dataKey="hour"
-                                tick={{ fontSize: 11, fill: '#5B7064' }}
-                                axisLine={{ stroke: '#D5E2DA' }}
-                                tickLine={{ stroke: '#D5E2DA' }}
-                              />
-                              <YAxis
-                                tick={{ fontSize: 11, fill: '#5B7064' }}
-                                allowDecimals={false}
-                                axisLine={{ stroke: '#D5E2DA' }}
-                                tickLine={{ stroke: '#D5E2DA' }}
-                              />
-                              <Tooltip
-                                contentStyle={{
-                                  backgroundColor: '#FFFFFF',
-                                  borderColor: '#D5E2DA',
-                                  borderRadius: 12,
-                                  color: '#063725',
-                                }}
-                                itemStyle={{ color: '#063725' }}
-                                labelStyle={{ color: '#0D6E46', fontWeight: 600 }}
-                              />
-                              <Bar dataKey="requests" name="Requêtes" fill="#0D6E46" radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="errors" name="Erreurs / Blocages" fill="#EF4444" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        ) : (
-                          <div className="h-full flex items-center justify-center text-xs text-[#5B7064]">
-                            En attente des premières requêtes enregistrées...
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="obsidian-card rounded-2xl p-5 space-y-4">
-                      <div>
-                        <h2 className="text-base font-semibold text-[#063725]">Trafic par rôle (24h)</h2>
-                        <div className="mt-3 space-y-2">
-                          {data.systemOverview.traffic.byRole.map((r) => (
-                            <div key={r.role} className="flex items-center justify-between text-xs">
-                              <span className="font-medium text-[#3D5246]">{r.role}</span>
-                              <span className="font-mono font-semibold tabular-nums text-[#0D6E46]">
-                                {r.requests} req
-                              </span>
-                            </div>
-                          ))}
-                          {data.systemOverview.traffic.byRole.length === 0 && (
-                            <div className="text-xs text-[#5B7064]">Aucune requête enregistrée sur 24h.</div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="pt-3 border-t border-[#E2EBE5] space-y-2">
-                        <div className="text-xs font-semibold text-[#063725]">Activité métier globale</div>
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="obsidian-inset rounded-lg p-2.5">
-                            <div className="text-[11px] text-[#5B7064]">Athlètes actifs</div>
-                            <div className="font-mono font-bold text-[#063725] tabular-nums">
-                              {data.systemOverview.platformTotals.athletesCount}
-                            </div>
-                          </div>
-                          <div className="obsidian-inset rounded-lg p-2.5">
-                            <div className="text-[11px] text-[#5B7064]">Coachs vérifiés</div>
-                            <div className="font-mono font-bold text-[#0D6E46] tabular-nums">
-                              {data.systemOverview.platformTotals.coachesVerifiedCount}
-                            </div>
-                          </div>
-                          <div className="obsidian-inset rounded-lg p-2.5">
-                            <div className="text-[11px] text-[#5B7064]">Séances faites</div>
-                            <div className="font-mono font-bold text-[#063725] tabular-nums">
-                              {data.systemOverview.platformTotals.completedSessionsCount}
-                            </div>
-                          </div>
-                          <div className="obsidian-inset rounded-lg p-2.5">
-                            <div className="text-[11px] text-[#5B7064]">Évaluations</div>
-                            <div className="font-mono font-bold text-[#063725] tabular-nums">
-                              {data.systemOverview.platformTotals.evaluationsCount}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Top Routes */}
-                  <div className="obsidian-card rounded-2xl overflow-x-auto">
-                    <div className="px-5 py-4 border-b border-[#E2EBE5]">
-                      <h2 className="text-base font-semibold text-[#063725]">Routes API les plus sollicitées (24h)</h2>
-                    </div>
-                    <table className="w-full text-left text-xs">
-                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
-                        <tr>
-                          <th className="px-4 py-2.5 font-medium">Méthode</th>
-                          <th className="px-4 py-2.5 font-medium">Endpoint</th>
-                          <th className="px-4 py-2.5 font-medium">Requêtes</th>
-                          <th className="px-4 py-2.5 font-medium">Latence moy.</th>
-                          <th className="px-4 py-2.5 font-medium">Erreurs HTTP</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#E2EBE5]">
-                        {data.systemOverview.traffic.topRoutes.map((route) => (
-                          <tr key={`${route.method}:${route.path_group}`} className="hover:bg-[#F6F8F5]">
-                            <td className="px-4 py-2.5 font-mono font-semibold text-[#0D6E46]">{route.method}</td>
-                            <td className="px-4 py-2.5 font-mono text-[#063725]">{route.path_group}</td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums font-semibold text-[#063725]">
-                              {route.hits}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#3D5246]">{route.avg_ms} ms</td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums">
-                              <span className={route.errors > 0 ? 'text-red-700 font-semibold' : 'text-[#5B7064]'}>
-                                {route.errors}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Recent Traffic Log Stream */}
-                  <div className="obsidian-card rounded-2xl overflow-x-auto">
-                    <div className="px-5 py-4 border-b border-[#E2EBE5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <h2 className="text-base font-semibold text-[#063725]">Flux récent des requêtes système</h2>
-                        <p className="text-xs text-[#5B7064]">
-                          Dernières requêtes HTTP enregistrées avec code réponse, rôle et temps de traitement.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        {(
-                          [
-                            ['ALL', 'Tout'],
-                            ['ERRORS', 'Erreurs (>= 400)'],
-                            ['AUTH', 'Auth & Blocages'],
-                          ] as const
-                        ).map(([code, label]) => (
-                          <button
-                            key={code}
-                            type="button"
-                            onClick={() => setTrafficFilter(code)}
-                            className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[34px] transition-colors ${
-                              trafficFilter === code
-                                ? 'bg-[#0D6E46] text-white font-bold'
-                                : 'border border-[#C3D6CA] bg-[#F1F6F3] text-[#3D5246] hover:text-[#063725]'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <table className="w-full text-left text-xs">
-                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
-                        <tr>
-                          <th className="px-4 py-2.5 font-medium">Horodatage</th>
-                          <th className="px-4 py-2.5 font-medium">Requête</th>
-                          <th className="px-4 py-2.5 font-medium">Statut</th>
-                          <th className="px-4 py-2.5 font-medium">Latence</th>
-                          <th className="px-4 py-2.5 font-medium">Rôle</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#E2EBE5]">
-                        {filteredTrafficLogs.map((log) => (
-                          <tr key={log.id} className="hover:bg-[#F6F8F5]">
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#5B7064] whitespace-nowrap">
-                              {log.created_at}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">
-                              <span className="font-semibold text-[#063725] mr-1.5">{log.method}</span>
-                              {log.full_path}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums">
-                              <span
-                                className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${
-                                  log.status_code >= 500
-                                    ? 'bg-red-50 text-red-700 border border-red-200'
-                                    : log.status_code >= 400
-                                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                                      : 'bg-[#ECF7F1] text-[#0D6E46] border border-[#BFE0CD]'
-                                }`}
-                              >
-                                {log.status_code}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#3D5246]">{log.duration_ms} ms</td>
-                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">{log.user_role}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              ) : (
-                <div className="obsidian-card rounded-2xl p-6 text-sm text-[#3D5246]">
-                  Télémétrie système indisponible hors ligne. Cliquez sur « Actualiser la télémétrie » une fois reconnecté.
-                </div>
-              )}
-            </div>
-          )}
 
           {tab === 'comptes' && data && (
             <div className="space-y-6">
@@ -1221,7 +856,7 @@ export const AdminWorkspace: React.FC<{
                         onChange={(e) =>
                           setReviewerBySession((prev) => ({ ...prev, [s.id]: e.target.value }))
                         }
-                        placeholder="Nom et qualité du relecteur (ex: Dr. S. Diagne, Médecin du sport)"
+                        placeholder="Nom et qualification du relecteur"
                         className="flex-1 rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                       />
                       <button
@@ -1464,7 +1099,7 @@ export const AdminWorkspace: React.FC<{
                       required
                       value={newPartnerZone}
                       onChange={(e) => setNewPartnerZone(e.target.value)}
-                      placeholder="Zone (ex: Kaolack)"
+                      placeholder="Ville ou zone"
                       className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
                   </div>
@@ -1577,20 +1212,6 @@ export const AdminWorkspace: React.FC<{
               </div>
             </div>
           )}
-          {tab === 'ministeres' && (
-            ministerData ? (
-              <MinisterOverviewContent
-                data={ministerData}
-                section={ministerSection}
-                onSelectSection={setMinisterSection}
-                embeddedInAdmin
-              />
-            ) : (
-              <div className="obsidian-card rounded-2xl p-6 text-sm text-[#3D5246]">
-                Chargement de l’Observatoire National...
-              </div>
-            )
-          )}
             <LegalFooter />
           </div>
         </main>
@@ -1601,7 +1222,7 @@ export const AdminWorkspace: React.FC<{
         aria-label="Navigation mobile administration"
         className="md:hidden fixed bottom-3 left-3 right-3 z-40 rounded-2xl border border-[#D5E2DA] bg-white/95 backdrop-blur-md p-1.5 shadow-xl"
       >
-        <div className="grid grid-cols-6 gap-0.5">
+        <div className="grid grid-cols-4 gap-1">
           {adminNavItems.map((item) => {
             const Icon = item.icon;
             const active = tab === item.id;
@@ -1792,7 +1413,7 @@ export const AdminWorkspace: React.FC<{
                       type="text"
                       value={reviewNoteInput}
                       onChange={(e) => setReviewNoteInput(e.target.value)}
-                      placeholder="Ex: Licence vérifiée auprès de la DTN / FSF"
+                      placeholder="Référence ou note de validation"
                       className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
                   </div>

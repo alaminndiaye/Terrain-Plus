@@ -248,7 +248,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 26,
     objectif: 'Force explosive et duels',
     prevention: 'Ischio-jambiers et genoux',
-    reluePar: 'Dr. S. Diagne (Médecin du sport) · Commission STAPS',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
     exercises: [
       {
@@ -320,7 +320,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 20,
     objectif: 'Rebond, tir en suspension et protection articulaire',
     prevention: 'Chevilles et genoux',
-    reluePar: 'Dr. S. Diagne (Médecin du sport) · Commission STAPS',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
@@ -365,7 +365,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 18,
     objectif: 'Vitesse de réaction et posture défensive',
     prevention: 'Genoux et lombaires',
-    reluePar: 'Commission Technique STAPS Terrain+',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
@@ -399,7 +399,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 25,
     objectif: 'Explosivité en fin de match',
     prevention: 'Chevilles et tendons rotuliens',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
     exercises: [
       {
@@ -422,7 +422,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 25,
     objectif: 'Gain de puissance verticale et solidité au contact',
     prevention: 'Genoux, ceinture scapulaire et lombaires',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
     exercises: [
       {
@@ -460,7 +460,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 20,
     objectif: 'Préparation du lancer et stabilité du tronc',
     prevention: 'Épaules et genoux',
-    reluePar: 'Dr. S. Diagne (Médecin du sport) · Commission STAPS',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
@@ -505,7 +505,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 22,
     objectif: 'Vitesse sur 15 m et duels au contact',
     prevention: 'Épaules et lombaires',
-    reluePar: 'Commission Technique STAPS Terrain+',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
     exercises: [
       {
@@ -539,7 +539,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 24,
     objectif: 'Puissance de tir au bras et protection d’épaule',
     prevention: 'Épaules, triceps et gainage latéral',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
     exercises: [
       {
@@ -577,7 +577,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 22,
     objectif: 'Améliorer l’impulsion au filet et amortir les réceptions',
     prevention: 'Genoux (tendon rotulien) et chevilles',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
@@ -625,7 +625,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 24,
     objectif: 'Vitesse de déplacement sous le ballon et contrôle du tronc en extension',
     prevention: 'Épaules et bas du dos',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
@@ -661,7 +661,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 28,
     objectif: 'Enchaîner plusieurs sauts de contre et frappes sans perte d’explosivité',
     prevention: 'Tendon rotulien et coiffe des rotateurs',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
     exercises: [
       {
@@ -699,7 +699,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 22,
     objectif: 'Installer une foulée économique et renforcer mollets et pieds sans matériel',
     prevention: 'Tendons d’Achille et mollets',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
@@ -747,7 +747,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 25,
     objectif: 'Développer VMA et protection excentrique des ischio-jambiers',
     prevention: 'Ischio-jambiers et bas du dos',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
@@ -783,7 +783,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 28,
     objectif: 'Maximiser la poussée horizontale au départ et la rigidité de cheville',
     prevention: 'Tendons d’Achille et ischio-jambiers',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
     exercises: [
       {
@@ -821,7 +821,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 20,
     objectif: 'Perte de poids, dépense énergétique et souffle sans matériel',
     prevention: 'Genoux, chevilles et bas du dos',
-    reluePar: 'Dr. S. Diagne (Médecin du sport) · Commission STAPS',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
@@ -869,7 +869,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 24,
     objectif: 'Affûtage corporel, perte de masse grasse et tonus musculaire',
     prevention: 'Lombaires et articulations des membres inférieurs',
-    reluePar: 'Commission Technique STAPS Terrain+',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
@@ -917,7 +917,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 26,
     objectif: 'Croissance musculaire haut et bas du corps, volume et force fonctionnelle',
     prevention: 'Épaules, coudes et bas du dos',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
     exercises: [
       {
@@ -965,7 +965,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     duree: 28,
     objectif: 'Prise de masse avancée, force globale et prévention articulaire',
     prevention: 'Coiffe des rotateurs, tendons rotuliens et lombaires',
-    reluePar: 'Dr. S. Diagne (Médecin du sport)',
+    reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
     exercises: [
       {
