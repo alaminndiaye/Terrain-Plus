@@ -1,19 +1,34 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Activity,
   AlertTriangle,
+  BarChart3,
   BookCheck,
   Building2,
   CheckCircle2,
+  Database,
   Download,
   Eye,
   FileSearch,
   LogOut,
   Menu,
+  RefreshCw,
+  Server,
   ShieldCheck,
   Users,
+  Wallet,
   X,
   XCircle,
 } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import {
   ApiError,
   apiRequest,
@@ -29,6 +44,7 @@ import { LegalFooter } from './LegalFooter';
 
 const ADMIN_OVERVIEW_CACHE_KEY = 'terrain_plus_admin_overview_v1';
 import type {
+  AdminSystemOverviewPayload,
   AthleteLevel,
   AthleteStatus,
   AuditLogEntry,
@@ -40,7 +56,7 @@ import type {
   ValidationStatus,
 } from '../types';
 
-type AdminTab = 'comptes' | 'contenus' | 'journal' | 'partenaires';
+type AdminTab = 'overview' | 'comptes' | 'contenus' | 'journal' | 'partenaires';
 
 interface AdminUserRow {
   id: number;
@@ -124,6 +140,7 @@ interface AdminOverviewResponse {
     current_sessions: number;
   }>;
   partnerRequests: PartnerRequestRecord[];
+  systemOverview?: AdminSystemOverviewPayload;
 }
 
 export const AdminWorkspace: React.FC<{
@@ -133,13 +150,22 @@ export const AdminWorkspace: React.FC<{
   const [cachedAdmin] = useState<AdminOverviewResponse | null>(() =>
     readJsonCache<AdminOverviewResponse>(
       ADMIN_OVERVIEW_CACHE_KEY,
-      (v): v is AdminOverviewResponse =>
-        Boolean(v && typeof v === 'object' && Array.isArray((v as AdminOverviewResponse).users) && Array.isArray((v as AdminOverviewResponse).coaches))
+      (v): v is AdminOverviewResponse => {
+        if (!v || typeof v !== 'object') return false;
+        const cand = v as AdminOverviewResponse;
+        if (!Array.isArray(cand.users) || !Array.isArray(cand.coaches)) return false;
+        if (cand.systemOverview && (!cand.systemOverview.monetization || !Array.isArray(cand.systemOverview.sportBreakdown))) {
+          return false;
+        }
+        return true;
+      }
     )
   );
-  const [tab, setTab] = useState<AdminTab>('comptes');
+  const [tab, setTab] = useState<AdminTab>('overview');
   const [data, setData] = useState<AdminOverviewResponse | null>(cachedAdmin);
   const [loading, setLoading] = useState(!cachedAdmin);
+  const [refreshingSystem, setRefreshingSystem] = useState(false);
+  const [trafficFilter, setTrafficFilter] = useState<'ALL' | 'ERRORS' | 'AUTH'>('ALL');
   const [notice, setNotice] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [reviewerBySession, setReviewerBySession] = useState<Record<number, string>>({});
@@ -203,6 +229,46 @@ export const AdminWorkspace: React.FC<{
   useEffect(() => {
     loadAdmin();
   }, [loadAdmin]);
+
+  useEffect(() => {
+    if (tab !== 'overview') return;
+    let cancelled = false;
+
+    const refreshRealtimeOverview = async () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      try {
+        const freshOverview = await apiRequest<AdminSystemOverviewPayload>('/api/admin/system-overview');
+        if (cancelled) return;
+        setData((prev) => {
+          if (!prev) return prev;
+          const next = { ...prev, systemOverview: freshOverview };
+          writeJsonCache(ADMIN_OVERVIEW_CACHE_KEY, next);
+          return next;
+        });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          clearAllWorkspaceCaches();
+          onSessionExpired();
+        }
+      }
+    };
+
+    const intervalId = window.setInterval(refreshRealtimeOverview, 30_000);
+    const onFocusOrVisible = () => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        void refreshRealtimeOverview();
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [tab, onSessionExpired]);
 
   useEffect(() => {
     if (!inspectedCoach?.document) {
@@ -417,6 +483,23 @@ export const AdminWorkspace: React.FC<{
     onLoggedOut();
   };
 
+  const handleRefreshOverview = async () => {
+    setRefreshingSystem(true);
+    try {
+      const freshOverview = await apiRequest<AdminSystemOverviewPayload>('/api/admin/system-overview');
+      setData((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, systemOverview: freshOverview };
+        writeJsonCache(ADMIN_OVERVIEW_CACHE_KEY, next);
+        return next;
+      });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Actualisation impossible.');
+    } finally {
+      setRefreshingSystem(false);
+    }
+  };
+
   const filteredLogs = useMemo(() => {
     if (!data) return [];
     const q = auditFilter.trim().toLowerCase();
@@ -428,6 +511,15 @@ export const AdminWorkspace: React.FC<{
         l.action.toLowerCase().includes(q)
     );
   }, [data, auditFilter]);
+
+  const filteredTrafficLogs = useMemo(() => {
+    const logs = data?.systemOverview?.traffic.recentLogs || [];
+    if (trafficFilter === 'ERRORS') return logs.filter((l) => l.status_code >= 400);
+    if (trafficFilter === 'AUTH') {
+      return logs.filter((l) => l.status_code === 401 || l.status_code === 403 || l.status_code === 429 || l.full_path.includes('/auth/'));
+    }
+    return logs;
+  }, [data, trafficFilter]);
 
   if (loading && !data) {
     return (
@@ -449,6 +541,12 @@ export const AdminWorkspace: React.FC<{
     icon: React.ComponentType<{ className?: string }>;
     badge?: number;
   }> = [
+    {
+      id: 'overview',
+      label: 'Vue d’ensemble',
+      mobileLabel: 'Vue',
+      icon: BarChart3,
+    },
     {
       id: 'comptes',
       label: 'Comptes & Dossiers',
@@ -627,6 +725,568 @@ export const AdminWorkspace: React.FC<{
                 </button>
               </div>
             )}
+
+          {tab === 'overview' && data && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="font-display text-2xl font-bold text-[#063725]">
+                    Vue d’ensemble
+                  </h1>
+                  <p className="text-sm text-[#3D5246]">
+                    Statistiques en temps réel : athlètes inscrits, coachs actifs, ratio payants vs gratuits, estimation du chiffre d’affaires mensuel et trafic.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 shrink-0">
+                  {data.systemOverview?.generatedAt && (
+                    <span className="font-mono text-xs tabular-nums text-[#5B7064]">
+                      Temps réel · {new Date(data.systemOverview.generatedAt).toLocaleTimeString('fr-FR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleRefreshOverview}
+                    disabled={refreshingSystem}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#C3D6CA] bg-white px-4 py-2 text-xs font-semibold text-[#063725] hover:bg-[#ECF7F1] min-h-[42px] shrink-0"
+                  >
+                    <RefreshCw className={`h-4 w-4 text-[#0D6E46] ${refreshingSystem ? 'animate-spin' : ''}`} aria-hidden="true" />
+                    <span>{refreshingSystem ? 'Actualisation...' : 'Actualiser les données'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {data.systemOverview ? (
+                <>
+                  {/* 4 Real-Time Overview KPIs */}
+                  {(() => {
+                    const m = data.systemOverview.monetization;
+                    const p = data.systemOverview.platformTotals;
+                    const ratioTotal = m.totalPaidUsers + m.totalFreeUsers;
+                    const paidPct = ratioTotal > 0 ? Math.round((m.totalPaidUsers / ratioTotal) * 100) : 0;
+                    const freePct = ratioTotal > 0 ? 100 - paidPct : 0;
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                          <div className="flex items-center justify-between text-xs text-[#5B7064]">
+                            <span>Athlètes inscrits</span>
+                            <Users className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
+                          </div>
+                          <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                            {p.athletesCount.toLocaleString('fr-FR')}
+                          </div>
+                          <div className="text-xs font-mono text-[#3D5246] tabular-nums">
+                            {p.totalUsers.toLocaleString('fr-FR')} comptes totaux · {p.partnersCount} partenaires
+                          </div>
+                        </div>
+
+                        <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                          <div className="flex items-center justify-between text-xs text-[#5B7064]">
+                            <span>Coachs actifs</span>
+                            <ShieldCheck className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
+                          </div>
+                          <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                            {p.coachesVerifiedCount.toLocaleString('fr-FR')}
+                          </div>
+                          <div className="text-xs font-mono text-[#3D5246] tabular-nums">
+                            {p.coachesPendingCount} en attente · {p.coachesRefusedCount} refusés
+                          </div>
+                        </div>
+
+                        <div className="obsidian-card rounded-2xl p-5 space-y-2">
+                          <div className="flex items-center justify-between text-xs text-[#5B7064]">
+                            <span>Ratio payants vs gratuits</span>
+                            <Users className="h-4 w-4 text-[#B45309]" aria-hidden="true" />
+                          </div>
+                          <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                            {paidPct}% / {freePct}%
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-[#E2EBE5] overflow-hidden" aria-hidden="true">
+                            <div
+                              className="h-full rounded-full bg-[#0D6E46] transition-all"
+                              style={{ width: `${paidPct}%` }}
+                            />
+                          </div>
+                          <div className="text-xs font-mono text-[#3D5246] tabular-nums">
+                            {m.totalPaidUsers} payants · {m.totalFreeUsers} gratuits
+                          </div>
+                        </div>
+
+                        <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                          <div className="flex items-center justify-between text-xs text-[#5B7064]">
+                            <span>Estimation CA mensuel</span>
+                            <Wallet className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
+                          </div>
+                          <div className="font-mono text-2xl font-bold tabular-nums text-[#0D6E46]">
+                            {m.netPlatformMonthlyRevenueFcfa.toLocaleString('fr-FR')} FCFA
+                          </div>
+                          <div className="text-xs font-mono text-[#3D5246] tabular-nums">
+                            Brut : {m.grossMonthlyVolumeFcfa.toLocaleString('fr-FR')} F · Coachs : {m.coachPayoutsMonthlyFcfa.toLocaleString('fr-FR')} F
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Monetization Table & 6-Sport Distribution */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="lg:col-span-7 obsidian-card rounded-2xl overflow-x-auto">
+                      <div className="px-5 py-4 border-b border-[#E2EBE5] flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h2 className="text-base font-semibold text-[#063725]">
+                            Répartition Gratuits / Payants & Valeur mensuelle perçue
+                          </h2>
+                          <p className="text-xs text-[#5B7064]">
+                            Calculée en direct à partir des formules actives en base (FCFA / mois).
+                          </p>
+                        </div>
+                        <span className="font-mono text-xs font-bold tabular-nums text-[#0D6E46]">
+                          Net : {data.systemOverview.monetization.netPlatformMonthlyRevenueFcfa.toLocaleString('fr-FR')} FCFA/mois
+                        </span>
+                      </div>
+                      <table className="w-full text-left text-xs">
+                        <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
+                          <tr>
+                            <th className="px-4 py-2.5 font-medium">Formule / Segment</th>
+                            <th className="px-4 py-2.5 font-medium">Tarif unitaire</th>
+                            <th className="px-4 py-2.5 font-medium text-right">Comptes</th>
+                            <th className="px-4 py-2.5 font-medium text-right">Part perçue / mois</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E2EBE5]">
+                          <tr className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-medium text-[#063725]">Athlètes · Essentiel (Gratuit)</td>
+                            <td className="px-4 py-2.5 font-mono text-[#5B7064]">0 FCFA</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
+                              {data.systemOverview.monetization.freeAthletesCount}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[#5B7064]">0 FCFA</td>
+                          </tr>
+                          <tr className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-medium text-[#063725]">Athlètes · Progression+ (Mensuel)</td>
+                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">1 500 FCFA / mois</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
+                              {data.systemOverview.monetization.progressionMonthlyCount}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#0D6E46]">
+                              {(data.systemOverview.monetization.progressionMonthlyCount * 1500).toLocaleString('fr-FR')} FCFA
+                            </td>
+                          </tr>
+                          <tr className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-medium text-[#063725]">Athlètes · Progression+ (Trimestriel)</td>
+                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">4 000 F / 3 mois (1 333 F/m)</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
+                              {data.systemOverview.monetization.progressionQuarterlyCount}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#0D6E46]">
+                              {Math.max(
+                                0,
+                                data.systemOverview.monetization.breakdown.progressionMonthlyRevenueFcfa -
+                                  data.systemOverview.monetization.progressionMonthlyCount * 1500
+                              ).toLocaleString('fr-FR')} FCFA
+                            </td>
+                          </tr>
+                          <tr className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-medium text-[#063725]">Athlètes · Suivi Coach (5 000 F/mois)</td>
+                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">20 % Marketplace / 0 % Pro</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
+                              {data.systemOverview.monetization.coachPrivateAthletesCount}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#0D6E46]">
+                              {data.systemOverview.monetization.breakdown.coachCommissionRevenueFcfa.toLocaleString('fr-FR')} FCFA
+                            </td>
+                          </tr>
+                          <tr className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-medium text-[#063725]">Coachs vérifiés · Marketplace (Gratuit)</td>
+                            <td className="px-4 py-2.5 font-mono text-[#5B7064]">0 FCFA fixe</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
+                              {data.systemOverview.monetization.freeCoachesCount}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[#5B7064]">0 FCFA</td>
+                          </tr>
+                          <tr className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-medium text-[#063725]">Coachs vérifiés · Licence Coach Pro</td>
+                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">3 000 FCFA / mois</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
+                              {data.systemOverview.monetization.paidCoachesCount}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#0D6E46]">
+                              {data.systemOverview.monetization.breakdown.coachProLicenseRevenueFcfa.toLocaleString('fr-FR')} FCFA
+                            </td>
+                          </tr>
+                        </tbody>
+                        <tfoot className="border-t border-[#D5E2DA] bg-[#ECF7F1]/70 font-semibold text-[#063725]">
+                          <tr>
+                            <td className="px-4 py-3" colSpan={2}>
+                              Total consolidé mensuel (Volume brut : {data.systemOverview.monetization.grossMonthlyVolumeFcfa.toLocaleString('fr-FR')} FCFA · Reversé coachs : {data.systemOverview.monetization.coachPayoutsMonthlyFcfa.toLocaleString('fr-FR')} FCFA)
+                            </td>
+                            <td className="px-4 py-3 font-mono tabular-nums text-right">
+                              {data.systemOverview.monetization.totalFreeUsers + data.systemOverview.monetization.totalPaidUsers}
+                            </td>
+                            <td className="px-4 py-3 font-mono tabular-nums text-right text-[#0D6E46]">
+                              {data.systemOverview.monetization.netPlatformMonthlyRevenueFcfa.toLocaleString('fr-FR')} FCFA
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+
+                    <div className="lg:col-span-5 obsidian-card rounded-2xl p-5 flex flex-col justify-between gap-4">
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <h2 className="text-base font-semibold text-[#063725]">Répartition sur les 6 sports</h2>
+                          <span className="font-mono text-xs tabular-nums text-[#5B7064]">
+                            {data.systemOverview.platformTotals.athletesCount} athlètes
+                          </span>
+                        </div>
+                        <div className="space-y-2.5">
+                          {ALL_SPORT_CODES.map((code) => {
+                            const entry = data.systemOverview?.sportBreakdown.find((s) => s.sport_code === code);
+                            const count = entry?.athletes_count || 0;
+                            const totalAthletes = Math.max(1, data.systemOverview?.platformTotals.athletesCount || 0);
+                            const pct = Math.round((count / totalAthletes) * 100);
+                            return (
+                              <div key={code} className="space-y-1">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-medium text-[#063725]">{SPORTS_CONFIG[code].nom}</span>
+                                  <span className="font-mono tabular-nums text-[#3D5246]">
+                                    {count} ({pct}%)
+                                  </span>
+                                </div>
+                                <div className="h-2 w-full rounded-full bg-[#E2EBE5] overflow-hidden">
+                                  <div className="h-full bg-[#0D6E46]" style={{ width: `${pct}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-[#E2EBE5] grid grid-cols-2 gap-3 text-xs">
+                        <div>
+                          <div className="text-[#5B7064]">Séances réalisées</div>
+                          <div className="font-mono text-base font-bold tabular-nums text-[#063725]">
+                            {data.systemOverview.platformTotals.completedSessionsCount.toLocaleString('fr-FR')}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[#5B7064]">Évaluations enregistrées</div>
+                          <div className="font-mono text-base font-bold tabular-nums text-[#063725]">
+                            {data.systemOverview.platformTotals.evaluationsCount.toLocaleString('fr-FR')}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[#5B7064]">Groupes encadrés</div>
+                          <div className="font-mono text-base font-bold tabular-nums text-[#0D6E46]">
+                            {data.systemOverview.platformTotals.groupsCount}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[#5B7064]">Défis collectifs</div>
+                          <div className="font-mono text-base font-bold tabular-nums text-[#0D6E46]">
+                            {data.systemOverview.platformTotals.challengesCount}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Operational Action Queues */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setTab('comptes')}
+                      className={`rounded-2xl border p-4 text-left transition-colors ${
+                        data.systemOverview.queues.pendingCoachDossiers > 0
+                          ? 'border-amber-200 bg-amber-50 hover:bg-amber-100/70'
+                          : 'border-[#D5E2DA] bg-white hover:bg-[#F6F8F5]'
+                      }`}
+                    >
+                      <div className="text-xs font-medium text-[#3D5246]">Dossiers Coachs en étude</div>
+                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                        {data.systemOverview.queues.pendingCoachDossiers}
+                      </div>
+                      <div className="mt-1 text-[11px] font-semibold text-[#0D6E46]">
+                        {data.systemOverview.queues.pendingCoachDossiers > 0
+                          ? 'Ouvrir l’étude des diplômes ->'
+                          : 'Aucun dossier en attente'}
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setTab('contenus')}
+                      className="obsidian-card rounded-2xl p-4 text-left hover:bg-[#F6F8F5] transition-colors"
+                    >
+                      <div className="text-xs font-medium text-[#3D5246]">Séances en relecture</div>
+                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                        {data.systemOverview.queues.pendingSessionsReview}
+                      </div>
+                      <div className="mt-1 text-[11px] text-[#5B7064]">Validation technique requise</div>
+                    </button>
+
+                    <div className="obsidian-card rounded-2xl p-4">
+                      <div className="text-xs font-medium text-[#3D5246]">Alertes douleur ouvertes</div>
+                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                        {data.systemOverview.queues.openPainAlerts}
+                      </div>
+                      <div className="mt-1 text-[11px] text-[#5B7064]">Signalements athlètes en cours</div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setTab('partenaires')}
+                      className="obsidian-card rounded-2xl p-4 text-left hover:bg-[#F6F8F5] transition-colors"
+                    >
+                      <div className="text-xs font-medium text-[#3D5246]">Demandes partenariats</div>
+                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                        {data.systemOverview.queues.newPartnerRequests}
+                      </div>
+                      <div className="mt-1 text-[11px] text-[#5B7064]">ASC, Campus & Ligues</div>
+                    </button>
+                  </div>
+
+                  {/* Platform Traffic & Infrastructure KPIs */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
+                        <span>Trafic plateforme (24h)</span>
+                        <Activity className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
+                      </div>
+                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                        {data.systemOverview.traffic.requestsLast24h.toLocaleString('fr-FR')} req
+                      </div>
+                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
+                        {data.systemOverview.traffic.requestsLastHour} req / 1h · {data.systemOverview.traffic.bandwidthOutKb24h} Ko sortants
+                      </div>
+                    </div>
+
+                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
+                        <span>Latence & Erreurs HTTP</span>
+                        <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                      </div>
+                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                        {data.systemOverview.traffic.avgLatencyMs} ms
+                      </div>
+                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
+                        {data.systemOverview.traffic.errorRatePct}% erreurs · {data.systemOverview.traffic.authBlocks24h} blocages 401/403/429
+                      </div>
+                    </div>
+
+                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
+                        <span>Sessions & Sécurité</span>
+                        <Server className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
+                      </div>
+                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                        {data.systemOverview.system.activeSessionsCount} actives
+                      </div>
+                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
+                        {data.systemOverview.system.lockedAccountsCount} verrouillés · {data.systemOverview.system.unverifiedAccountsCount} OTP en attente
+                      </div>
+                    </div>
+
+                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
+                        <span>Base & Stockage</span>
+                        <Database className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
+                      </div>
+                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
+                        {data.systemOverview.system.dbSizeKb} Ko
+                      </div>
+                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
+                        {data.systemOverview.system.uploadsCount} diplômes ({data.systemOverview.system.uploadsSizeKb} Ko)
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Traffic Chart & Breakdown by Role */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 obsidian-card rounded-2xl p-5 space-y-3">
+                      <div>
+                        <h2 className="text-base font-semibold text-[#063725]">Volume horaire du trafic (24h)</h2>
+                        <p className="text-xs text-[#5B7064]">
+                          Requêtes traitées et erreurs / refus par tranche horaire.
+                        </p>
+                      </div>
+                      <div className="h-60 w-full">
+                        {data.systemOverview.traffic.hourlySeries.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={data.systemOverview.traffic.hourlySeries}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#E2EBE5" />
+                              <XAxis
+                                dataKey="hour"
+                                tick={{ fontSize: 11, fill: '#5B7064' }}
+                                axisLine={{ stroke: '#D5E2DA' }}
+                                tickLine={{ stroke: '#D5E2DA' }}
+                              />
+                              <YAxis
+                                tick={{ fontSize: 11, fill: '#5B7064' }}
+                                allowDecimals={false}
+                                axisLine={{ stroke: '#D5E2DA' }}
+                                tickLine={{ stroke: '#D5E2DA' }}
+                              />
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: '#FFFFFF',
+                                  borderColor: '#D5E2DA',
+                                  borderRadius: 12,
+                                  color: '#063725',
+                                }}
+                                itemStyle={{ color: '#063725' }}
+                                labelStyle={{ color: '#0D6E46', fontWeight: 600 }}
+                              />
+                              <Bar dataKey="requests" name="Requêtes" fill="#0D6E46" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="errors" name="Erreurs / Blocages" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-full flex items-center justify-center text-xs text-[#5B7064]">
+                            En attente des premières requêtes enregistrées...
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="obsidian-card rounded-2xl p-5 space-y-4">
+                      <div>
+                        <h2 className="text-base font-semibold text-[#063725]">Trafic par rôle (24h)</h2>
+                        <div className="mt-3 space-y-2">
+                          {data.systemOverview.traffic.byRole.map((r) => (
+                            <div key={r.role} className="flex items-center justify-between text-xs">
+                              <span className="font-medium text-[#3D5246]">{r.role}</span>
+                              <span className="font-mono font-semibold tabular-nums text-[#0D6E46]">
+                                {r.requests} req
+                              </span>
+                            </div>
+                          ))}
+                          {data.systemOverview.traffic.byRole.length === 0 && (
+                            <div className="text-xs text-[#5B7064]">Aucune requête enregistrée sur 24h.</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Top Routes */}
+                  <div className="obsidian-card rounded-2xl overflow-x-auto">
+                    <div className="px-5 py-4 border-b border-[#E2EBE5]">
+                      <h2 className="text-base font-semibold text-[#063725]">Endpoints les plus sollicités (24h)</h2>
+                    </div>
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
+                        <tr>
+                          <th className="px-4 py-2.5 font-medium">Méthode</th>
+                          <th className="px-4 py-2.5 font-medium">Endpoint</th>
+                          <th className="px-4 py-2.5 font-medium text-right">Requêtes</th>
+                          <th className="px-4 py-2.5 font-medium text-right">Latence moy.</th>
+                          <th className="px-4 py-2.5 font-medium text-right">Erreurs HTTP</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E2EBE5]">
+                        {data.systemOverview.traffic.topRoutes.map((route) => (
+                          <tr key={`${route.method}:${route.path_group}`} className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-mono font-semibold text-[#0D6E46]">{route.method}</td>
+                            <td className="px-4 py-2.5 font-mono text-[#063725]">{route.path_group}</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
+                              {route.hits}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[#3D5246]">{route.avg_ms} ms</td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right">
+                              <span className={route.errors > 0 ? 'text-red-700 font-semibold' : 'text-[#5B7064]'}>
+                                {route.errors}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Recent Traffic Log Stream */}
+                  <div className="obsidian-card rounded-2xl overflow-x-auto">
+                    <div className="px-5 py-4 border-b border-[#E2EBE5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-semibold text-[#063725]">Flux récent des requêtes plateforme</h2>
+                        <p className="text-xs text-[#5B7064]">
+                          Dernières requêtes HTTP enregistrées avec code réponse, rôle et temps de traitement.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {(
+                          [
+                            ['ALL', 'Tout'],
+                            ['ERRORS', 'Erreurs (>= 400)'],
+                            ['AUTH', 'Auth & Blocages'],
+                          ] as const
+                        ).map(([code, label]) => (
+                          <button
+                            key={code}
+                            type="button"
+                            onClick={() => setTrafficFilter(code)}
+                            className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[34px] transition-colors ${
+                              trafficFilter === code
+                                ? 'bg-[#0D6E46] text-white font-bold'
+                                : 'border border-[#C3D6CA] bg-[#F1F6F3] text-[#3D5246] hover:text-[#063725]'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
+                        <tr>
+                          <th className="px-4 py-2.5 font-medium">Horodatage</th>
+                          <th className="px-4 py-2.5 font-medium">Requête</th>
+                          <th className="px-4 py-2.5 font-medium">Statut</th>
+                          <th className="px-4 py-2.5 font-medium text-right">Latence</th>
+                          <th className="px-4 py-2.5 font-medium">Rôle</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E2EBE5]">
+                        {filteredTrafficLogs.map((log) => (
+                          <tr key={log.id} className="hover:bg-[#F6F8F5]">
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#5B7064] whitespace-nowrap">
+                              {log.created_at}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">
+                              <span className="font-semibold text-[#063725] mr-1.5">{log.method}</span>
+                              {log.full_path}
+                            </td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums">
+                              <span
+                                className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                                  log.status_code >= 500
+                                    ? 'bg-red-50 text-red-700 border border-red-200'
+                                    : log.status_code >= 400
+                                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                      : 'bg-[#ECF7F1] text-[#0D6E46] border border-[#BFE0CD]'
+                                }`}
+                              >
+                                {log.status_code}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[#3D5246]">{log.duration_ms} ms</td>
+                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">{log.user_role}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="obsidian-card rounded-2xl p-6 text-sm text-[#3D5246]">
+                  Données indisponibles hors ligne. Cliquez sur « Actualiser les données » une fois reconnecté.
+                </div>
+              )}
+            </div>
+          )}
 
           {tab === 'comptes' && data && (
             <div className="space-y-6">
@@ -1222,7 +1882,7 @@ export const AdminWorkspace: React.FC<{
         aria-label="Navigation mobile administration"
         className="md:hidden fixed bottom-3 left-3 right-3 z-40 rounded-2xl border border-[#D5E2DA] bg-white/95 backdrop-blur-md p-1.5 shadow-xl"
       >
-        <div className="grid grid-cols-4 gap-1">
+        <div className="grid grid-cols-5 gap-1">
           {adminNavItems.map((item) => {
             const Icon = item.icon;
             const active = tab === item.id;

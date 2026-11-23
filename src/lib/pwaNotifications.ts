@@ -1,18 +1,5 @@
 import type { ScheduledSession } from '../types';
 
-export type BrowserNotificationPermission = NotificationPermission | 'unsupported';
-
-export interface LocalNotificationRequest {
-  title: string;
-  body: string;
-  tag: string;
-  url?: string;
-  scheduledId?: number | null;
-  sessionId?: number | null;
-  triggerAt?: number | null;
-  renotify?: boolean;
-}
-
 export interface ComputedReminder {
   key: string;
   tag: string;
@@ -26,126 +13,7 @@ export interface ComputedReminder {
   dureeMin: number | null;
 }
 
-const SENT_REMINDERS_STORAGE_KEY = 'tp_sent_session_reminders_v1';
-
-export function isNotificationSupported(): boolean {
-  return typeof window !== 'undefined' && 'Notification' in window;
-}
-
-export function getNotificationPermission(): BrowserNotificationPermission {
-  if (!isNotificationSupported()) return 'unsupported';
-  return Notification.permission;
-}
-
-export async function requestBrowserNotificationPermission(): Promise<BrowserNotificationPermission> {
-  if (!isNotificationSupported()) return 'unsupported';
-  try {
-    const result = await Notification.requestPermission();
-    return result;
-  } catch {
-    return getNotificationPermission();
-  }
-}
-
-async function getReadyServiceWorkerRegistration(): Promise<ServiceWorkerRegistration | null> {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
-    return null;
-  }
-  try {
-    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000));
-    const reg = await Promise.race([navigator.serviceWorker.ready, timeout]);
-    return reg;
-  } catch {
-    return null;
-  }
-}
-
-export async function showPWALocalNotification(payload: LocalNotificationRequest): Promise<boolean> {
-  if (getNotificationPermission() !== 'granted') {
-    return false;
-  }
-
-  const reg = await getReadyServiceWorkerRegistration();
-  if (reg && typeof reg.showNotification === 'function') {
-    try {
-      const options: Record<string, unknown> = {
-        body: payload.body,
-        icon: '/pwa-192x192.png',
-        badge: '/brand/terrain-mark.png',
-        tag: payload.tag,
-        renotify: Boolean(payload.renotify),
-        vibrate: [180, 90, 180],
-        data: {
-          url: payload.url || '/?tab=programme',
-          scheduledId: payload.scheduledId ?? null,
-          sessionId: payload.sessionId ?? null,
-        },
-        actions: [
-          { action: 'open-session', title: 'Ouvrir la séance' },
-          { action: 'dismiss', title: 'Plus tard' },
-        ],
-      };
-      await reg.showNotification(payload.title, options as NotificationOptions);
-      return true;
-    } catch {
-      // Fallback to controller postMessage or window Notification below
-    }
-  }
-
-  if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
-    navigator.serviceWorker.controller.postMessage({
-      type: 'SHOW_SESSION_REMINDER',
-      payload,
-    });
-    return true;
-  }
-
-  try {
-    const notif = new Notification(payload.title, {
-      body: payload.body,
-      icon: '/pwa-192x192.png',
-      tag: payload.tag,
-    });
-    notif.onclick = () => {
-      window.focus();
-      if (payload.scheduledId) {
-        window.dispatchEvent(
-          new CustomEvent('tp-open-scheduled-session', {
-            detail: { scheduledId: payload.scheduledId, sessionId: payload.sessionId ?? null },
-          })
-        );
-      }
-      notif.close();
-    };
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function cancelPWAScheduledNotifications(tagPrefix = 'tp-session-'): Promise<void> {
-  const reg = await getReadyServiceWorkerRegistration();
-  if (reg && typeof reg.getNotifications === 'function') {
-    try {
-      const list = await (reg as ServiceWorkerRegistration & {
-        getNotifications(filter?: { includeTriggered?: boolean }): Promise<Notification[]>;
-      }).getNotifications({ includeTriggered: true });
-      for (const notif of list) {
-        if (notif.tag && notif.tag.startsWith(tagPrefix)) {
-          notif.close();
-        }
-      }
-    } catch {
-      // Ignore unsupported includeTriggered
-    }
-  }
-  if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
-    navigator.serviceWorker.controller.postMessage({
-      type: 'CANCEL_REMINDERS',
-      tagPrefix,
-    });
-  }
-}
+export const SENT_REMINDERS_STORAGE_KEY = 'tp_sent_session_reminders_v1';
 
 export function getSentReminderKeys(): Record<string, number> {
   try {
@@ -221,18 +89,18 @@ export function formatReminderLeadLabel(leadMinutes: number): string {
   return `${hours} h avant`;
 }
 
-export function formatReminderNotificationCopy(reminder: ComputedReminder, reminderTime: string): {
+export function formatReminderBannerCopy(reminder: ComputedReminder, reminderTime: string): {
   title: string;
   body: string;
 } {
   const leadText =
     reminder.leadMinutes === 0
-      ? `C’est l’heure de votre séance (${reminderTime})`
+      ? `Séance prévue à ${reminderTime}`
       : `Séance prévue dans ${reminder.leadMinutes >= 60 ? `${reminder.leadMinutes / 60} h` : `${reminder.leadMinutes} min`} (${reminderTime})`;
 
   const durationText = reminder.dureeMin ? ` · ${reminder.dureeMin} min` : '';
   return {
-    title: `Terrain+ · ${reminder.sessionTitle}`,
-    body: `${leadText}${durationText}. Appuyez pour ouvrir le guide terrain.`,
+    title: reminder.sessionTitle,
+    body: `${leadText}${durationText}`,
   };
 }

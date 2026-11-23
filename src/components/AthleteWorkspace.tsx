@@ -71,18 +71,14 @@ import type {
 import { GuidedSessionPlayer } from './GuidedSessionPlayer';
 import { ExerciseVideoGuide } from './ExerciseVideoGuide';
 import { CoachVideoPlayer, formatVideoSizeMb } from './CoachVideoPlayer';
-import { GuidedTourModal } from './GuidedTourModal';
 import { LegalFooter } from './LegalFooter';
 import { LegalModal } from './LegalModal';
 import { PainReportModal } from './PainReportModal';
-import { PWAInstallButton } from './PWAControls';
 import { type LegalDocTab } from '../data/legalDocs';
 
 type AthleteTab = 'dashboard' | 'programme' | 'evaluation' | 'profil';
 
 interface AthleteWorkspaceProps {
-  showGuidedTourOnMount: boolean;
-  onDismissGuidedTour: () => void;
   onLoggedOut: () => void;
   onSessionExpired: () => void;
 }
@@ -127,8 +123,6 @@ function formatMonthTitle(year: number, month: number): string {
 }
 
 export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
-  showGuidedTourOnMount,
-  onDismissGuidedTour,
   onLoggedOut,
   onSessionExpired,
 }) => {
@@ -205,7 +199,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     Number(cachedInit?.profile.reminder_lead_minutes ?? 30)
   );
   const [reminderSubmitting, setReminderSubmitting] = useState(false);
-  const [notifBannerDismissed, setNotifBannerDismissed] = useState(false);
   const [pendingSportChange, setPendingSportChange] = useState<SportCode | null>(null);
   const [coachChangeMotif, setCoachChangeMotif] = useState('');
   const [selectedCoachDraftId, setSelectedCoachDraftId] = useState<number | null>(() => cachedInit?.coach?.id || null);
@@ -578,17 +571,14 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   }, [data, jumpToCalendarDate]);
 
   const {
-    permission: notifPermission,
-    swReady,
     nextReminder,
-    requestPermission: requestNotifPermission,
-    sendTestNotification,
+    dueReminder,
+    dismissReminder,
   } = useSessionReminders({
     enabled: Boolean(data?.profile.notifications_enabled),
     reminderTime: data?.profile.reminder_time || reminderTime,
     leadMinutes: Number(data?.profile.reminder_lead_minutes ?? reminderLeadMinutes),
     schedule: data?.schedule || [],
-    onOpenScheduledSession: handleOpenScheduledFromNotification,
   });
 
   const handleLogout = async () => {
@@ -748,7 +738,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       });
       setFeedbackBanner(
         nextEnabled
-          ? `Rappels PWA enregistrés (${nextTime} · ${formatReminderLeadLabel(nextLead).toLowerCase()}).`
+          ? `Rappels de séance enregistrés (${nextTime} · ${formatReminderLeadLabel(nextLead).toLowerCase()}).`
           : 'Rappels automatiques de séance désactivés.'
       );
       await loadWorkspace();
@@ -756,35 +746,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       setFeedbackBanner(err instanceof Error ? err.message : 'Impossible d’enregistrer les rappels.');
     } finally {
       setReminderSubmitting(false);
-    }
-  };
-
-  const handleEnablePwaNotifications = async () => {
-    const res = await requestNotifPermission();
-    if (res === 'granted') {
-      if (!notifEnabled) {
-        setNotifEnabled(true);
-      }
-      await handleSaveReminders(true, reminderTime, reminderLeadMinutes);
-      await sendTestNotification();
-      setNotifBannerDismissed(true);
-    } else if (res === 'denied') {
-      setFeedbackBanner(
-        'Notifications bloquées dans les paramètres du navigateur. Autorisez Terrain+ depuis l’icône cadenas de la barre d’adresse.'
-      );
-    }
-  };
-
-  const handleTestPwaNotification = async () => {
-    const res = await sendTestNotification();
-    if (res.ok) {
-      setFeedbackBanner('Notification de test envoyée via le Service Worker Terrain+.');
-    } else if (res.permission === 'denied') {
-      setFeedbackBanner('Notifications bloquées dans votre navigateur. Réactivez l’autorisation pour recevoir les rappels.');
-    } else if (res.permission === 'unsupported') {
-      setFeedbackBanner('Votre navigateur actuel ne supporte pas les notifications PWA locales.');
-    } else {
-      setFeedbackBanner('Autorisez l’affichage des notifications dans votre navigateur pour tester.');
     }
   };
 
@@ -1011,8 +972,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
             <span>Signaler une douleur</span>
           </button>
-
-          <PWAInstallButton compact />
 
           <button
             type="button"
@@ -1608,37 +1567,36 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     </button>
                   </div>
 
-                  {notifEnabled && notifPermission === 'default' && !notifBannerDismissed && (
+                  {notifEnabled && dueReminder && (
                     <div className="obsidian-inset rounded-xl p-3.5 space-y-2.5">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2 text-xs font-semibold text-[#063725]">
                           <BellRing className="h-4 w-4 text-[#0D6E46] shrink-0" aria-hidden="true" />
-                          <span>Activer les rappels push PWA avant vos séances</span>
+                          <span>Rappel de séance : {dueReminder.sessionTitle}</span>
                         </div>
                         <button
                           type="button"
-                          onClick={() => setNotifBannerDismissed(true)}
+                          onClick={() => dismissReminder(dueReminder.key)}
                           aria-label="Masquer"
                           className="text-[#5B7064] hover:text-[#063725]"
                         >
                           <X className="h-3.5 w-3.5" aria-hidden="true" />
                         </button>
                       </div>
-                      <p className="text-[11px] text-[#3D5246] leading-relaxed">
-                        Recevez une alerte locale directement sur votre téléphone ou ordinateur ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()} votre horaire de {reminderTime}).
+                      <p className="text-[11px] text-[#3D5246] font-mono tabular-nums">
+                        {dueReminder.datePrevue} · {reminderTime} ({formatReminderLeadLabel(reminderLeadMinutes).toLowerCase()})
                       </p>
                       <button
                         type="button"
-                        onClick={handleEnablePwaNotifications}
+                        onClick={() => handleOpenScheduledFromNotification(dueReminder.scheduledId)}
                         className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[36px]"
                       >
-                        <Bell className="h-3.5 w-3.5" aria-hidden="true" />
-                        <span>Autoriser les rappels PWA</span>
+                        <span>Ouvrir la séance</span>
                       </button>
                     </div>
                   )}
 
-                  {notifEnabled && notifPermission === 'granted' && nextReminder && (
+                  {notifEnabled && !dueReminder && nextReminder && (
                     <div className="rounded-xl border border-[#BFE0CD] bg-[#ECF7F1] p-3 text-xs text-[#063725] flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <div className="font-semibold flex items-center gap-1.5">
@@ -3031,36 +2989,28 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="flex items-center gap-2">
-                          {notifEnabled && notifPermission === 'granted' ? (
+                          {notifEnabled ? (
                             <BellRing className="h-4 w-4 text-[#0D6E46] shrink-0" aria-hidden="true" />
                           ) : (
                             <BellOff className="h-4 w-4 text-[#5B7064] shrink-0" aria-hidden="true" />
                           )}
-                          <h2 className="text-base font-semibold text-[#063725]">Rappels push locaux (PWA)</h2>
+                          <h2 className="text-base font-semibold text-[#063725]">Rappels de séance</h2>
                         </div>
                         <p className="mt-0.5 text-xs text-[#5B7064]">
-                          Alertes locales avant vos séances programmées · zéro SMS payant requis.
+                          Rappels intégrés à votre tableau de bord avant vos séances programmées.
                         </p>
                       </div>
-                      <span
-                        className={`text-[11px] font-semibold shrink-0 ${
-                          notifPermission === 'granted' && notifEnabled
-                            ? 'text-[#0D6E46]'
-                            : notifPermission === 'denied'
-                              ? 'text-red-700'
-                              : 'text-amber-700'
+                      <button
+                        type="button"
+                        onClick={() => setNotifEnabled((v) => !v)}
+                        className={`rounded-full px-3 py-1 text-[11px] font-semibold border transition-colors ${
+                          notifEnabled
+                            ? 'border-[#BFE0CD] bg-[#ECF7F1] text-[#0D6E46]'
+                            : 'border-[#D5E2DA] bg-[#F1F6F3] text-[#5B7064]'
                         }`}
                       >
-                        {notifPermission === 'unsupported'
-                          ? 'Non supporté'
-                          : notifPermission === 'denied'
-                            ? 'Bloqué'
-                            : notifPermission === 'granted'
-                              ? notifEnabled
-                                ? 'Actifs'
-                                : 'En pause'
-                              : 'À autoriser'}
-                      </span>
+                        {notifEnabled ? 'Actifs' : 'En pause'}
+                      </button>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -3110,30 +3060,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       </p>
                     )}
 
-                    {notifPermission === 'denied' && (
-                      <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 leading-relaxed">
-                        Les notifications sont actuellement bloquées dans votre navigateur. Réactivez-les depuis les paramètres du site (icône cadenas dans la barre d’adresse).
-                      </p>
-                    )}
-
-                    <div className="text-[11px] text-[#5B7064] leading-relaxed">
-                      {swReady
-                        ? 'Rappels locaux programmés et actifs sur cet appareil.'
-                        : 'Initialisation des rappels sur cet appareil.'}{' '}
-                      Sur iPhone/iPad (iOS 16.4+), installez l’app sur l’écran d’accueil pour recevoir les notifications.
-                    </div>
-
                     <div className="flex flex-wrap gap-2">
-                      {notifPermission === 'default' && (
-                        <button
-                          type="button"
-                          onClick={handleEnablePwaNotifications}
-                          className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px] transition-colors"
-                        >
-                          <Bell className="h-3.5 w-3.5" aria-hidden="true" />
-                          <span>Autoriser les notifications</span>
-                        </button>
-                      )}
                       <button
                         type="button"
                         disabled={reminderSubmitting}
@@ -3141,14 +3068,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         className="rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50 min-h-[40px] transition-colors"
                       >
                         {reminderSubmitting ? 'Enregistrement...' : 'Enregistrer les rappels'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleTestPwaNotification}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#063725] hover:bg-[#ECF7F1] min-h-[40px] transition-colors"
-                      >
-                        <BellRing className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
-                        <span>Tester</span>
                       </button>
                     </div>
                   </div>
@@ -3579,17 +3498,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
             </div>
           </form>
         </div>
-      )}
-
-      {showGuidedTourOnMount && (
-        <GuidedTourModal
-          sportCode={data.profile.sport_code}
-          prenom={data.user.prenom}
-          onFinish={(goEval) => {
-            onDismissGuidedTour();
-            if (goEval) setTab('evaluation');
-          }}
-        />
       )}
 
       {activePlayer && (

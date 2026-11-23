@@ -12,9 +12,29 @@ export interface OtpDeliveryResult {
   error?: string;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function isValidWebhookUrl(rawUrl: string): boolean {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return false;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export function isOtpDeliveryConfigured(): boolean {
   const hasResend = Boolean((process.env.RESEND_API_KEY || '').trim() && (process.env.OTP_FROM_EMAIL || '').trim());
-  const hasWebhook = Boolean((process.env.OTP_WEBHOOK_URL || '').trim());
+  const hasWebhook = isValidWebhookUrl(process.env.OTP_WEBHOOK_URL || '');
   return hasResend || hasWebhook;
 }
 
@@ -44,11 +64,15 @@ export async function deliverOtpCode(input: OtpDeliveryInput): Promise<OtpDelive
   const webhookToken = (process.env.OTP_WEBHOOK_TOKEN || '').trim();
 
   const { subject, actionText } = getPurposeLabel(input.purpose);
+  const safePrenomHtml = escapeHtml(input.prenom || '');
+  const safeActionHtml = escapeHtml(actionText);
+  const safeCodeHtml = escapeHtml(input.code);
 
   if (resendApiKey && fromEmail && input.email) {
     try {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
+        signal: AbortSignal.timeout(8000),
         headers: {
           Authorization: `Bearer ${resendApiKey}`,
           'Content-Type': 'application/json',
@@ -61,10 +85,10 @@ export async function deliverOtpCode(input: OtpDeliveryInput): Promise<OtpDelive
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; background: #080A07; color: #F5F7F1; border-radius: 16px;">
               <h2 style="margin: 0 0 12px; color: #C8F62D;">Terrain+</h2>
-              <p style="margin: 0 0 16px; line-height: 1.5;">Bonjour ${input.prenom || ''},</p>
-              <p style="margin: 0 0 16px; line-height: 1.5;">Voici votre code à usage unique pour ${actionText} :</p>
+              <p style="margin: 0 0 16px; line-height: 1.5;">Bonjour ${safePrenomHtml},</p>
+              <p style="margin: 0 0 16px; line-height: 1.5;">Voici votre code à usage unique pour ${safeActionHtml} :</p>
               <div style="font-family: monospace; font-size: 28px; font-weight: bold; letter-spacing: 6px; padding: 16px; text-align: center; background: #121610; border: 1px solid #C8F62D; border-radius: 12px; color: #C8F62D;">
-                ${input.code}
+                ${safeCodeHtml}
               </div>
               <p style="margin: 16px 0 0; font-size: 12px; color: #B4BCA9;">Ce code expire dans 15 minutes. Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
             </div>
@@ -81,7 +105,7 @@ export async function deliverOtpCode(input: OtpDeliveryInput): Promise<OtpDelive
     }
   }
 
-  if (webhookUrl) {
+  if (isValidWebhookUrl(webhookUrl)) {
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (webhookToken) {
@@ -89,6 +113,7 @@ export async function deliverOtpCode(input: OtpDeliveryInput): Promise<OtpDelive
       }
       const response = await fetch(webhookUrl, {
         method: 'POST',
+        signal: AbortSignal.timeout(8000),
         headers,
         body: JSON.stringify({
           toPhone: input.telephone,

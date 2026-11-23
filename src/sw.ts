@@ -4,25 +4,6 @@ import { cleanupOutdatedCaches, precacheAndRoute, type PrecacheEntry } from 'wor
 import { registerRoute } from 'workbox-routing';
 import { CacheFirst, NetworkFirst } from 'workbox-strategies';
 
-interface SWWindowClient {
-  url: string;
-  focused: boolean;
-  focus(): Promise<SWWindowClient>;
-  postMessage(message: unknown): void;
-}
-
-interface SWNotification extends Notification {
-  data: {
-    url?: string;
-    scheduledId?: number | null;
-    sessionId?: number | null;
-  };
-}
-
-interface SWRegistration extends ServiceWorkerRegistration {
-  getNotifications(filter?: { tag?: string; includeTriggered?: boolean }): Promise<SWNotification[]>;
-}
-
 interface SWExtendableEvent extends Event {
   waitUntil(promise: Promise<unknown>): void;
 }
@@ -30,28 +11,14 @@ interface SWExtendableEvent extends Event {
 interface SWMessageEvent extends SWExtendableEvent {
   data: {
     type?: string;
-    payload?: LocalNotificationPayload;
-    tag?: string;
-    tagPrefix?: string;
   } | null;
-}
-
-interface SWNotificationEvent extends SWExtendableEvent {
-  action: string;
-  notification: SWNotification;
 }
 
 interface SWGlobalScope {
   __WB_MANIFEST: Array<PrecacheEntry | string>;
-  registration: SWRegistration;
   location: Location;
-  clients: {
-    matchAll(options?: { type?: string; includeUncontrolled?: boolean }): Promise<SWWindowClient[]>;
-    openWindow(url: string): Promise<SWWindowClient | null>;
-  };
   skipWaiting(): Promise<void>;
   addEventListener(type: 'message', listener: (event: SWMessageEvent) => void): void;
-  addEventListener(type: 'notificationclick', listener: (event: SWNotificationEvent) => void): void;
   addEventListener(type: 'install' | 'activate', listener: (event: SWExtendableEvent) => void): void;
 }
 
@@ -59,17 +26,6 @@ declare global {
   interface Window {
     __WB_MANIFEST: Array<PrecacheEntry | string>;
   }
-}
-
-export interface LocalNotificationPayload {
-  title: string;
-  body: string;
-  tag: string;
-  url?: string;
-  scheduledId?: number | null;
-  sessionId?: number | null;
-  triggerAt?: number | null;
-  renotify?: boolean;
 }
 
 const API_RUNTIME_CACHE = 'api-runtime-cache';
@@ -169,28 +125,6 @@ registerRoute(
   })
 );
 
-async function showLocalReminder(payload: LocalNotificationPayload): Promise<void> {
-  const options: Record<string, unknown> = {
-    body: payload.body,
-    icon: '/pwa-192x192.png',
-    badge: '/brand/terrain-mark.png',
-    tag: payload.tag,
-    renotify: Boolean(payload.renotify),
-    vibrate: [180, 90, 180],
-    data: {
-      url: payload.url || '/',
-      scheduledId: payload.scheduledId ?? null,
-      sessionId: payload.sessionId ?? null,
-    },
-    actions: [
-      { action: 'open-session', title: 'Ouvrir la séance' },
-      { action: 'dismiss', title: 'Plus tard' },
-    ],
-  };
-
-  await sw.registration.showNotification(payload.title, options as NotificationOptions);
-}
-
 sw.addEventListener('message', (event: SWMessageEvent) => {
   const msg = event.data;
   if (!msg || !msg.type) return;
@@ -202,55 +136,5 @@ sw.addEventListener('message', (event: SWMessageEvent) => {
 
   if (msg.type === 'CLEAR_API_CACHE') {
     event.waitUntil(caches.delete(API_RUNTIME_CACHE));
-    return;
   }
-
-  if (msg.type === 'SHOW_SESSION_REMINDER' && msg.payload) {
-    event.waitUntil(showLocalReminder(msg.payload));
-    return;
-  }
-
-  if (msg.type === 'CANCEL_REMINDERS' && msg.tagPrefix) {
-    const prefix = msg.tagPrefix;
-    event.waitUntil(
-      sw.registration.getNotifications({ includeTriggered: true }).then((list) => {
-        for (const notif of list) {
-          if (notif.tag && notif.tag.startsWith(prefix)) {
-            notif.close();
-          }
-        }
-      })
-    );
-  }
-});
-
-sw.addEventListener('notificationclick', (event: SWNotificationEvent) => {
-  event.notification.close();
-  if (event.action === 'dismiss') {
-    return;
-  }
-
-  const data = event.notification.data || {};
-  const targetPath = data.scheduledId
-    ? `/?tab=programme&scheduledId=${encodeURIComponent(String(data.scheduledId))}`
-    : data.url || '/?tab=programme';
-  const targetUrl = new URL(targetPath, sw.location.origin).href;
-
-  event.waitUntil(
-    sw.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientList) => {
-      for (const client of clientList) {
-        if (client.url.startsWith(sw.location.origin)) {
-          await client.focus();
-          client.postMessage({
-            type: 'OPEN_SCHEDULED_SESSION',
-            scheduledId: data.scheduledId ?? null,
-            sessionId: data.sessionId ?? null,
-            url: targetPath,
-          });
-          return;
-        }
-      }
-      await sw.clients.openWindow(targetUrl);
-    })
-  );
 });

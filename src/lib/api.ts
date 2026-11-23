@@ -95,6 +95,7 @@ export function removeCacheKey(key: string): void {
 
 export function clearAllWorkspaceCaches(): void {
   removeCacheKey(CACHED_USER_KEY);
+  removeCacheKey('tp_sent_session_reminders_v1');
   for (const key of WORKSPACE_CACHE_KEYS) {
     removeCacheKey(key);
   }

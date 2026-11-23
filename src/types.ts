@@ -485,11 +485,36 @@ export interface AdminSystemOverviewPayload {
     athletesCount: number;
     coachesVerifiedCount: number;
     coachesPendingCount: number;
+    coachesRefusedCount: number;
+    partnersCount: number;
     completedSessionsCount: number;
     evaluationsCount: number;
     groupsCount: number;
     challengesCount: number;
   };
+  monetization: {
+    freeAthletesCount: number;
+    paidAthletesCount: number;
+    progressionMonthlyCount: number;
+    progressionQuarterlyCount: number;
+    coachPrivateAthletesCount: number;
+    freeCoachesCount: number;
+    paidCoachesCount: number;
+    totalFreeUsers: number;
+    totalPaidUsers: number;
+    grossMonthlyVolumeFcfa: number;
+    netPlatformMonthlyRevenueFcfa: number;
+    coachPayoutsMonthlyFcfa: number;
+    breakdown: {
+      progressionMonthlyRevenueFcfa: number;
+      coachCommissionRevenueFcfa: number;
+      coachProLicenseRevenueFcfa: number;
+    };
+  };
+  sportBreakdown: Array<{
+    sport_code: SportCode;
+    athletes_count: number;
+  }>;
   traffic: {
     requestsLast24h: number;
     requestsLastHour: number;

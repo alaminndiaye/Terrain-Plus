@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiRequest } from '../lib/api';
-import { playTone, prefetchCue, speakCue, stopSpeech } from '../lib/audioCues';
+import { prefetchCue, speakCue, stopSpeech } from '../lib/audioCues';
 import { queueOfflineCompletion } from '../lib/offlineCache';
 import { SPORTS_CONFIG } from '../data/sportsConfig';
 import { getExerciseVisual } from '../data/exerciseMedia';
@@ -113,7 +113,6 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
         if (phase === 'work') {
           const restSec = currentEx?.reposSec || 20;
           if (stepIdx < totalSteps - 1 && restSec > 0) {
-            playTone('rest');
             void speakCue(`Repos pendant ${restSec} secondes.`, audioEnabled, 'fr', (msg) => setVoiceNotice(msg));
             setPhase('rest');
             return restSec;
@@ -125,14 +124,12 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
           const nextEx = session.exercises[nextIdx];
           setStepIdx(nextIdx);
           setPhase('work');
-          playTone('start');
           if (nextEx) {
             void speakCue(formatExerciseCue(nextEx), audioEnabled, cueLang, (msg) => setVoiceNotice(msg));
           }
           return nextEx?.dureeSec || 30;
         }
 
-        playTone('finish');
         void speakCue('Séance terminée. Pensez à noter votre ressenti.', audioEnabled, 'fr', (msg) =>
           setVoiceNotice(msg)
         );
@@ -148,7 +145,6 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
   const handleTogglePlay = () => {
     if (!running && currentEx) {
       setVoiceNotice(null);
-      playTone('start');
       if (phase === 'work') {
         void speakCue(formatExerciseCue(currentEx), audioEnabled, cueLang, (msg) => setVoiceNotice(msg));
       }

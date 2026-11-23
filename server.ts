@@ -115,10 +115,62 @@ const asyncHandler =
   };
 
 const SESSION_DURATION_SEC = 60 * 60 * 24 * 7;
+const ADMIN_SESSION_DURATION_SEC = 60 * 60 * 12;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const VALID_SPORT_CODES: SportCode[] = ['football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness'];
 const VIDEO_UPLOAD_DIR = path.resolve(process.env.VIDEO_UPLOAD_DIR || './uploads/coach-videos');
 const ALLOWED_COACH_VIDEO_MIMES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
+
+function parsePositiveIntId(raw: unknown): number | null {
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isInteger(num) || num <= 0 || num > 2_147_483_647) {
+    return null;
+  }
+  return num;
+}
+
+function isRestrictedHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/\.$/, '');
+  if (!host) return true;
+  if (
+    host === 'localhost' ||
+    host === 'metadata.google.internal' ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.arpa')
+  ) {
+    return true;
+  }
+  // Reject IPv6 literals ([::1], [fe80::...], [fc00::...], etc.)
+  if (host.startsWith('[') || host.includes(':')) {
+    return true;
+  }
+  // Reject obfuscated single-integer or hex/octal numeric IP hosts
+  if (/^(0x[0-9a-f]+|0[0-7]+|\d+)$/i.test(host)) {
+    return true;
+  }
+  // Check dotted IPv4 private/loopback/link-local/CGNAT/reserved ranges
+  const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const octets = ipv4Match.slice(1).map(Number);
+    if (octets.some((n) => n < 0 || n > 255)) return true;
+    const [a, b] = octets;
+    if (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      a >= 224
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function detectVideoMimeFromMagicBytes(buf: Buffer): 'video/mp4' | 'video/webm' | 'video/quicktime' | null {
   if (!buf || buf.length < 12) return null;
@@ -146,16 +198,11 @@ function validateExternalVideoUrl(rawUrl: unknown): { valid: true; normalizedUrl
     if (parsed.protocol !== 'https:') {
       return { valid: false, error: 'Seuls les liens HTTPS sécurisés (YouTube, Vimeo ou vidéo HTTPS) sont autorisés.' };
     }
-    const host = parsed.hostname.toLowerCase();
-    if (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '0.0.0.0' ||
-      host.startsWith('192.168.') ||
-      host.startsWith('10.') ||
-      host.endsWith('.local')
-    ) {
-      return { valid: false, error: 'Hôte local non autorisé pour un lien vidéo externe.' };
+    if (parsed.username || parsed.password) {
+      return { valid: false, error: 'Les informations d’authentification dans l’URL ne sont pas autorisées.' };
+    }
+    if (isRestrictedHost(parsed.hostname)) {
+      return { valid: false, error: 'Hôte local ou privé non autorisé pour un lien vidéo externe.' };
     }
     return { valid: true, normalizedUrl: parsed.toString() };
   } catch {
@@ -209,18 +256,24 @@ function mapCoachVideoRow(row: RawCoachVideoRow, viewerUserId: number): CoachVid
   };
 }
 
-async function createSessionForUser(req: Request, res: Response, userId: number): Promise<string> {
+async function createSessionForUser(req: Request, res: Response, userId: number, role?: UserRole): Promise<string> {
   await dbRun("DELETE FROM sessions WHERE user_id = ? AND datetime(expires_at) <= datetime('now')", userId);
+  let resolvedRole = role;
+  if (!resolvedRole) {
+    const uRow = await dbGet<{ role: UserRole }>('SELECT role FROM users WHERE id = ?', userId);
+    resolvedRole = uRow?.role;
+  }
+  const ttlSec = resolvedRole === 'ADMIN' ? ADMIN_SESSION_DURATION_SEC : SESSION_DURATION_SEC;
   const rawToken = generateSecureToken();
   const tokenHash = hashToken(rawToken);
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_SEC * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + ttlSec * 1000).toISOString();
   await dbRun(
     'INSERT INTO sessions (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
     userId,
     tokenHash,
     expiresAt
   );
-  setSessionCookie(req, res, rawToken, SESSION_DURATION_SEC);
+  setSessionCookie(req, res, rawToken, ttlSec);
   return rawToken;
 }
 
@@ -306,11 +359,24 @@ function applyRateLimitHeaders(
 
 const authLimiter = asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   const ip = getClientIp(req);
-  const rl = await checkRateLimitDistributed(`auth:${ip}`, 30, 15 * 60 * 1000);
-  applyRateLimitHeaders(res, 30, rl);
+  const rl = await checkRateLimitDistributed(`auth:${ip}`, 25, 15 * 60 * 1000);
+  applyRateLimitHeaders(res, 25, rl);
   if (!rl.allowed) {
     res.status(429).json({
       error: `Trop de tentatives. Réessayez dans ${Math.max(1, Math.ceil(rl.retryAfterSec / 60))} minute(s).`,
+    });
+    return;
+  }
+  next();
+});
+
+const loginIpLimiter = asyncHandler(async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const ip = getClientIp(req);
+  const rl = await checkRateLimitDistributed(`login:${ip}`, 15, 15 * 60 * 1000);
+  applyRateLimitHeaders(res, 15, rl);
+  if (!rl.allowed) {
+    res.status(429).json({
+      error: `Trop de tentatives de connexion. Réessayez dans ${Math.max(1, Math.ceil(rl.retryAfterSec / 60))} minute(s).`,
     });
     return;
   }
@@ -321,11 +387,25 @@ const otpLimiter = asyncHandler(async (req: Request, res: Response, next: NextFu
   const ip = getClientIp(req);
   const body = (req.body || {}) as Record<string, unknown>;
   const id = sanitizeText(body.identifier, 120).toLowerCase() || 'anon';
-  const rl = await checkRateLimitDistributed(`otp:${ip}:${id}`, 12, 15 * 60 * 1000);
-  applyRateLimitHeaders(res, 12, rl);
+  const rl = await checkRateLimitDistributed(`otp:${ip}:${id}`, 8, 15 * 60 * 1000);
+  applyRateLimitHeaders(res, 8, rl);
   if (!rl.allowed) {
     res.status(429).json({
       error: 'Trop de tentatives OTP. Patientez quelques minutes avant de réessayer.',
+    });
+    return;
+  }
+  next();
+});
+
+const uploadLimiter = asyncHandler(async (req: AuthedRequest, res: Response, next: NextFunction): Promise<void> => {
+  const ip = getClientIp(req);
+  const actor = req.authUser?.id ? `u:${req.authUser.id}` : `ip:${ip}`;
+  const rl = await checkRateLimitDistributed(`upload:${actor}`, 20, 15 * 60 * 1000);
+  applyRateLimitHeaders(res, 20, rl);
+  if (!rl.allowed) {
+    res.status(429).json({
+      error: 'Limite de téléversement atteinte momentanément. Patientez quelques minutes.',
     });
     return;
   }
@@ -351,13 +431,13 @@ function verifySameOrigin(req: Request, res: Response, next: NextFunction): void
     next();
     return;
   }
-  const origin = req.headers.origin;
-  if (!origin) {
+  const sourceHeader = req.headers.origin || req.headers.referer;
+  if (!sourceHeader) {
     next();
     return;
   }
   try {
-    const originHost = new URL(origin).host.toLowerCase();
+    const sourceHost = new URL(sourceHeader).host.toLowerCase();
     const requestHost = String(req.headers['x-forwarded-host'] || req.headers.host || '')
       .split(',')[0]
       .trim()
@@ -371,12 +451,12 @@ function verifySameOrigin(req: Request, res: Response, next: NextFunction): void
     ]);
     trustedHosts.delete('');
 
-    if (trustedHosts.has(originHost)) {
+    if (trustedHosts.has(sourceHost)) {
       next();
       return;
     }
   } catch {
-    // Invalid Origin header
+    // Invalid Origin/Referer header
   }
   res.status(403).json({ error: 'Origine de requête non autorisée.' });
 }
@@ -607,6 +687,9 @@ async function buildAdminSystemOverview(): Promise<AdminSystemOverviewPayload> {
     openPainAlertsRow,
     newPartnerReqRow,
     totalsRow,
+    athletePlanRows,
+    coachPlanRows,
+    sportBreakdownRaw,
     traffic24h,
     hourlyLogs,
     topRoutesRaw,
@@ -631,10 +714,52 @@ async function buildAdminSystemOverview(): Promise<AdminSystemOverviewPayload> {
          (SELECT COUNT(*) FROM users WHERE role = 'ATHLETE' AND statut != 'CLOTURE') as "athletesCount",
          (SELECT COUNT(*) FROM coaches c JOIN users u ON u.id = c.user_id WHERE u.statut != 'CLOTURE' AND c.verification_status = 'VERIFIE') as "coachesVerifiedCount",
          (SELECT COUNT(*) FROM coaches c JOIN users u ON u.id = c.user_id WHERE u.statut != 'CLOTURE' AND c.verification_status = 'EN_ATTENTE') as "coachesPendingCount",
+         (SELECT COUNT(*) FROM coaches c JOIN users u ON u.id = c.user_id WHERE u.statut != 'CLOTURE' AND c.verification_status = 'REFUSE') as "coachesRefusedCount",
+         (SELECT COUNT(*) FROM partners) as "partnersCount",
          (SELECT COUNT(*) FROM scheduled_sessions WHERE completed = 1) as "completedSessionsCount",
          (SELECT COUNT(*) FROM evaluations) as "evaluationsCount",
          (SELECT COUNT(*) FROM groups) as "groupsCount",
          (SELECT COUNT(*) FROM challenges) as "challengesCount"`
+    ),
+    dbAll<{
+      plan_tier: string | null;
+      plan_fee_fcfa: number | null;
+      plan_billing_cycle: string | null;
+      coach_subscription_status: string | null;
+      coach_monthly_fee_fcfa: number | null;
+      assigned_commission_pct: number | null;
+    }>(
+      `SELECT ap.plan_tier, ap.plan_fee_fcfa, ap.plan_billing_cycle,
+              ap.coach_subscription_status, ap.coach_monthly_fee_fcfa,
+              (
+                SELECT c.commission_pct
+                FROM assignments a
+                JOIN coaches c ON c.user_id = a.coach_user_id
+                WHERE a.athlete_user_id = u.id AND a.statut = 'ACTIF'
+                ORDER BY a.id DESC
+                LIMIT 1
+              ) as assigned_commission_pct
+       FROM users u
+       JOIN athlete_profiles ap ON ap.user_id = u.id
+       WHERE u.role = 'ATHLETE' AND u.statut != 'CLOTURE'`
+    ),
+    dbAll<{
+      coach_plan: string | null;
+      monthly_fee_fcfa: number | null;
+      verification_status: string | null;
+    }>(
+      `SELECT c.coach_plan, c.monthly_fee_fcfa, c.verification_status
+       FROM users u
+       JOIN coaches c ON c.user_id = u.id
+       WHERE u.role = 'COACH' AND u.statut != 'CLOTURE'`
+    ),
+    dbAll<{ sport_code: SportCode; athletes_count: number }>(
+      `SELECT ap.sport_code, COUNT(*) as athletes_count
+       FROM athlete_profiles ap
+       JOIN users u ON u.id = ap.user_id
+       WHERE u.statut != 'CLOTURE'
+       GROUP BY ap.sport_code
+       ORDER BY athletes_count DESC`
     ),
     dbGet<{
       total: number;
@@ -685,6 +810,70 @@ async function buildAdminSystemOverview(): Promise<AdminSystemOverviewPayload> {
        LIMIT 45`
     ),
   ]);
+
+  let freeAthletesCount = 0;
+  let paidAthletesCount = 0;
+  let progressionMonthlyCount = 0;
+  let progressionQuarterlyCount = 0;
+  let coachPrivateAthletesCount = 0;
+  let progressionMonthlyRevenueFcfa = 0;
+  let coachGrossMonthlyFcfa = 0;
+  let coachCommissionRevenueFcfa = 0;
+  let coachPayoutsMonthlyFcfa = 0;
+
+  for (const row of athletePlanRows) {
+    const tier = String(row.plan_tier || 'ESSENTIEL').toUpperCase();
+    const hasCoachSub = tier === 'COACH_PRIVE' || row.coach_subscription_status === 'ACTIF_5000';
+    if (hasCoachSub) {
+      paidAthletesCount += 1;
+      coachPrivateAthletesCount += 1;
+      const fee = Number(row.coach_monthly_fee_fcfa || row.plan_fee_fcfa || 5000);
+      const commissionPct = row.assigned_commission_pct !== null && row.assigned_commission_pct !== undefined
+        ? Number(row.assigned_commission_pct)
+        : 20;
+      const commission = Math.round((fee * commissionPct) / 100);
+      coachGrossMonthlyFcfa += fee;
+      coachCommissionRevenueFcfa += commission;
+      coachPayoutsMonthlyFcfa += Math.max(0, fee - commission);
+    } else if (tier === 'PROGRESSION') {
+      paidAthletesCount += 1;
+      const cycle = String(row.plan_billing_cycle || 'MENSUEL').toUpperCase();
+      const rawFee = Number(row.plan_fee_fcfa || (cycle === 'TRIMESTRIEL' ? 4000 : 1500));
+      if (cycle === 'TRIMESTRIEL') {
+        progressionQuarterlyCount += 1;
+        progressionMonthlyRevenueFcfa += Math.round(rawFee / 3);
+      } else {
+        progressionMonthlyCount += 1;
+        progressionMonthlyRevenueFcfa += rawFee;
+      }
+    } else {
+      freeAthletesCount += 1;
+    }
+  }
+
+  let freeCoachesCount = 0;
+  let paidCoachesCount = 0;
+  let coachProLicenseRevenueFcfa = 0;
+  for (const c of coachPlanRows) {
+    const plan = String(c.coach_plan || 'MARKETPLACE').toUpperCase();
+    const isVerified = c.verification_status === 'VERIFIE';
+    if (plan === 'COACH_PRO' && isVerified) {
+      paidCoachesCount += 1;
+      coachProLicenseRevenueFcfa += Number(c.monthly_fee_fcfa || 3000);
+    } else if (isVerified) {
+      freeCoachesCount += 1;
+    }
+  }
+
+  const netPlatformMonthlyRevenueFcfa =
+    progressionMonthlyRevenueFcfa + coachCommissionRevenueFcfa + coachProLicenseRevenueFcfa;
+  const grossMonthlyVolumeFcfa =
+    progressionMonthlyRevenueFcfa + coachGrossMonthlyFcfa + coachProLicenseRevenueFcfa;
+
+  const sportBreakdown = sportBreakdownRaw.map((s) => ({
+    sport_code: s.sport_code,
+    athletes_count: Number(s.athletes_count || 0),
+  }));
 
   const hourlyBuckets = new Map<string, { hour: string; requests: number; errors: number; latencySum: number }>();
   for (const row of hourlyLogs) {
@@ -745,11 +934,33 @@ async function buildAdminSystemOverview(): Promise<AdminSystemOverviewPayload> {
       athletesCount: Number(totalsRow?.athletesCount || 0),
       coachesVerifiedCount: Number(totalsRow?.coachesVerifiedCount || 0),
       coachesPendingCount: Number(totalsRow?.coachesPendingCount || 0),
+      coachesRefusedCount: Number(totalsRow?.coachesRefusedCount || 0),
+      partnersCount: Number(totalsRow?.partnersCount || 0),
       completedSessionsCount: Number(totalsRow?.completedSessionsCount || 0),
       evaluationsCount: Number(totalsRow?.evaluationsCount || 0),
       groupsCount: Number(totalsRow?.groupsCount || 0),
       challengesCount: Number(totalsRow?.challengesCount || 0),
     },
+    monetization: {
+      freeAthletesCount,
+      paidAthletesCount,
+      progressionMonthlyCount,
+      progressionQuarterlyCount,
+      coachPrivateAthletesCount,
+      freeCoachesCount,
+      paidCoachesCount,
+      totalFreeUsers: freeAthletesCount + freeCoachesCount,
+      totalPaidUsers: paidAthletesCount + paidCoachesCount,
+      grossMonthlyVolumeFcfa,
+      netPlatformMonthlyRevenueFcfa,
+      coachPayoutsMonthlyFcfa,
+      breakdown: {
+        progressionMonthlyRevenueFcfa,
+        coachCommissionRevenueFcfa,
+        coachProLicenseRevenueFcfa,
+      },
+    },
+    sportBreakdown,
     traffic: {
       requestsLast24h: total24,
       requestsLastHour: Number(traffic24h?.lastHour || 0),
@@ -1070,12 +1281,13 @@ export async function createApp(): Promise<Express> {
 
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
     res.setHeader(
       'Content-Security-Policy',
-      `default-src 'self'; ${scriptSrcDirective}; worker-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' https: blob:; frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'`
+      `default-src 'self'; ${scriptSrcDirective}; worker-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; media-src 'self' https: blob:; frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'`
     );
     if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -1651,9 +1863,13 @@ export async function createApp(): Promise<Express> {
     authLimiter,
     otpLimiter,
     asyncHandler(async (req: Request, res: Response) => {
-      const body = req.body as Record<string, unknown>;
+      const body = (req.body || {}) as Record<string, unknown>;
       const identifier = sanitizeText(body.identifier, 120).toLowerCase();
       const code = sanitizeText(body.code, 12).replace(/\s+/g, '');
+      if (identifier.length < 3 || !/^\d{6}$/.test(code)) {
+        res.status(400).json({ error: 'Identifiant et code OTP à 6 chiffres requis.' });
+        return;
+      }
 
       const user = await dbGet<
         AuthedUserRow & { otp_code_hash: string | null; otp_expires_at: string | null; otp_attempts: number }
@@ -1733,6 +1949,7 @@ export async function createApp(): Promise<Express> {
   app.post(
     '/api/auth/login',
     authLimiter,
+    loginIpLimiter,
     asyncHandler(async (req: Request, res: Response) => {
       const body = req.body as Record<string, unknown>;
       const identifier = sanitizeText(body.identifier, 120);
@@ -1892,6 +2109,11 @@ export async function createApp(): Promise<Express> {
             ? 'VERIFICATION'
             : 'CONNEXION';
 
+      if (identifier.length < 3) {
+        res.status(400).json({ error: 'Identifiant invalide.' });
+        return;
+      }
+
       const user = await dbGet<{ id: number; email: string; telephone: string; prenom: string; role: UserRole }>(
         "SELECT id, email, telephone, prenom, role FROM users WHERE (LOWER(email) = LOWER(?) OR telephone = ?) AND statut != 'CLOTURE'",
         identifier,
@@ -1950,10 +2172,14 @@ export async function createApp(): Promise<Express> {
     authLimiter,
     otpLimiter,
     asyncHandler(async (req: Request, res: Response) => {
-      const body = req.body as Record<string, unknown>;
+      const body = (req.body || {}) as Record<string, unknown>;
       const identifier = sanitizeText(body.identifier, 120);
       const code = sanitizeText(body.code, 12).replace(/\s+/g, '');
       const portal = body.portal === 'admin' ? 'admin' : 'public';
+      if (identifier.length < 3 || !/^\d{6}$/.test(code)) {
+        res.status(400).json({ error: 'Identifiant et code OTP à 6 chiffres requis.' });
+        return;
+      }
 
       const user = await dbGet<
         AuthedUserRow & { otp_code_hash: string | null; otp_expires_at: string | null; otp_attempts: number }
@@ -2051,7 +2277,7 @@ export async function createApp(): Promise<Express> {
       const code = sanitizeText(body.code, 12).replace(/\s+/g, '');
       const newPassword = typeof body.new_password === 'string' ? body.new_password : '';
 
-      if (!identifier || !code) {
+      if (identifier.length < 3 || !/^\d{6}$/.test(code)) {
         res.status(400).json({ error: 'Identifiant et code OTP à 6 chiffres requis.' });
         return;
       }
@@ -2577,8 +2803,8 @@ export async function createApp(): Promise<Express> {
     requireRole('ATHLETE'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const body = req.body as Record<string, unknown>;
-      const scheduledId = body.scheduled_id ? Number(body.scheduled_id) : null;
-      const sessionId = body.session_id ? Number(body.session_id) : null;
+      const scheduledId = body.scheduled_id !== undefined && body.scheduled_id !== null ? parsePositiveIntId(body.scheduled_id) : null;
+      const sessionId = body.session_id !== undefined && body.session_id !== null ? parsePositiveIntId(body.session_id) : null;
       const fatigue = Number(body.ressenti_fatigue);
       const difficulte = Number(body.difficulte);
       const sommeil = Number(body.qualite_sommeil);
@@ -2609,6 +2835,11 @@ export async function createApp(): Promise<Express> {
           scheduledId
         );
       } else if (sessionId) {
+        const validLibSession = await dbGet("SELECT id FROM sessions_library WHERE id = ? AND validation_status = 'VALIDEE'", sessionId);
+        if (!validLibSession) {
+          res.status(400).json({ error: 'Séance introuvable ou non validée.' });
+          return;
+        }
         const plan = await dbGet<{ id: number }>('SELECT id FROM program_plans WHERE athlete_user_id = ? ORDER BY id DESC LIMIT 1', userId);
         if (plan) {
           const day = ((new Date().getDay() + 6) % 7) + 1;
@@ -2626,6 +2857,9 @@ export async function createApp(): Promise<Express> {
             sommeil
           );
         }
+      } else {
+        res.status(400).json({ error: 'Identifiant de séance requis.' });
+        return;
       }
 
       // Increment collective challenge counter only for partner structures the athlete belongs to
@@ -3371,7 +3605,11 @@ export async function createApp(): Promise<Express> {
     requireRole('COACH'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const coachId = req.authUser!.id;
-      const athleteId = Number(req.params.athleteId);
+      const athleteId = parsePositiveIntId(req.params.athleteId);
+      if (!athleteId) {
+        res.status(400).json({ error: 'Identifiant athlète invalide.' });
+        return;
+      }
 
       const assigned = await dbGet(
         "SELECT id FROM assignments WHERE coach_user_id = ? AND athlete_user_id = ? AND statut = 'ACTIF'",
@@ -3398,7 +3636,11 @@ export async function createApp(): Promise<Express> {
     requireAuth,
     requireRole('COACH'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
-      const evalId = Number(req.params.evalId);
+      const evalId = parsePositiveIntId(req.params.evalId);
+      if (!evalId) {
+        res.status(400).json({ error: 'Identifiant d’évaluation invalide.' });
+        return;
+      }
       const coachId = req.authUser!.id;
       const texte = sanitizeText((req.body as Record<string, unknown>).texte, 500);
       if (!texte) {
@@ -3433,7 +3675,11 @@ export async function createApp(): Promise<Express> {
     requireRole('COACH'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const coachId = req.authUser!.id;
-      const athleteId = Number(req.params.athleteId);
+      const athleteId = parsePositiveIntId(req.params.athleteId);
+      if (!athleteId) {
+        res.status(400).json({ error: 'Identifiant athlète invalide.' });
+        return;
+      }
       const objectif = sanitizeText((req.body as Record<string, unknown>).objectif, 200);
 
       const assigned = await dbGet(
@@ -3459,7 +3705,11 @@ export async function createApp(): Promise<Express> {
     requireRole('COACH'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const coachId = req.authUser!.id;
-      const schedId = Number(req.params.schedId);
+      const schedId = parsePositiveIntId(req.params.schedId);
+      if (!schedId) {
+        res.status(400).json({ error: 'Identifiant de créneau invalide.' });
+        return;
+      }
       const body = req.body as Record<string, unknown>;
       const isRest = Boolean(body.is_rest_day);
       const sessionId = body.session_id ? Number(body.session_id) : null;
@@ -3518,7 +3768,11 @@ export async function createApp(): Promise<Express> {
     requireRole('COACH'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const coachId = req.authUser!.id;
-      const alertId = Number(req.params.alertId);
+      const alertId = parsePositiveIntId(req.params.alertId);
+      if (!alertId) {
+        res.status(400).json({ error: 'Identifiant d’alerte invalide.' });
+        return;
+      }
       const note = sanitizeText((req.body as Record<string, unknown>).note_traitement, 300) || 'Alerte prise en charge et séance adaptée.';
 
       const al = await dbGet<{ athlete_user_id: number }>('SELECT athlete_user_id FROM alerts WHERE id = ?', alertId);
@@ -3638,6 +3892,7 @@ export async function createApp(): Promise<Express> {
     '/api/coach/videos/upload-url',
     requireAuth,
     requireRole('COACH'),
+    uploadLimiter,
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const coachId = req.authUser!.id;
       const coachRow = await dbGet<{ verification_status: string }>('SELECT verification_status FROM coaches WHERE user_id = ?', coachId);
@@ -3711,6 +3966,7 @@ export async function createApp(): Promise<Express> {
     '/api/coach/videos/local-upload',
     requireAuth,
     requireRole('COACH'),
+    uploadLimiter,
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const coachId = req.authUser!.id;
       const objectPath = sanitizeText(req.headers['x-object-path'] || req.query.objectPath, 160);
@@ -3763,6 +4019,7 @@ export async function createApp(): Promise<Express> {
     '/api/coach/videos',
     requireAuth,
     requireRole('COACH'),
+    uploadLimiter,
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const coachId = req.authUser!.id;
       const coachRow = await dbGet<{ verification_status: string }>('SELECT verification_status FROM coaches WHERE user_id = ?', coachId);
@@ -4048,7 +4305,12 @@ export async function createApp(): Promise<Express> {
       }
 
       if (video.source_type === 'EXTERNAL_URL' && video.external_url) {
-        res.redirect(302, video.external_url);
+        const urlCheck = validateExternalVideoUrl(video.external_url);
+        if (!urlCheck.valid) {
+          res.status(400).json({ error: 'Lien vidéo externe bloqué par la politique de sécurité.' });
+          return;
+        }
+        res.redirect(302, urlCheck.normalizedUrl);
         return;
       }
 
@@ -4304,10 +4566,17 @@ export async function createApp(): Promise<Express> {
       }
 
       await logAccess(req.authUser!.id, 'ADMIN', doc.coach_user_id, 'CONSULTATION_DIPLOME', `doc:${doc.id}`);
-      res.setHeader('Content-Type', doc.mime_type);
-      res.setHeader('Content-Disposition', `inline; filename="${doc.original_filename.replace(/"/g, '')}"`);
+      const safeMime = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']).has(doc.mime_type)
+        ? doc.mime_type
+        : 'application/octet-stream';
+      const safeDownloadName =
+        doc.original_filename.replace(/[\r\n"\\;/\x00-\x1f\x7f]/g, '_').slice(0, 120) || 'justificatif';
+      res.setHeader('Content-Type', safeMime);
+      res.setHeader('Content-Disposition', `inline; filename="${safeDownloadName}"`);
       res.setHeader('Cache-Control', 'private, no-store');
       res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+      res.setHeader('Content-Security-Policy', 'sandbox');
       res.send(buf);
     })
   );
@@ -4404,9 +4673,9 @@ export async function createApp(): Promise<Express> {
     requireAuth,
     requireRole('ADMIN'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
-      const reqId = Number(req.params.id);
+      const reqId = parsePositiveIntId(req.params.id);
       const statut = sanitizeText((req.body as Record<string, unknown>).statut, 20).toUpperCase();
-      if (!Number.isInteger(reqId) || !['NOUVELLE', 'EN_ETUDE', 'VALIDEE'].includes(statut)) {
+      if (!reqId || !['NOUVELLE', 'EN_ETUDE', 'VALIDEE'].includes(statut)) {
         res.status(400).json({ error: 'Statut ou identifiant invalide.' });
         return;
       }
@@ -5080,8 +5349,8 @@ export async function createApp(): Promise<Express> {
         res.setHeader('Cache-Control', 'private, max-age=86400');
         res.send(audioBuffer);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Erreur lors de la synthèse vocale.';
-        res.status(502).json({ error: message });
+        console.error('[TTS] Erreur de synthèse vocale:', err instanceof Error ? err.message : err);
+        res.status(502).json({ error: 'Service de synthèse vocale momentanément indisponible.' });
       }
     })
   );

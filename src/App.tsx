@@ -315,7 +315,6 @@ export default function App() {
     objective?: ObjectiveCode;
     notice?: string;
   } | null>(null);
-  const [showGuidedTour, setShowGuidedTour] = useState(false);
 
   useEffect(() => {
     const syncHash = () => setIsAdminHash(checkIsAdminHash());
@@ -357,14 +356,12 @@ export default function App() {
     clearSessionToken();
     clearAllWorkspaceCaches();
     setUser(null);
-    setShowGuidedTour(false);
   };
 
   const handleSessionExpired = () => {
     clearSessionToken();
     clearAllWorkspaceCaches();
     setUser(null);
-    setShowGuidedTour(false);
     if (!isAdminHash) {
       setAuthModal({
         mode: 'login',
@@ -392,8 +389,6 @@ export default function App() {
     if (user.role === 'ATHLETE') {
       return (
         <AthleteWorkspace
-          showGuidedTourOnMount={showGuidedTour}
-          onDismissGuidedTour={() => setShowGuidedTour(false)}
           onLoggedOut={handleLoggedOut}
           onSessionExpired={handleSessionExpired}
         />
@@ -463,14 +458,13 @@ export default function App() {
                 document.getElementById('partenaires')?.scrollIntoView({ behavior: 'smooth' });
               }, 80);
             }}
-            onAuthenticated={(authedUser, isNewRegistration) => {
+            onAuthenticated={(authedUser) => {
               if (user && user.id !== authedUser.id) {
                 clearAllWorkspaceCaches();
               }
               writeJsonCache(CACHED_USER_KEY, authedUser);
               setUser(authedUser);
               setAuthModal(null);
-              setShowGuidedTour(isNewRegistration && authedUser.role === 'ATHLETE');
             }}
           />
         )}
