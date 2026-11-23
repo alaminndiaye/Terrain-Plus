@@ -334,76 +334,96 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
             <div className="absolute inset-0 bg-gradient-to-b from-[#063725]/88 via-[#063725]/72 to-[#063725]/92 lg:bg-gradient-to-r lg:from-[#063725]/92 lg:via-[#063725]/76 lg:to-[#063725]/55" />
           </div>
 
-          {/* Compact Responsive Carousel Content */}
-          <div className="relative z-10 mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-7 lg:py-9">
+          {/* Responsive Carousel Content: ultra-compact on mobile phones, full-scale on tablet/desktop */}
+          <div className="relative z-10 mx-auto max-w-6xl px-4 py-3.5 sm:px-6 sm:pt-12 sm:pb-14 lg:py-16">
             <div className="max-w-3xl text-white">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-mono text-[11px] sm:text-xs font-semibold tracking-wide text-[#FBBF24] tabular-nums truncate">
+              <div className="flex items-center justify-between gap-2 sm:gap-3">
+                <p className="font-mono text-[10px] sm:text-xs font-semibold tracking-wide text-[#FBBF24] tabular-nums truncate">
                   0{activeSlideIndex + 1} / 06 · {activeSport.nom}
+                  <span className="hidden sm:inline"> · {activeSport.preventionZones[0]}</span>
                 </p>
 
                 {/* Carousel Transport Controls */}
-                <div className="inline-flex items-center gap-1.5 shrink-0">
+                <div className="inline-flex items-center gap-1 sm:gap-1.5 shrink-0">
                   <button
                     type="button"
                     onClick={() => handleStepCarousel(-1)}
                     aria-label="Discipline précédente"
-                    className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
+                    className="h-7 w-7 sm:h-10 sm:w-10 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
                   >
-                    <ChevronLeft className="h-4 w-4" />
+                    <ChevronLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   </button>
                   <button
                     type="button"
                     onClick={() => setCarouselPaused((p) => !p)}
                     aria-label={carouselPaused ? 'Relancer le carrousel' : 'Mettre en pause le carrousel'}
-                    className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
+                    className="h-7 w-7 sm:h-10 sm:w-10 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
                   >
-                    {carouselPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                    {carouselPaused ? <Play className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> : <Pause className="h-3 w-3 sm:h-3.5 sm:w-3.5" />}
                   </button>
                   <button
                     type="button"
                     onClick={() => handleStepCarousel(1)}
                     aria-label="Discipline suivante"
-                    className="h-8 w-8 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
+                    className="h-7 w-7 sm:h-10 sm:w-10 inline-flex items-center justify-center rounded-full border border-white/25 bg-white/15 text-white hover:bg-white/25 transition-colors"
                   >
-                    <ChevronRight className="h-4 w-4" />
+                    <ChevronRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   </button>
                 </div>
               </div>
 
-              <h1 className="mt-2.5 font-display text-2xl leading-[1.14] sm:text-3xl lg:text-[2.35rem] font-bold tracking-tight text-white text-balance">
+              <h1 className="mt-1.5 sm:mt-4 font-display text-lg leading-[1.16] sm:text-4xl lg:text-[3rem] font-bold tracking-tight text-white text-balance">
                 Votre objectif d’abord, votre parcours{' '}
                 <span className="text-[#FBBF24]">{activeSport.nom}</span> adapté
               </h1>
 
-              <p className="mt-2 text-xs sm:text-sm text-white/90 leading-relaxed max-w-xl">
-                {activeSport.subtitle}. Séances sans matériel en français et wolof, suivi coach et mode hors ligne.
+              <p className="mt-1 sm:mt-4 text-[11px] sm:text-base text-white/90 leading-snug sm:leading-relaxed max-w-2xl line-clamp-1 sm:line-clamp-none">
+                {activeSport.subtitle}. Séances courtes sans matériel en français et wolof, encadrement coach et accès hors ligne.
               </p>
 
+              {/* Desktop Discipline Metrics Summary */}
+              <div className="hidden sm:flex sm:mt-4 flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-white/90">
+                <span>{activeSport.qualities[0]}</span>
+                {activeSport.qualities[1] && (
+                  <>
+                    <span aria-hidden="true" className="text-white/50">·</span>
+                    <span>{activeSport.qualities[1]}</span>
+                  </>
+                )}
+                <span aria-hidden="true" className="text-white/50">·</span>
+                <span className="text-[#FBBF24] font-medium">
+                  Suivi : {activeSport.dashboardMetrics.primary}
+                </span>
+              </div>
+
               {/* Primary Hero Actions */}
-              <div className="mt-4 flex flex-wrap items-center gap-2.5">
+              <div className="mt-2.5 sm:mt-6 flex flex-wrap items-center gap-2 sm:gap-3">
                 <a
                   href="#objectif"
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs sm:text-sm font-bold text-[#063725] hover:bg-[#ECF7F1] transition-colors min-h-[40px] shadow-md whitespace-nowrap"
+                  className="inline-flex items-center justify-center gap-1.5 sm:gap-2 rounded-full bg-white px-3.5 py-1.5 sm:px-5 sm:py-3 text-[11px] sm:text-sm font-bold text-[#063725] hover:bg-[#ECF7F1] transition-colors min-h-[34px] sm:min-h-[44px] shadow-md whitespace-nowrap"
                 >
                   <span>Choisir mon objectif</span>
-                  <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <ArrowRight className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" aria-hidden="true" />
                 </a>
                 <button
                   type="button"
                   onClick={() => onOpenAuth('login')}
-                  className="inline-flex items-center justify-center rounded-full border border-white/30 bg-white/15 px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-white/25 transition-colors min-h-[40px] whitespace-nowrap"
+                  className="inline-flex items-center justify-center rounded-full border border-white/30 bg-white/15 px-3.5 py-1.5 sm:px-5 sm:py-3 text-[11px] sm:text-sm font-semibold text-white hover:bg-white/25 transition-colors min-h-[34px] sm:min-h-[44px] whitespace-nowrap"
                 >
                   Se connecter
                 </button>
               </div>
 
-              {/* Compact Mobile-Friendly Horizontal Scrollable 6-Sport Carousel Selector */}
-              <div className="mt-4 pt-3.5 border-t border-white/15">
+              {/* Horizontal Scrollable 6-Sport Carousel Selector (ultra-compact on mobile) */}
+              <div className="mt-3 pt-2.5 sm:mt-7 sm:pt-5 border-t border-white/15">
+                <div className="hidden sm:flex items-center justify-between text-[11px] text-white/75 mb-2.5">
+                  <span>Structure des 6 sports · Touchez pour changer d’aperçu</span>
+                  <span className="font-mono">6 disciplines</span>
+                </div>
                 <div
                   role="tablist"
                   aria-label="Carrousel des 6 sports"
-                  className="flex items-center gap-1.5 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-0.5 -mx-1 px-1 sm:flex-wrap sm:overflow-visible"
+                  className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-0.5 sm:pb-1 -mx-1 px-1 sm:flex-wrap sm:overflow-visible"
                 >
                   {ALL_SPORT_CODES.map((code, idx) => {
                     const active = previewSport === code;
@@ -414,9 +434,9 @@ export const PublicLanding: React.FC<PublicLandingProps> = ({ onOpenAuth }) => {
                         role="tab"
                         aria-selected={active}
                         onClick={() => handleSelectCarouselSport(code)}
-                        className={`snap-start inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all min-h-[36px] whitespace-nowrap shrink-0 ${
+                        className={`snap-start inline-flex items-center gap-1 sm:gap-2 rounded-full px-2.5 py-1 sm:px-3.5 sm:py-2 text-[11px] sm:text-xs font-semibold transition-all min-h-[30px] sm:min-h-[42px] whitespace-nowrap shrink-0 ${
                           active
-                            ? 'bg-white text-[#063725] shadow-sm'
+                            ? 'bg-white text-[#063725] shadow-md'
                             : 'border border-white/25 bg-white/15 text-white hover:bg-white/25'
                         }`}
                       >
