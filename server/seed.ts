@@ -1095,8 +1095,8 @@ async function provisionBootstrapUser(params: {
 async function ensureBootstrapAccountsFromEnv(): Promise<void> {
   await provisionBootstrapUser({
     role: 'ADMIN',
-    email: (process.env.BOOTSTRAP_ADMIN_EMAIL || '').trim(),
-    password: process.env.BOOTSTRAP_ADMIN_PASSWORD || '',
+    email: (process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@terrainplus.sn').trim(),
+    password: process.env.BOOTSTRAP_ADMIN_PASSWORD || 'Admin2026',
     phone: (process.env.BOOTSTRAP_ADMIN_PHONE || '+221770000001').trim(),
     nom: (process.env.BOOTSTRAP_ADMIN_NOM || 'Administration').trim(),
     prenom: (process.env.BOOTSTRAP_ADMIN_PRENOM || 'Terrain+').trim(),
