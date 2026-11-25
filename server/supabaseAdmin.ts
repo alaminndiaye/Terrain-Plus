@@ -1,26 +1,33 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import pg, { type Pool } from 'pg';
 
+function normalizeEnv(val: string | undefined): string {
+  const s = (val || '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1).trim();
+  }
+  return s;
+}
+
 // Ensure BIGINT/COUNT(*) (OID 20) and NUMERIC/AVG (OID 1700) parse as JS numbers instead of strings
-pg.types.setTypeParser(20, (val: string) => parseInt(val, 10));
-pg.types.setTypeParser(1700, (val: string) => parseFloat(val));
+const pgTypes = pg?.types || (pg as unknown as { default?: typeof pg })?.default?.types;
+if (pgTypes) {
+  pgTypes.setTypeParser(20, (val: string) => parseInt(val, 10));
+  pgTypes.setTypeParser(1700, (val: string) => parseFloat(val));
+}
 
 let adminClient: SupabaseClient | null = null;
 let pgPool: Pool | null = null;
 
-export const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'coach-diplomas';
-export const SUPABASE_VIDEO_BUCKET = process.env.SUPABASE_VIDEO_BUCKET || 'coach-videos';
+export const SUPABASE_STORAGE_BUCKET = normalizeEnv(process.env.SUPABASE_STORAGE_BUCKET) || 'coach-diplomas';
+export const SUPABASE_VIDEO_BUCKET = normalizeEnv(process.env.SUPABASE_VIDEO_BUCKET) || 'coach-videos';
 export const COACH_VIDEO_MAX_BYTES = 15 * 1024 * 1024; // 15 Mo max par vidéo (adapté au forfait gratuit Supabase)
 export const COACH_VIDEO_QUOTA_BYTES = 100 * 1024 * 1024; // 100 Mo max par coach sur le stockage gratuit
 
 export function getSupabaseAdmin(): SupabaseClient | null {
   if (adminClient) return adminClient;
-  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
-  const serviceKey = (
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    ''
-  ).trim();
+  const url = normalizeEnv(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+  const serviceKey = normalizeEnv(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
   if (!url || !serviceKey) return null;
 
   adminClient = createClient(url, serviceKey, {
@@ -34,11 +41,12 @@ export function getSupabaseAdmin(): SupabaseClient | null {
 
 export function getPgPool(): Pool | null {
   if (pgPool) return pgPool;
-  const connectionString = (process.env.DATABASE_URL || '').trim();
+  const connectionString = normalizeEnv(process.env.DATABASE_URL);
   if (!connectionString) return null;
 
   const isLocal = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
-  pgPool = new pg.Pool({
+  const PoolCtor = pg?.Pool || (pg as unknown as { default?: typeof pg })?.default?.Pool;
+  pgPool = new PoolCtor({
     connectionString,
     ssl: isLocal ? false : { rejectUnauthorized: false },
     max: process.env.VERCEL ? 3 : 5,

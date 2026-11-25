@@ -1,7 +1,15 @@
 import type { PoolClient } from 'pg';
 import { getPgPool } from './supabaseAdmin.ts';
 
-export const USE_POSTGRES = /^postgres(ql)?:\/\//i.test((process.env.DATABASE_URL || '').trim());
+function normalizeEnv(val: string | undefined): string {
+  const s = (val || '').trim();
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+export const USE_POSTGRES = /^postgres(ql)?:\/\//i.test(normalizeEnv(process.env.DATABASE_URL));
 
 export interface DbRunResult {
   changes: number;
@@ -32,6 +40,13 @@ let sqliteLoadPromise: Promise<SqliteDatabaseLike> | null = null;
 let sqliteTxQueue: Promise<void> = Promise.resolve();
 
 async function getSqliteDb(): Promise<SqliteDatabaseLike> {
+  if (process.env.VERCEL) {
+    const err = new Error(
+      'DATABASE_URL PostgreSQL manquante ou invalide dans les variables d’environnement Vercel.'
+    ) as Error & { code?: string };
+    err.code = 'MISSING_DATABASE_URL';
+    throw err;
+  }
   if (sqliteInstance) return sqliteInstance;
   if (!sqliteLoadPromise) {
     sqliteLoadPromise = (async () => {

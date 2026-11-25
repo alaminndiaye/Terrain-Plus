@@ -5937,29 +5937,30 @@ export async function createApp(): Promise<Express> {
   return app;
 }
 
-const currentFilePath = fileURLToPath(import.meta.url);
-const isMainModule = Boolean(process.argv[1]) && path.resolve(process.argv[1]) === currentFilePath;
+if (!process.env.VERCEL && import.meta?.url && process.argv[1]) {
+  const currentFilePath = fileURLToPath(import.meta.url);
+  const isMainModule = path.resolve(process.argv[1]) === currentFilePath;
+  if (isMainModule) {
+    (async () => {
+      await ensureAppReady();
+      const app = await createApp();
+      const isProd = process.env.NODE_ENV === 'production' && fs.existsSync(path.resolve('dist/index.html'));
+      const portArgIdx = process.argv.indexOf('--port');
+      const cliPort = portArgIdx !== -1 ? Number(process.argv[portArgIdx + 1]) : NaN;
+      const nginxOwnsEnvPort = Boolean(process.env.NGINX_PORT && process.env.PORT === process.env.NGINX_PORT);
+      const port =
+        Number.isFinite(cliPort) && cliPort > 0
+          ? cliPort
+          : isProd && !nginxOwnsEnvPort && process.env.PORT
+            ? Number(process.env.PORT)
+            : Number(process.env.DEFAULT_APP_PORT || 3000);
 
-if (!process.env.VERCEL && isMainModule) {
-  (async () => {
-    await ensureAppReady();
-    const app = await createApp();
-    const isProd = process.env.NODE_ENV === 'production' && fs.existsSync(path.resolve('dist/index.html'));
-    const portArgIdx = process.argv.indexOf('--port');
-    const cliPort = portArgIdx !== -1 ? Number(process.argv[portArgIdx + 1]) : NaN;
-    const nginxOwnsEnvPort = Boolean(process.env.NGINX_PORT && process.env.PORT === process.env.NGINX_PORT);
-    const port =
-      Number.isFinite(cliPort) && cliPort > 0
-        ? cliPort
-        : isProd && !nginxOwnsEnvPort && process.env.PORT
-          ? Number(process.env.PORT)
-          : Number(process.env.DEFAULT_APP_PORT || 3000);
-
-    app.listen(port, '0.0.0.0', () => {
-      console.log(`Terrain+ server listening on http://0.0.0.0:${port} (${USE_POSTGRES ? 'Supabase Postgres' : 'SQLite local'})`);
+      app.listen(port, '0.0.0.0', () => {
+        console.log(`Terrain+ server listening on http://0.0.0.0:${port} (${USE_POSTGRES ? 'Supabase Postgres' : 'SQLite local'})`);
+      });
+    })().catch((err) => {
+      console.error('Failed to start Terrain+ server:', err);
+      process.exit(1);
     });
-  })().catch((err) => {
-    console.error('Failed to start Terrain+ server:', err);
-    process.exit(1);
-  });
+  }
 }

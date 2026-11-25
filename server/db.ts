@@ -397,6 +397,18 @@ END $$;
 
 export async function initSchema(): Promise<void> {
   if (USE_POSTGRES) {
+    const existing = await dbGet<{ tbl: string | null }>("SELECT to_regclass('public.users') as tbl");
+    if (existing?.tbl) {
+      const hasLatest = await dbGet<{ ok: number }>(
+        `SELECT 1 as ok
+         FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'coaches' AND column_name = 'honorability_attested'
+         LIMIT 1`
+      );
+      if (hasLatest?.ok === 1) {
+        return;
+      }
+    }
     await dbExec(POSTGRES_SCHEMA_SQL);
     return;
   }
