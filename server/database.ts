@@ -50,7 +50,8 @@ async function getSqliteDb(): Promise<SqliteDatabaseLike> {
   if (sqliteInstance) return sqliteInstance;
   if (!sqliteLoadPromise) {
     sqliteLoadPromise = (async () => {
-      const mod = await import('better-sqlite3');
+      const sqlitePkg = 'better-sqlite3';
+      const mod = await import(/* @vite-ignore */ sqlitePkg);
       const DatabaseCtor = mod.default as unknown as new (path: string) => SqliteDatabaseLike;
       const dbPath = process.env.DB_PATH || './terrain_plus.db';
       const instance = new DatabaseCtor(dbPath);

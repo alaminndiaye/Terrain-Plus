@@ -5905,7 +5905,8 @@ export async function createApp(): Promise<Express> {
       app.use('/brand', express.static(path.resolve('public/brand'), { maxAge: '1d' }));
       app.use('/assets/aistudio', express.static(path.resolve('public/assets/aistudio'), { maxAge: '7d' }));
       app.use('/src/assets/images', express.static(path.resolve('src/assets/images'), { maxAge: '7d' }));
-      const { createServer: createViteServer } = await import('vite');
+      const vitePkg = 'vite';
+      const { createServer: createViteServer } = await import(/* @vite-ignore */ vitePkg);
       const vite = await createViteServer({
         server: {
           middlewareMode: true,
