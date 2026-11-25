@@ -1,4 +1,4 @@
-export type UserRole = 'ATHLETE' | 'COACH' | 'ADMIN' | 'MINISTRE';
+export type UserRole = 'ATHLETE' | 'COACH' | 'ADMIN';
 
 export type SportCode = 'football' | 'basket' | 'handball' | 'volleyball' | 'athletisme' | 'fitness';
 
@@ -7,7 +7,6 @@ export type ObjectiveCode =
   | 'PRISE_MASSE'
   | 'ENDURANCE'
   | 'EXPLOSIVITE'
-  | 'PREVENTION'
   | 'PERFORMANCE';
 
 export type AthleteLevel = 'debutant' | 'intermediaire' | 'avance';
@@ -16,7 +15,7 @@ export type AthleteStatus = 'INSCRIT' | 'ACTIF' | 'SUIVI_ACTIF' | 'EN_PAUSE' | '
 
 export type ValidationStatus = 'VALIDEE' | 'EN_RELECTURE' | 'BROUILLON';
 
-export type AlertType = 'DOULEUR' | 'ABSENCE' | 'RAPPEL' | 'CHANGEMENT_COACH';
+export type AlertType = 'ABSENCE' | 'RAPPEL' | 'CHANGEMENT_COACH';
 
 export type TestRating = 'Faible' | 'Moyen' | 'Bon pour le niveau';
 
@@ -45,7 +44,7 @@ export interface SessionTemplate {
   niveau: AthleteLevel;
   duree_min: number;
   objectif: string;
-  prevention_focus: string;
+  prevention_focus?: string;
   relue_par: string | null;
   validation_status: ValidationStatus;
   access_tier?: 'ESSENTIEL' | 'PROGRESSION';
@@ -225,6 +224,19 @@ export interface CoachVideoItem {
   created_at: string;
 }
 
+export interface CoachMessage {
+  id: number;
+  athlete_user_id: number;
+  coach_user_id: number;
+  sender_user_id: number;
+  sender_role: 'ATHLETE' | 'COACH';
+  sender_nom?: string;
+  body: string;
+  read_by_athlete: boolean;
+  read_by_coach: boolean;
+  created_at: string;
+}
+
 export interface AthleteWorkspacePayload {
   user: AuthUser;
   profile: AthleteProfileData;
@@ -234,11 +246,13 @@ export interface AthleteWorkspacePayload {
   schedule: ScheduledSession[];
   library: SessionTemplate[];
   coachVideos?: CoachVideoItem[];
+  coachMessages?: CoachMessage[];
+  unreadCoachMessagesCount?: number;
   weights: WeightLog[];
   evaluations: EvaluationRecord[];
   alerts: AlertRecord[];
-  groups: GroupInfo[];
-  challenges: ChallengeInfo[];
+  groups?: GroupInfo[];
+  challenges?: ChallengeInfo[];
   consents: Array<{ id: number; type: string; version: string; accepted_at: string }>;
   stats: {
     weeklyCompleted: number;
@@ -262,6 +276,7 @@ export interface CoachAthleteSummary {
   lastEvaluationScore: number | null;
   openAlertsCount: number;
   hasPainAlert: boolean;
+  unreadMessagesCount?: number;
 }
 
 export interface AuditLogEntry {
@@ -272,148 +287,6 @@ export interface AuditLogEntry {
   action: string;
   resource: string;
   created_at: string;
-}
-
-export interface PartnerSummary {
-  id: number;
-  nom: string;
-  type: 'ASC' | 'CAMPUS' | 'LIGUE';
-  zone: string;
-  groups_count: number;
-  members_count: number;
-}
-
-export interface PartnerChallengeSummary extends ChallengeInfo {
-  partner_id: number;
-  partner_type: 'ASC' | 'CAMPUS' | 'LIGUE';
-  zone: string;
-}
-
-export interface PublicPartnersPayload {
-  partners: PartnerSummary[];
-  groups: Array<{
-    id: number;
-    nom: string;
-    partner_id: number;
-    partner_nom: string;
-    partner_type: 'ASC' | 'CAMPUS' | 'LIGUE';
-    zone: string;
-    captain_name: string;
-    sport_code: SportCode;
-    member_count: number;
-  }>;
-  challenges: PartnerChallengeSummary[];
-}
-
-export interface PartnerRequestRecord {
-  id: number;
-  organisation: string;
-  type: 'ASC' | 'CAMPUS' | 'LIGUE';
-  zone: string;
-  contact_nom: string;
-  contact_telephone: string;
-  contact_email: string | null;
-  sport_principal: string | null;
-  nombre_athletes_estime: number | null;
-  pack_souhaite?: string | null;
-  message: string | null;
-  statut: 'NOUVELLE' | 'EN_ETUDE' | 'VALIDEE';
-  created_at: string;
-}
-
-export interface MinisterSportMetric {
-  sport_code: SportCode;
-  athletesCount: number;
-  validatedSessionsCount: number;
-  evaluationsCount: number;
-  avgEvalScore: number | null;
-  completedSessionsCount: number;
-  groupsCount: number;
-}
-
-export interface MinisterZoneMetric {
-  zone: string;
-  partnersCount: number;
-  partnerTypes: Array<'ASC' | 'CAMPUS' | 'LIGUE'>;
-  groupsCount: number;
-  membersCount: number;
-  challengesCount: number;
-  challengeCompletionPct: number;
-}
-
-export interface MinisterPerspectivePhase {
-  code: string;
-  horizon: string;
-  titre: string;
-  statut: 'EN_COURS' | 'PLANIFIEE' | 'CIBLE';
-  progressionPct: number;
-  resume: string;
-  livrables: string[];
-}
-
-export interface MinisterOverviewPayload {
-  generatedAt: string;
-  kpis: {
-    totalAthletes: number;
-    activeFollowUpAthletes: number;
-    verifiedAthletes: number;
-    minorProtectedCount: number;
-    totalCoaches: number;
-    coachAthleteRatio: string;
-    validatedSessionsCount: number;
-    pendingReviewSessionsCount: number;
-    avgGlobalEvalScore: number | null;
-    completedSessionsTotal: number;
-    plannedTrainingSessionsTotal: number;
-    avgWeeklyCompletionPct: number;
-    totalPartners: number;
-    totalGroups: number;
-    totalGroupMemberships: number;
-    totalChallenges: number;
-    pendingPartnerRequests: number;
-  };
-  bySport: MinisterSportMetric[];
-  byZone: MinisterZoneMetric[];
-  preventionAndSafety: {
-    openPainAlerts: number;
-    resolvedPainAlerts: number;
-    totalPainAlerts: number;
-    painResolutionRatePct: number;
-    minorParentalConsentCount: number;
-    parentalConsentCompliancePct: number;
-    nonMedicalConsentCount: number;
-    reviewCompliancePct: number;
-    auditEventsCount: number;
-    coachCommentsCount: number;
-  };
-  challenges: Array<{
-    id: number;
-    titre: string;
-    partner_nom: string;
-    partner_type: 'ASC' | 'CAMPUS' | 'LIGUE';
-    zone: string;
-    periode: string;
-    indicateur: string;
-    target_sessions: number;
-    current_sessions: number;
-    pct: number;
-  }>;
-  partnerRequestsSummary: {
-    total: number;
-    nouvelle: number;
-    enEtude: number;
-    validee: number;
-  };
-  perspectives: {
-    readinessScorePct: number;
-    phases: MinisterPerspectivePhase[];
-    axes: Array<{
-      id: string;
-      titre: string;
-      indicateurActuel: string;
-      orientation: string;
-    }>;
-  };
 }
 
 export interface CoachDocumentStudyCheck {
@@ -552,5 +425,72 @@ export interface AdminSystemOverviewPayload {
   };
 }
 
+export type PaymentTransactionCategory = 'ATHLETE_PLAN' | 'COACH_PRO_LICENSE' | 'COACH_PRIVATE_FEE' | 'AUTRE';
+export type PaymentTransactionMethod = 'WAVE' | 'ORANGE_MONEY' | 'FREE_MONEY' | 'CARTE' | 'ESPECES' | 'MANUEL';
+export type PaymentTransactionStatus = 'PAYE' | 'EN_ATTENTE' | 'ECHOUE' | 'REMBOURSE';
 
+export interface PaymentTransaction {
+  id: number;
+  user_id: number | null;
+  user_nom: string | null;
+  user_email: string | null;
+  coach_user_id: number | null;
+  coach_nom: string | null;
+  category: PaymentTransactionCategory;
+  label: string;
+  amount_fcfa: number;
+  platform_share_fcfa: number;
+  coach_share_fcfa: number;
+  payment_method: PaymentTransactionMethod;
+  reference: string | null;
+  status: PaymentTransactionStatus;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface CoachPayoutRecord {
+  id: number;
+  coach_user_id: number;
+  coach_nom: string;
+  coach_email: string;
+  coach_plan: CoachPlanType;
+  period_month: string;
+  active_athletes_count: number;
+  gross_amount_fcfa: number;
+  commission_fcfa: number;
+  net_payout_fcfa: number;
+  payment_method: 'WAVE' | 'ORANGE_MONEY' | 'VIREMENT' | 'ESPECES';
+  reference: string | null;
+  status: 'EN_ATTENTE' | 'VERSE';
+  paid_at: string | null;
+  created_at: string;
+}
+
+export interface CoachMonthlyEstimate {
+  coach_user_id: number;
+  coach_nom: string;
+  coach_email: string;
+  coach_telephone: string;
+  coach_plan: CoachPlanType;
+  active_athletes_count: number;
+  gross_amount_fcfa: number;
+  commission_fcfa: number;
+  net_payout_fcfa: number;
+  existing_payout: CoachPayoutRecord | null;
+}
+
+export interface AdminFinancesPayload {
+  currentPeriodMonth: string;
+  summary: {
+    collectedTotalFcfa: number;
+    collectedPlatformFcfa: number;
+    pendingTotalFcfa: number;
+    failedCount: number;
+    estimatedMonthlyCoachPayoutFcfa: number;
+    paidOutCurrentMonthFcfa: number;
+  };
+  transactions: PaymentTransaction[];
+  payouts: CoachPayoutRecord[];
+  monthlyCoachEstimates: CoachMonthlyEstimate[];
+}
 

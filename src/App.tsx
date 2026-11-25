@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { ArrowLeft, ShieldCheck } from 'lucide-react';
+import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import {
   ApiError,
   apiRequest,
@@ -24,9 +25,6 @@ const CoachWorkspace = lazy(() =>
 );
 const AdminWorkspace = lazy(() =>
   import('./components/AdminWorkspace').then((m) => ({ default: m.AdminWorkspace }))
-);
-const MinisterWorkspace = lazy(() =>
-  import('./components/MinisterWorkspace').then((m) => ({ default: m.MinisterWorkspace }))
 );
 const AuthModal = lazy(() =>
   import('./components/AuthModal').then((m) => ({ default: m.AuthModal }))
@@ -142,7 +140,12 @@ const AdminLoginGate: React.FC<{
 
   return (
     <div className="min-h-screen obsidian-ambient flex flex-col items-center justify-center p-4 sm:p-6">
-      <div className="w-full max-w-md rounded-3xl obsidian-card-glow p-6 sm:p-8 space-y-6">
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+        className="w-full max-w-md rounded-3xl obsidian-card-glow p-6 sm:p-8 space-y-6"
+      >
         <div className="flex items-center justify-between gap-3">
           <img
             src="/brand/terrain-logo.png"
@@ -300,7 +303,7 @@ const AdminLoginGate: React.FC<{
             )}
           </form>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 };
@@ -404,73 +407,78 @@ export default function App() {
       );
     }
 
-    if (user.role === 'MINISTRE') {
-      return (
-        <MinisterWorkspace
-          onLoggedOut={handleLoggedOut}
-          onSessionExpired={handleSessionExpired}
-        />
-      );
-    }
-
     return null;
   };
 
+  const activeScreenKey = isAdminHash
+    ? user && user.role === 'ADMIN'
+      ? 'admin-workspace'
+      : 'admin-gate'
+    : !user || user.role === 'ADMIN'
+      ? 'public-landing'
+      : `workspace-${user.role}`;
+
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       <Suspense fallback={<ScreenFallback />}>
-        {isAdminHash ? (
-          user && user.role === 'ADMIN' ? (
-            <AdminWorkspace
-              onLoggedOut={() => {
-                handleLoggedOut();
-                clearAdminHash();
-              }}
-              onSessionExpired={handleSessionExpired}
-            />
-          ) : (
-            <AdminLoginGate
-              onAuthenticated={(adminUser) => {
-                if (user && user.id !== adminUser.id) {
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeScreenKey}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            {isAdminHash ? (
+              user && user.role === 'ADMIN' ? (
+                <AdminWorkspace
+                  onLoggedOut={() => {
+                    handleLoggedOut();
+                    clearAdminHash();
+                  }}
+                  onSessionExpired={handleSessionExpired}
+                />
+              ) : (
+                <AdminLoginGate
+                  onAuthenticated={(adminUser) => {
+                    if (user && user.id !== adminUser.id) {
+                      clearAllWorkspaceCaches();
+                    }
+                    writeJsonCache(CACHED_USER_KEY, adminUser);
+                    setUser(adminUser);
+                  }}
+                  onExit={clearAdminHash}
+                />
+              )
+            ) : (
+              renderPublicOrUserWorkspace()
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {!isAdminHash && authModal && (
+            <AuthModal
+              initialMode={authModal.mode}
+              preselectedSport={authModal.sport}
+              preselectedObjective={authModal.objective}
+              initialRole={authModal.role}
+              initialNotice={authModal.notice}
+              onClose={() => setAuthModal(null)}
+              onAuthenticated={(authedUser) => {
+                if (user && user.id !== authedUser.id) {
                   clearAllWorkspaceCaches();
                 }
-                writeJsonCache(CACHED_USER_KEY, adminUser);
-                setUser(adminUser);
+                writeJsonCache(CACHED_USER_KEY, authedUser);
+                setUser(authedUser);
+                setAuthModal(null);
               }}
-              onExit={clearAdminHash}
             />
-          )
-        ) : (
-          renderPublicOrUserWorkspace()
-        )}
-
-        {!isAdminHash && authModal && (
-          <AuthModal
-            initialMode={authModal.mode}
-            preselectedSport={authModal.sport}
-            preselectedObjective={authModal.objective}
-            initialRole={authModal.role}
-            initialNotice={authModal.notice}
-            onClose={() => setAuthModal(null)}
-            onOpenPartners={() => {
-              setAuthModal(null);
-              window.setTimeout(() => {
-                document.getElementById('partenaires')?.scrollIntoView({ behavior: 'smooth' });
-              }, 80);
-            }}
-            onAuthenticated={(authedUser) => {
-              if (user && user.id !== authedUser.id) {
-                clearAllWorkspaceCaches();
-              }
-              writeJsonCache(CACHED_USER_KEY, authedUser);
-              setUser(authedUser);
-              setAuthModal(null);
-            }}
-          />
-        )}
+          )}
+        </AnimatePresence>
       </Suspense>
 
       <OfflineIndicator />
-    </>
+    </MotionConfig>
   );
 }

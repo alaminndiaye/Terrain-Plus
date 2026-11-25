@@ -761,7 +761,7 @@ export const ExerciseVideoGuide: React.FC<ExerciseVideoGuideProps> = ({
         {showCues && !compact && (
           <div className="pt-2 border-t border-[#E2EBE5] text-left space-y-1 text-xs text-[#3D5246]">
             <div className="font-semibold text-[11px] text-[#0D6E46]">
-              Repères clés ({spec.preventionZone})
+              Groupes sollicités ({spec.targetMuscles})
             </div>
             <ul className="space-y-1">
               {spec.cues.map((cue, idx) => (

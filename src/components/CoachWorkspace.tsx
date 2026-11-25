@@ -1,21 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   ArrowLeft,
-  Bell,
   CheckCircle2,
-  ClipboardList,
   Link2,
   LogOut,
   Menu,
-  PlusCircle,
+  MessageSquare,
   Search,
+  Send,
   Trash2,
   Upload,
   Users,
   Video,
   X,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   CartesianGrid,
   Line,
@@ -40,16 +39,16 @@ import { CoachVideoPlayer, formatVideoSizeMb } from './CoachVideoPlayer';
 import { LegalFooter } from './LegalFooter';
 import type {
   AlertRecord,
-  AthleteLevel,
   AthleteWorkspacePayload,
   AuthUser,
   CoachAthleteSummary,
+  CoachMessage,
   CoachVideoItem,
   SessionTemplate,
   SportCode,
 } from '../types';
 
-type CoachTab = 'athletes' | 'videos' | 'alertes' | 'proposer';
+type CoachTab = 'athletes' | 'videos';
 
 interface CoachOverviewResponse {
   coach: AuthUser;
@@ -122,18 +121,11 @@ export const CoachWorkspace: React.FC<{
   const [adjustIsRest, setAdjustIsRest] = useState(false);
   const [adjustMotif, setAdjustMotif] = useState('');
 
-  // Alert resolution
-  const [resolveNoteByAlert, setResolveNoteByAlert] = useState<Record<number, string>>({});
-
-  // Propose session form
-  const [propSport, setPropSport] = useState<SportCode>('football');
-  const [propTitre, setPropTitre] = useState('');
-  const [propNiveau, setPropNiveau] = useState<AthleteLevel>('debutant');
-  const [propDuree, setPropDuree] = useState('20');
-  const [propObjectif, setPropObjectif] = useState('');
-  const [propPrevention, setPropPrevention] = useState('');
-  const [propConsigneFr, setPropConsigneFr] = useState('');
-  const [propConsigneWo, setPropConsigneWo] = useState('');
+  // Direct Athlete ↔ Coach messaging
+  const [athleteMessages, setAthleteMessages] = useState<CoachMessage[]>([]);
+  const [chatBody, setChatBody] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
 
   // Coach session videos state (Supabase Free Tier aware)
   const [coachVideos, setCoachVideos] = useState<CoachVideoItem[]>([]);
@@ -192,13 +184,48 @@ export const CoachWorkspace: React.FC<{
     loadVideos();
   }, [loadOverview, loadVideos]);
 
+  const loadAthleteMessages = useCallback(async (athleteId: number, markRead = false) => {
+    try {
+      const res = await apiRequest<{ messages: CoachMessage[] }>(`/api/coach/athletes/${athleteId}/messages`);
+      setAthleteMessages(res.messages || []);
+      if (markRead) {
+        await apiRequest(`/api/coach/athletes/${athleteId}/messages/read`, { method: 'POST' }).catch(() => undefined);
+        setOverview((prev) =>
+          prev
+            ? {
+                ...prev,
+                athletes: prev.athletes.map((a) => (a.id === athleteId ? { ...a, unreadMessagesCount: 0 } : a)),
+              }
+            : prev
+        );
+      }
+    } catch {
+      // Non-fatal
+    } finally {
+      setChatLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedAthlete) return;
+    const athleteId = selectedAthlete.user.id;
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void loadAthleteMessages(athleteId, true);
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [selectedAthlete, loadAthleteMessages]);
+
   const openAthleteDossier = async (athleteId: number) => {
     try {
+      setChatLoading(true);
       const dossier = await apiRequest<AthleteWorkspacePayload>(`/api/coach/athletes/${athleteId}`);
       setSelectedAthlete(dossier);
       setObjectiveInput(dossier.program?.objectif || dossier.profile.objectif || '');
       setAdjustingSlotId(null);
+      await loadAthleteMessages(athleteId, true);
     } catch (err) {
+      setChatLoading(false);
       setNotice(err instanceof Error ? err.message : "Impossible d'ouvrir la fiche.");
     }
   };
@@ -267,61 +294,28 @@ export const CoachWorkspace: React.FC<{
     }
   };
 
-  const handleResolveAlert = async (alertId: number) => {
-    try {
-      await apiRequest(`/api/coach/alerts/${alertId}/resolve`, {
-        method: 'POST',
-        body: JSON.stringify({
-          note_traitement:
-            resolveNoteByAlert[alertId]?.trim() ||
-            'Alerte prise en compte et charge d’entraînement adaptée.',
-        }),
-      });
-      setNotice('Alerte marquée comme traitée.');
-      await loadOverview();
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Erreur.');
-    }
-  };
-
-  const handleProposeSession = async (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedAthlete || !chatBody.trim() || chatSending) return;
+    setChatSending(true);
     try {
-      await apiRequest('/api/coach/sessions/propose', {
-        method: 'POST',
-        body: JSON.stringify({
-          sport_code: propSport,
-          titre: propTitre,
-          niveau: propNiveau,
-          duree_min: Number(propDuree),
-          objectif: propObjectif,
-          prevention_focus: propPrevention,
-          consigneFr: propConsigneFr,
-          consigneWo: propConsigneWo,
-        }),
-      });
-      setPropTitre('');
-      setPropObjectif('');
-      setPropPrevention('');
-      setPropConsigneFr('');
-      setPropConsigneWo('');
-      setNotice('Séance soumise à la file de relecture avant publication.');
-      await loadOverview();
+      const res = await apiRequest<{ message: CoachMessage | null }>(
+        `/api/coach/athletes/${selectedAthlete.user.id}/messages`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ body: chatBody.trim() }),
+        }
+      );
+      if (res.message) {
+        setAthleteMessages((prev) => [...prev, res.message!]);
+      } else {
+        await loadAthleteMessages(selectedAthlete.user.id, true);
+      }
+      setChatBody('');
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Erreur.');
-    }
-  };
-
-  const handleSwitchCoachPlan = async (targetPlan: 'MARKETPLACE' | 'COACH_PRO') => {
-    try {
-      const res = await apiRequest<{ message: string }>('/api/coach/plan', {
-        method: 'PATCH',
-        body: JSON.stringify({ coach_plan: targetPlan }),
-      });
-      setNotice(res.message);
-      await loadOverview();
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Erreur lors du changement de formule.');
+      setNotice(err instanceof Error ? err.message : "Impossible d'envoyer le message.");
+    } finally {
+      setChatSending(false);
     }
   };
 
@@ -502,7 +496,9 @@ export const CoachWorkspace: React.FC<{
     );
   }
 
-  const openAlertsCount = overview ? overview.alerts.filter((a) => !a.traitee).length : 0;
+  const totalUnreadMessages = overview
+    ? overview.athletes.reduce((acc, a) => acc + (a.unreadMessagesCount || 0), 0)
+    : 0;
 
   const coachNavItems: Array<{
     id: CoachTab;
@@ -516,25 +512,13 @@ export const CoachWorkspace: React.FC<{
       label: `Mes athlètes (${overview?.athletes.length || 0})`,
       mobileLabel: 'Athlètes',
       icon: Users,
+      badge: totalUnreadMessages,
     },
     {
       id: 'videos',
       label: `Vidéos séances (${coachVideos.length})`,
       mobileLabel: 'Vidéos',
       icon: Video,
-    },
-    {
-      id: 'alertes',
-      label: 'Alertes',
-      mobileLabel: 'Alertes',
-      icon: Bell,
-      badge: openAlertsCount,
-    },
-    {
-      id: 'proposer',
-      label: 'Proposer une séance',
-      mobileLabel: 'Proposer',
-      icon: PlusCircle,
     },
   ];
 
@@ -590,38 +574,6 @@ export const CoachWorkspace: React.FC<{
         </nav>
 
         <div className="p-4 border-t border-[#E2EBE5] space-y-3">
-          {overview?.coachProfile && (
-            <div className="obsidian-inset rounded-xl p-3 space-y-2">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[11px] font-semibold text-[#063725]">
-                  {overview.coachProfile.coach_plan === 'COACH_PRO' ? 'Coach Pro' : 'Marketplace'}
-                </span>
-                <span className="font-mono text-[11px] font-bold text-[#0D6E46]">
-                  {overview.coachProfile.monthly_fee_fcfa.toLocaleString('fr-FR')} F/mois
-                </span>
-              </div>
-              <div className="text-[11px] text-[#3D5246] leading-snug">
-                Revenu par élève :{' '}
-                <strong className="text-[#063725]">
-                  {(overview.coachProfile.athlete_payout_fcfa ?? 4000).toLocaleString('fr-FR')} F/mois
-                </strong>{' '}
-                ({100 - (overview.coachProfile.commission_pct ?? 20)} %)
-              </div>
-              <button
-                type="button"
-                onClick={() =>
-                  handleSwitchCoachPlan(
-                    overview.coachProfile?.coach_plan === 'COACH_PRO' ? 'MARKETPLACE' : 'COACH_PRO'
-                  )
-                }
-                className="w-full rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#063725] hover:bg-[#ECF7F1]"
-              >
-                {overview.coachProfile.coach_plan === 'COACH_PRO'
-                  ? 'Passer à Marketplace (0 F)'
-                  : 'Passer à Coach Pro (3 000 F)'}
-              </button>
-            </div>
-          )}
           <p className="text-xs text-[#5B7064] leading-relaxed">
             Accès strict aux athlètes affectés. Chaque consultation est journalisée. Le coach ne pose pas de diagnostic médical.
           </p>
@@ -672,46 +624,55 @@ export const CoachWorkspace: React.FC<{
             </button>
           </div>
 
-          {mobileMenuOpen && (
-            <nav aria-label="Menu coach mobile" className="border-t border-[#E2EBE5] bg-white px-4 py-3 space-y-1.5">
-              {coachNavItems.map((item) => {
-                const Icon = item.icon;
-                const active = tab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      setTab(item.id);
-                      setSelectedAthlete(null);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold min-h-[40px] ${
-                      active ? 'bg-[#0D6E46] text-white' : 'bg-[#F6F8F5] text-[#063725]'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                      <span>{item.label}</span>
-                    </span>
-                    {item.badge && item.badge > 0 ? (
-                      <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">
-                        {item.badge}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="w-full flex items-center gap-2.5 rounded-xl border border-[#D5E2DA] px-3.5 py-2.5 text-xs font-semibold text-[#3D5246] min-h-[40px]"
+          <AnimatePresence>
+            {mobileMenuOpen && (
+              <motion.nav
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                aria-label="Menu coach mobile"
+                className="border-t border-[#E2EBE5] bg-white px-4 py-3 space-y-1.5"
               >
-                <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>Déconnexion</span>
-              </button>
-            </nav>
-          )}
+                {coachNavItems.map((item) => {
+                  const Icon = item.icon;
+                  const active = tab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setTab(item.id);
+                        setSelectedAthlete(null);
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold min-h-[40px] ${
+                        active ? 'bg-[#0D6E46] text-white' : 'bg-[#F6F8F5] text-[#063725]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span>{item.label}</span>
+                      </span>
+                      {item.badge && item.badge > 0 ? (
+                        <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2.5 rounded-xl border border-[#D5E2DA] px-3.5 py-2.5 text-xs font-semibold text-[#3D5246] min-h-[40px]"
+                >
+                  <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>Déconnexion</span>
+                </button>
+              </motion.nav>
+            )}
+          </AnimatePresence>
         </header>
 
         <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8 pb-24 md:pb-10">
@@ -728,18 +689,35 @@ export const CoachWorkspace: React.FC<{
             </div>
           )}
 
-          {notice && (
-            <div className="obsidian-card rounded-xl px-4 py-3 text-sm text-[#063725] flex items-center justify-between gap-3">
-              <span>{notice}</span>
-              <button
-                type="button"
-                onClick={() => setNotice(null)}
-                className="text-xs font-semibold text-[#0D6E46] hover:text-[#095637] shrink-0"
+          <AnimatePresence>
+            {notice && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.18 }}
+                className="obsidian-card rounded-xl px-4 py-3 text-sm text-[#063725] flex items-center justify-between gap-3"
               >
-                Fermer
-              </button>
-            </div>
-          )}
+                <span>{notice}</span>
+                <button
+                  type="button"
+                  onClick={() => setNotice(null)}
+                  className="text-xs font-semibold text-[#0D6E46] hover:text-[#095637] shrink-0"
+                >
+                  Fermer
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence mode="wait">
+          <motion.div
+            key={selectedAthlete ? `dossier-${selectedAthlete.user.id}` : tab}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          >
 
           {/* ---------------- ATHLETE DOSSIER VIEW ---------------- */}
           {tab === 'athletes' && selectedAthlete && (
@@ -777,6 +755,76 @@ export const CoachWorkspace: React.FC<{
                     <div className="font-bold text-[#063725]">{selectedAthlete.stats.avgRpe ?? '—'}/10</div>
                   </div>
                 </div>
+              </div>
+
+              {/* Direct Messaging Thread with Athlete */}
+              <div className="obsidian-card rounded-2xl p-5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
+                    <h2 className="text-base font-semibold text-[#063725]">
+                      Discussion directe avec {selectedAthlete.user.prenom}
+                    </h2>
+                  </div>
+                  <span className="text-[11px] text-[#5B7064]">
+                    Échanges privés · Actualisation automatique
+                  </span>
+                </div>
+
+                <div className="max-h-64 overflow-y-auto space-y-2.5 rounded-xl border border-[#E2EBE5] bg-[#F7FAF8] p-3.5">
+                  {chatLoading && athleteMessages.length === 0 ? (
+                    <div className="text-xs text-[#5B7064] py-4 text-center">Chargement des échanges...</div>
+                  ) : athleteMessages.length === 0 ? (
+                    <div className="text-xs text-[#5B7064] py-4 text-center">
+                      Aucun message pour le moment. Envoyez un message d’encouragement ou une précision technique à {selectedAthlete.user.prenom}.
+                    </div>
+                  ) : (
+                    athleteMessages.map((msg) => {
+                      const fromCoach = msg.sender_role === 'COACH';
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex flex-col ${fromCoach ? 'items-end' : 'items-start'}`}
+                        >
+                          <div
+                            className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed ${
+                              fromCoach
+                                ? 'bg-[#0D6E46] text-white'
+                                : 'bg-white border border-[#D5E2DA] text-[#063725]'
+                            }`}
+                          >
+                            <div className={`text-[10px] mb-0.5 font-semibold ${fromCoach ? 'text-white/80' : 'text-[#0D6E46]'}`}>
+                              {fromCoach ? 'Vous' : msg.sender_nom || selectedAthlete.user.prenom}
+                            </div>
+                            <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+                          </div>
+                          <span className="mt-0.5 px-1 text-[10px] font-mono text-[#5B7064]">
+                            {msg.created_at.slice(0, 16).replace('T', ' ')}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+
+                <form onSubmit={handleSendMessage} className="flex gap-2">
+                  <input
+                    type="text"
+                    maxLength={1000}
+                    value={chatBody}
+                    onChange={(e) => setChatBody(e.target.value)}
+                    placeholder={`Écrire un message à ${selectedAthlete.user.prenom}...`}
+                    className="flex-1 rounded-xl border border-[#C3D6CA] bg-white px-3.5 py-2 text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[42px]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={chatSending || !chatBody.trim()}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50 min-h-[42px] shrink-0"
+                  >
+                    <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>{chatSending ? 'Envoi...' : 'Envoyer'}</span>
+                  </button>
+                </form>
               </div>
 
               {/* Objectives + Weight Trend */}
@@ -850,7 +898,7 @@ export const CoachWorkspace: React.FC<{
                           {slot.ajustee_par_coach && <span className="text-[#0D6E46] font-semibold"> · Ajustée</span>}
                         </div>
                         <div className="text-sm font-semibold text-[#063725]">
-                          {slot.is_rest_day || !slot.session ? 'Repos' : slot.session.titre}
+                          {slot.is_rest_day || !slot.session ? 'Journée sans séance' : slot.session.titre}
                         </div>
                         {slot.motif_ajustement && (
                           <div className="text-xs text-[#3D5246]">Motif : {slot.motif_ajustement}</div>
@@ -887,7 +935,7 @@ export const CoachWorkspace: React.FC<{
                           onChange={(e) => setAdjustIsRest(e.target.checked)}
                           className="h-4 w-4 accent-[#0D6E46]"
                         />
-                        <span>Passer en jour de repos</span>
+                        <span>Passer en journée sans séance</span>
                       </label>
 
                       {!adjustIsRest && (
@@ -910,7 +958,7 @@ export const CoachWorkspace: React.FC<{
                       required
                       value={adjustMotif}
                       onChange={(e) => setAdjustMotif(e.target.value)}
-                      placeholder="Motif visible par l'athlète (ex: Allègement suite à douleur cheville)"
+                      placeholder="Motif visible par l'athlète (ex: Adaptation de la charge hebdomadaire)"
                       className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
                     />
 
@@ -1048,11 +1096,28 @@ export const CoachWorkspace: React.FC<{
           {/* ---------------- ATHLETES LIST ---------------- */}
           {tab === 'athletes' && !selectedAthlete && (
             <div className="space-y-5">
+              {overview?.coachProfile && (
+                <div className="obsidian-card rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                    <span className="font-semibold text-[#063725]">
+                      Modèle Coach Terrain+
+                    </span>
+                    <span className="font-mono text-[#0D6E46] font-bold">
+                      0 FCFA fixe / mois
+                    </span>
+                    <span className="text-[#3D5246]">
+                      Revenu par athlète suivi :{' '}
+                      <strong className="text-[#063725]">4 000 F</strong> (80 %) · 20 % commission plateforme
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h1 className="font-display text-2xl font-bold text-[#063725]">Mes athlètes affectés</h1>
                   <p className="text-sm text-[#3D5246]">
-                    Cliquez sur un athlète pour consulter sa fiche (consultation tracée au journal d’accès).
+                    Cliquez sur un athlète pour consulter sa fiche et échanger en direct (consultation tracée au journal d’accès).
                   </p>
                 </div>
 
@@ -1076,7 +1141,7 @@ export const CoachWorkspace: React.FC<{
                       <th className="px-4 py-3 font-medium">Sport & Niveau</th>
                       <th className="px-4 py-3 font-medium text-right">Séances semaine</th>
                       <th className="px-4 py-3 font-medium text-right">Dernière éval.</th>
-                      <th className="px-4 py-3 font-medium">Alertes</th>
+                      <th className="px-4 py-3 font-medium">Alertes & Messages</th>
                       <th className="px-4 py-3 font-medium text-right">Action</th>
                     </tr>
                   </thead>
@@ -1099,13 +1164,19 @@ export const CoachWorkspace: React.FC<{
                           {a.lastEvaluationScore !== null ? `${a.lastEvaluationScore}/100` : '—'}
                         </td>
                         <td className="px-4 py-3.5 text-xs">
-                          {a.hasPainAlert ? (
-                            <span className="font-semibold text-red-700">Douleur active</span>
-                          ) : a.openAlertsCount > 0 ? (
-                            <span className="text-amber-700 font-medium">{a.openAlertsCount} ouverte(s)</span>
-                          ) : (
-                            <span className="text-[#5B7064]">Aucune</span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {a.openAlertsCount > 0 ? (
+                              <span className="text-amber-700 font-medium">{a.openAlertsCount} ouverte(s)</span>
+                            ) : (
+                              <span className="text-[#5B7064]">Suivi normal</span>
+                            )}
+                            {a.unreadMessagesCount && a.unreadMessagesCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 rounded-md border border-[#BFE0CD] bg-[#ECF7F1] px-2 py-0.5 font-mono text-[11px] font-bold text-[#0D6E46]">
+                                <MessageSquare className="h-3 w-3" aria-hidden="true" />
+                                {a.unreadMessagesCount} non lu{a.unreadMessagesCount > 1 ? 's' : ''}
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-4 py-3.5 text-right">
                           <button
@@ -1161,13 +1232,15 @@ export const CoachWorkspace: React.FC<{
                   </div>
                 </div>
                 <div className="h-2 w-full rounded-full bg-[#E2EBE5] overflow-hidden">
-                  <div
-                    className={`h-full transition-all ${
-                      videoQuota.usedBytes / videoQuota.maxBytes > 0.85 ? 'bg-amber-500' : 'bg-[#0D6E46]'
-                    }`}
-                    style={{
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{
                       width: `${Math.min(100, Math.round((videoQuota.usedBytes / Math.max(1, videoQuota.maxBytes)) * 100))}%`,
                     }}
+                    transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+                    className={`h-full ${
+                      videoQuota.usedBytes / videoQuota.maxBytes > 0.85 ? 'bg-amber-500' : 'bg-[#0D6E46]'
+                    }`}
                   />
                 </div>
               </div>
@@ -1383,192 +1456,8 @@ export const CoachWorkspace: React.FC<{
             </div>
           )}
 
-          {/* ---------------- ALERTS QUEUE ---------------- */}
-          {tab === 'alertes' && (
-            <div className="space-y-5">
-              <div>
-                <h1 className="font-display text-2xl font-bold text-[#063725]">Traitement des alertes</h1>
-                <p className="text-sm text-[#3D5246]">
-                  En cas de douleur signalée, adaptez ou mettez en pause le programme et orientez vers un professionnel de santé.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                {overview?.alerts.map((al) => (
-                  <div key={al.id} className="obsidian-card rounded-2xl p-5 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        {al.type === 'DOULEUR' ? (
-                          <AlertTriangle className="h-4 w-4 text-red-600" aria-hidden="true" />
-                        ) : (
-                          <ClipboardList className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
-                        )}
-                        <span className="text-sm font-semibold text-[#063725]">
-                          {al.athlete_nom} · {al.type}
-                          {al.zone_douleur ? ` (${al.zone_douleur}, ${al.intensite}/10)` : ''}
-                        </span>
-                      </div>
-                      <span className="text-xs font-mono text-[#5B7064]">
-                        {al.traitee ? 'Traitée' : 'À traiter'} · {al.date.slice(0, 10)}
-                      </span>
-                    </div>
-
-                    <p className="text-sm text-[#3D5246]">{al.message}</p>
-
-                    {al.traitee ? (
-                      <div className="flex items-center gap-2 text-xs text-[#0D6E46] font-semibold">
-                        <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                        <span>Note : {al.note_traitement}</span>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                        <input
-                          type="text"
-                          value={resolveNoteByAlert[al.id] || ''}
-                          onChange={(e) =>
-                            setResolveNoteByAlert((prev) => ({ ...prev, [al.id]: e.target.value }))
-                          }
-                          placeholder="Action prise (ex: Passage en repos + orientation médecin du sport)"
-                          className="flex-1 rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => openAthleteDossier(al.athlete_user_id).then(() => setTab('athletes'))}
-                          className="rounded-xl border border-[#C3D6CA] bg-[#F1F6F3] px-3.5 py-2 text-xs font-semibold text-[#063725] hover:bg-[#E2EBE5] min-h-[40px]"
-                        >
-                          Voir fiche
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleResolveAlert(al.id)}
-                          className="rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
-                        >
-                          Marquer traitée
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ---------------- PROPOSE SESSION ---------------- */}
-          {tab === 'proposer' && (
-            <div className="space-y-6">
-              <div>
-                <h1 className="font-display text-2xl font-bold text-[#063725]">Proposer une séance</h1>
-                <p className="text-sm text-[#3D5246]">
-                  Toute nouvelle séance est envoyée en relecture à l’administrateur avant d’être visible aux athlètes.
-                </p>
-              </div>
-
-              <form onSubmit={handleProposeSession} className="obsidian-card rounded-2xl p-6 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-[#3D5246] mb-1">Sport</label>
-                    <select
-                      value={propSport}
-                      onChange={(e) => setPropSport(e.target.value as SportCode)}
-                      className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] min-h-[44px]"
-                    >
-                      {ALL_SPORT_CODES.map((code) => (
-                        <option key={code} value={code}>
-                          {SPORTS_CONFIG[code].nom}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[#3D5246] mb-1">Niveau</label>
-                    <select
-                      value={propNiveau}
-                      onChange={(e) => setPropNiveau(e.target.value as AthleteLevel)}
-                      className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] min-h-[44px]"
-                    >
-                      <option value="debutant">Débutant</option>
-                      <option value="intermediaire">Intermédiaire</option>
-                      <option value="avance">Avancé</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[#3D5246] mb-1">Durée (min)</label>
-                    <input
-                      type="number"
-                      min={10}
-                      max={60}
-                      value={propDuree}
-                      onChange={(e) => setPropDuree(e.target.value)}
-                      className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-sm text-[#063725] min-h-[44px]"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-[#3D5246] mb-1">Titre de la séance *</label>
-                  <input
-                    type="text"
-                    required
-                    value={propTitre}
-                    onChange={(e) => setPropTitre(e.target.value)}
-                    placeholder="Ex: Renforcement chevilles et appuis courts"
-                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[44px]"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-[#3D5246] mb-1">Objectif principal *</label>
-                    <input
-                      type="text"
-                      required
-                      value={propObjectif}
-                      onChange={(e) => setPropObjectif(e.target.value)}
-                      className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] min-h-[44px]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[#3D5246] mb-1">Prévention ciblée</label>
-                    <input
-                      type="text"
-                      value={propPrevention}
-                      onChange={(e) => setPropPrevention(e.target.value)}
-                      placeholder="Chevilles, genoux..."
-                      className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[44px]"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-[#3D5246] mb-1">Consigne principale (Français) *</label>
-                  <textarea
-                    rows={2}
-                    required
-                    value={propConsigneFr}
-                    onChange={(e) => setPropConsigneFr(e.target.value)}
-                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-[#3D5246] mb-1">Consigne adaptée (Wolof)</label>
-                  <textarea
-                    rows={2}
-                    value={propConsigneWo}
-                    onChange={(e) => setPropConsigneWo(e.target.value)}
-                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725]"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="rounded-full bg-[#0D6E46] px-6 py-2.5 text-sm font-bold text-white hover:bg-[#095637] min-h-[44px]"
-                >
-                  Soumettre pour relecture
-                </button>
-              </form>
-            </div>
-          )}
+          </motion.div>
+          </AnimatePresence>
 
             <LegalFooter />
           </div>
@@ -1580,7 +1469,7 @@ export const CoachWorkspace: React.FC<{
         aria-label="Navigation mobile coach"
         className="md:hidden fixed bottom-3 left-3 right-3 z-40 rounded-2xl border border-[#D5E2DA] bg-white/95 backdrop-blur-md p-1.5 shadow-xl"
       >
-        <div className="grid grid-cols-4 gap-1">
+        <div className="grid grid-cols-2 gap-1">
           {coachNavItems.map((item) => {
             const Icon = item.icon;
             const active = tab === item.id;

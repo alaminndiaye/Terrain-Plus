@@ -46,11 +46,11 @@ export const LEGAL_DOCUMENTS: Record<LegalDocTab, LegalDocumentContent> = {
       {
         heading: '2. Données collectées (principe de minimisation)',
         paragraphs: [
-          'Terrain+ collecte uniquement les données strictement nécessaires à la préparation physique encadrée, à la prévention des blessures et à la sécurité des comptes :',
+          'Terrain+ collecte uniquement les données strictement nécessaires à la préparation physique encadrée et à la sécurité des comptes :',
         ],
         bullets: [
           'Identité & accès : nom, prénom, date de naissance, numéro de téléphone Sénégal (+221), adresse email, langue préférée (français / wolof), mot de passe chiffré (scrypt) et jetons OTP hachés.',
-          'Données physiques & sportives (sensibles) : sport pratiqué, niveau, poste, taille, historique de poids, scores d’auto-évaluation, notes de ressenti (fatigue, difficulté, sommeil) et signalements de douleur.',
+          'Données physiques & sportives (sensibles) : sport pratiqué, niveau, poste, taille, historique de poids, scores d’auto-évaluation et notes de ressenti (fatigue, difficulté).',
           'Protection des mineurs (< 18 ans) : nom et numéro de téléphone (+221) du parent ou tuteur légal obligatoires ; profil privé par défaut sans exposition publique.',
           'Dossier vérifié des coachs : spécialité, diplôme sportif, numéro de carte professionnelle et date d’expiration, assurance RC Pro, statut juridique (NINEA / RCCM / SIRET / RNA) et attestation d’honorabilité.',
           'Journaux de sécurité & audit : horodatage des consentements, journal des accès aux fiches sensibles (access_audit_logs) et compteurs techniques anti-abus (rate limiting).',
@@ -60,7 +60,7 @@ export const LEGAL_DOCUMENTS: Record<LegalDocTab, LegalDocumentContent> = {
         heading: '3. Finalités, base légale et interdiction de revente',
         paragraphs: [
           'Le traitement repose sur le consentement explicite, libre et éclairé recueilli lors de l’inscription (article 33 de la Loi n° 2008-12) et sur l’exécution du suivi sportif demandé par l’utilisateur.',
-          'Aucune donnée physique, de douleur ou d’identité n’est cédée, louée ou vendue à des tiers publicitaires ou courtiers de données. Les indicateurs territoriaux consultés par les partenaires ou l’observatoire institutionnel sont exclusivement agrégés et anonymisés (seuils de confidentialité appliqués).',
+          'Aucune donnée physique ou d’identité n’est cédée, louée ou vendue à des tiers publicitaires ou courtiers de données.',
         ],
       },
       {
@@ -103,15 +103,14 @@ export const LEGAL_DOCUMENTS: Record<LegalDocTab, LegalDocumentContent> = {
       {
         heading: '1. Objet et champ d’application',
         paragraphs: [
-          `Les présentes Conditions Générales d’Utilisation régissent l’accès et l’utilisation de la plateforme web et PWA Terrain+ (${LEGAL_PLATFORM_META.domain}) par les athlètes, coachs vérifiés, administrateurs et observateurs autorisés.`,
+          `Les présentes Conditions Générales d’Utilisation régissent l’accès et l’utilisation de la plateforme web et PWA Terrain+ (${LEGAL_PLATFORM_META.domain}) par les athlètes, coachs vérifiés et administrateurs autorisés.`,
           'La création d’un compte implique l’acceptation sans réserve des présentes CGU et de la Politique de confidentialité CDP Sénégal.',
         ],
       },
       {
         heading: '2. Clause essentielle de non-substitution médicale',
         paragraphs: [
-          'Terrain+ est une plateforme de préparation physique générale, de régularité sportive et d’accompagnement pédagogique. Elle ne fournit aucun acte médical, diagnostic, prescription thérapeutique ou suivi de rééducation clinique.',
-          'En cas de douleur inhabituelle, malaise, essoufflement anormal ou blessure, l’athlète s’engage à interrompre immédiatement la séance, à utiliser l’alerte douleur prévue dans l’application et à consulter un médecin du sport ou une structure de santé qualifiée.',
+          'Terrain+ est une plateforme de préparation physique générale, de régularité sportive et d’accompagnement pédagogique. Elle ne fournit aucun acte médical, diagnostic ou suivi clinique.',
         ],
       },
       {
@@ -134,7 +133,6 @@ export const LEGAL_DOCUMENTS: Record<LegalDocTab, LegalDocumentContent> = {
           'Être âgé d’au moins 18 ans et déposer un justificatif officiel de diplôme ou brevet sportif, une carte professionnelle valide, une attestation d’assurance RC Pro et un numéro d’enregistrement légal (NINEA, RCCM, SIRET ou RNA).',
           'Signer numériquement l’attestation sur l’honneur d’honorabilité (absence de condamnation incompatible avec l’encadrement sportif et l’accompagnement de mineurs).',
           'Attendre la validation manuelle de son dossier par l’administrateur Terrain+ avant d’apparaître dans l’annuaire public ou d’accéder aux fiches d’athlètes.',
-          'En cas de signalement de douleur par un athlète, adapter ou mettre en pause le programme et orienter vers un professionnel de santé.',
         ],
       },
       {
@@ -159,27 +157,19 @@ export const LEGAL_DOCUMENTS: Record<LegalDocTab, LegalDocumentContent> = {
         heading: '1. Formules destinées aux athlètes',
         paragraphs: ['Toutes les formules sont affichées en Francs CFA (XOF / FCFA) sans frais cachés :'],
         bullets: [
-          'Essentiel (0 FCFA / mois) : accès au socle fondamental de séances, suivi de poids, journal de ressenti et alertes de prévention.',
-          'Progression+ (1 500 FCFA / mois ou 4 000 FCFA / trimestre) : débloque l’intégralité des modules spécialisés par sport et le suivi avancé de progression.',
-          'Suivi Coach Privé / Privilège Jeunes (5 000 FCFA / mois) : inclut tous les avantages Progression+ ainsi que le rattachement à un coach vérifié avec adaptation hebdomadaire et vidéos personnalisées.',
+          'Essentiel (0 FCFA / mois) : accès au socle fondamental de séances FR/Wolof, suivi de poids, auto-évaluation de base et jusqu’à 2 séances hors ligne.',
+          'Suivi Coach (5 000 FCFA / mois) : débloque l’intégralité des cycles spécialisés sur les 6 sports, le hors-ligne illimité ainsi que le rattachement à un coach vérifié avec messagerie directe et adaptation hebdomadaire.',
         ],
       },
       {
-        heading: '2. Modèles économiques pour les coachs vérifiés',
-        paragraphs: ['Les coachs accèdent à la plateforme selon deux options transparentes choisies à l’inscription :'],
+        heading: '2. Modèle économique pour les coachs vérifiés',
+        paragraphs: ['L’inscription et l’accès à l’espace coach fonctionnent selon une règle unique et transparente :'],
         bullets: [
-          'Coach Marketplace (0 FCFA / mois fixe) : aucun abonnement fixe ; partage à 80 % pour le coach (4 000 FCFA) et 20 % de commission plateforme (1 000 FCFA) par athlète actif accompagné.',
-          'Coach Pro (3 000 FCFA / mois fixe) : 0 % de commission sur les athlètes suivis (100 % soit 5 000 FCFA reversés au coach par athlète actif).',
+          'Coach Terrain+ (0 FCFA / mois fixe) : aucun abonnement fixe ; partage à 80 % pour le coach (4 000 FCFA) et 20 % de commission plateforme (1 000 FCFA) par athlète actif accompagné.',
         ],
       },
       {
-        heading: '3. Partenariats structures (ASC, Campus, Ligues)',
-        paragraphs: [
-          'Les associations sportives et culturelles (ASC), campus universitaires et ligues régionales peuvent solliciter un déploiement collectif via le formulaire de partenariat. Les conditions financières font l’objet d’une convention ou d’un devis validé avant activation.',
-        ],
-      },
-      {
-        heading: '4. Changement de formule, résiliation et droit applicable',
+        heading: '3. Changement de formule, résiliation et droit applicable',
         paragraphs: [
           'L’athlète peut à tout moment modifier sa formule ou revenir au palier gratuit Essentiel depuis son espace « Profil & Formule », sans pénalité de sortie.',
           'Les présentes CGV sont soumises au droit sénégalais et aux actes uniformes OHADA applicables. Tout différend fera l’objet d’une recherche prioritaire de règlement amiable avant saisine des juridictions compétentes du Sénégal.',

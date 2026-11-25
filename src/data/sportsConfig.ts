@@ -28,7 +28,6 @@ export interface SportThemeConfig {
   accentSoftBgClass: string;
   accentBorderClass: string;
   qualities: string[];
-  preventionZones: string[];
   dashboardMetrics: {
     primary: string;
     secondary: string;
@@ -57,7 +56,6 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
       'Changements de direction',
       'Force des jambes',
     ],
-    preventionZones: ['Cuisses (ischio-jambiers)', 'Chevilles'],
     dashboardMetrics: {
       primary: 'Régularité',
       secondary: "Score d'endurance",
@@ -122,7 +120,6 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
       'Réactivité et premier pas',
       'Force des jambes et stabilité',
     ],
-    preventionZones: ['Chevilles', 'Genoux'],
     dashboardMetrics: {
       primary: 'Régularité',
       secondary: 'Score de détente',
@@ -185,7 +182,6 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
       'Vitesse sur courte distance',
       'Force des épaules et du tronc',
     ],
-    preventionZones: ['Épaules', 'Genoux'],
     dashboardMetrics: {
       primary: 'Régularité',
       secondary: 'Score puissance haut du corps',
@@ -233,7 +229,7 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
   volleyball: {
     code: 'volleyball',
     nom: 'Volleyball',
-    subtitle: 'Détente verticale, réceptions stables et protection d’épaule au smash',
+    subtitle: 'Détente verticale, réceptions stables et puissance au smash',
     imageUrl: '/src/assets/images/sport_volleyball_court_1795004642446.jpg',
     accentHex: '#0F766E',
     accentHoverHex: '#115E59',
@@ -248,7 +244,6 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
       'Déplacements latéraux courts',
       'Solidité et endurance de l’épaule',
     ],
-    preventionZones: ['Genoux (tendon rotulien)', 'Épaules', 'Chevilles'],
     dashboardMetrics: {
       primary: 'Régularité',
       secondary: 'Score de détente',
@@ -298,7 +293,7 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
   athletisme: {
     code: 'athletisme',
     nom: 'Athlétisme',
-    subtitle: 'Sprint, demi-fond, gestion de charge et prévention ischio-Achille',
+    subtitle: 'Sprint, demi-fond, gestion de charge et explosivité',
     imageUrl: '/src/assets/images/hero_terrain_campus_1794878270523.jpg',
     accentHex: '#B45309',
     accentHoverHex: '#92400E',
@@ -311,9 +306,8 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
       'Accélération et vitesse de pointe',
       'Puissance des appuis et réactivité',
       'Stabilité du bassin à pleine foulée',
-      'Endurance aérobie et récupération',
+      'Endurance aérobie et tenue d’effort',
     ],
-    preventionZones: ['Ischio-jambiers', 'Tendons d’Achille', 'Bas du dos'],
     dashboardMetrics: {
       primary: 'Régularité',
       secondary: 'Score vitesse & appuis',
@@ -378,7 +372,6 @@ export const SPORTS_CONFIG: Record<SportCode, SportThemeConfig> = {
       'Conditionnement cardio-métabolique',
       'Stabilité du tronc et mobilité articulaire',
     ],
-    preventionZones: ['Bas du dos', 'Épaules', 'Genoux'],
     dashboardMetrics: {
       primary: 'Régularité',
       secondary: 'Tonus & force globale',

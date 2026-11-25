@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
-  AlertTriangle,
   ArrowRight,
   Bell,
   BellOff,
@@ -20,7 +19,9 @@ import {
   Lock,
   LogOut,
   Menu,
+  MessageSquare,
   Play,
+  Send,
   ShieldCheck,
   Trash2,
   User,
@@ -28,6 +29,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   CartesianGrid,
   Line,
@@ -52,8 +54,15 @@ import {
   removeSessionOffline,
   saveSessionOffline,
 } from '../lib/offlineCache';
-import { formatReminderLeadLabel } from '../lib/pwaNotifications';
-import { TECHNIQUE_FICHES, type TechniqueCategory, type TechniqueFiche } from '../data/exerciseMedia';
+import {
+  formatReminderLeadLabel,
+  getBrowserNotificationPermission,
+  hasBrowserNotifiedKey,
+  markBrowserNotifiedKey,
+  requestBrowserNotificationPermission,
+  showBrowserNotification,
+  type BrowserNotificationPermissionState,
+} from '../lib/pwaNotifications';
 import { ALL_SPORT_CODES, LEVEL_LABELS, SPORTS_CONFIG } from '../data/sportsConfig';
 import { TRAINING_OBJECTIVES, resolveObjectiveSpec } from '../data/objectivesConfig';
 import { getCuratedVideosForSport } from '../data/guideVideos';
@@ -63,6 +72,7 @@ import type {
   AthleteLevel,
   AthletePlanTier,
   AthleteWorkspacePayload,
+  CoachMessage,
   ObjectiveCode,
   ScheduledSession,
   SessionTemplate,
@@ -73,7 +83,6 @@ import { ExerciseVideoGuide } from './ExerciseVideoGuide';
 import { CoachVideoPlayer, formatVideoSizeMb } from './CoachVideoPlayer';
 import { LegalFooter } from './LegalFooter';
 import { LegalModal } from './LegalModal';
-import { PainReportModal } from './PainReportModal';
 import { type LegalDocTab } from '../data/legalDocs';
 
 type AthleteTab = 'dashboard' | 'programme' | 'evaluation' | 'profil';
@@ -144,7 +153,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     session: SessionTemplate;
     scheduledId: number | null;
   } | null>(null);
-  const [showPainModal, setShowPainModal] = useState(false);
 
   // Offline downloaded sessions
   const [offlineMap, setOfflineMap] = useState<Record<number, SessionTemplate>>(() => getOfflineSessions());
@@ -167,16 +175,19 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   const [chronoSeconds, setChronoSeconds] = useState(0);
   const [chronoMode, setChronoMode] = useState<'up' | '30' | '20'>('up');
 
-  // Technical fiches & freemium plan states
-  const [ficheCategoryFilter, setFicheCategoryFilter] = useState<'Toutes' | TechniqueCategory>('Toutes');
-  const [ficheDropdownOpen, setFicheDropdownOpen] = useState(false);
-  const [selectedFicheModal, setSelectedFicheModal] = useState<TechniqueFiche | null>(null);
-  const [ficheModalMode, setFicheModalMode] = useState<'video' | 'photo'>('video');
+  // Freemium plan, messaging & browser notification states
   const [videoPreviewSession, setVideoPreviewSession] = useState<{
     session: SessionTemplate;
     stepIdx: number;
   } | null>(null);
   const [upgradePrompt, setUpgradePrompt] = useState<{ title: string; reason: string } | null>(null);
+  const [browserNotifPermission, setBrowserNotifPermission] = useState<BrowserNotificationPermissionState>(() =>
+    getBrowserNotificationPermission()
+  );
+  const [coachMessages, setCoachMessages] = useState<CoachMessage[]>(() => cachedInit?.coachMessages || []);
+  const [unreadCoachMsgs, setUnreadCoachMsgs] = useState<number>(() => cachedInit?.unreadCoachMessagesCount || 0);
+  const [messageDraft, setMessageDraft] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   // Profile form states
   const [newWeight, setNewWeight] = useState('');
@@ -200,11 +211,9 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   );
   const [reminderSubmitting, setReminderSubmitting] = useState(false);
   const [pendingSportChange, setPendingSportChange] = useState<SportCode | null>(null);
-  const [coachChangeMotif, setCoachChangeMotif] = useState('');
   const [selectedCoachDraftId, setSelectedCoachDraftId] = useState<number | null>(() => cachedInit?.coach?.id || null);
-  const [targetPlanDraft, setTargetPlanDraft] = useState<AthletePlanTier>(() => cachedInit?.profile.plan_tier || 'ESSENTIEL');
-  const [planSwitchBilling, setPlanSwitchBilling] = useState<'MENSUEL' | 'TRIMESTRIEL'>(() =>
-    cachedInit?.profile.plan_billing_cycle === 'TRIMESTRIEL' ? 'TRIMESTRIEL' : 'MENSUEL'
+  const [targetPlanDraft, setTargetPlanDraft] = useState<AthletePlanTier>(() =>
+    cachedInit?.profile.plan_tier === 'COACH_PRIVE' ? 'COACH_PRIVE' : 'ESSENTIEL'
   );
   const [confirmPlanSwitch, setConfirmPlanSwitch] = useState(false);
   const [coachActionSubmitting, setCoachActionSubmitting] = useState(false);
@@ -232,13 +241,12 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       setNotifEnabled(payload.profile.notifications_enabled);
       setReminderTime(payload.profile.reminder_time || '18:00');
       setReminderLeadMinutes(Number(payload.profile.reminder_lead_minutes ?? 30));
-      setTargetPlanDraft(payload.profile.plan_tier || 'ESSENTIEL');
-      if (payload.profile.plan_billing_cycle === 'TRIMESTRIEL' || payload.profile.plan_billing_cycle === 'MENSUEL') {
-        setPlanSwitchBilling(payload.profile.plan_billing_cycle);
-      }
+      setTargetPlanDraft(payload.profile.plan_tier === 'COACH_PRIVE' ? 'COACH_PRIVE' : 'ESSENTIEL');
       if (payload.coach?.id) {
         setSelectedCoachDraftId(payload.coach.id);
       }
+      setCoachMessages(payload.coachMessages || []);
+      setUnreadCoachMsgs(payload.unreadCoachMessagesCount || 0);
       setError(null);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -284,6 +292,37 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     loadWorkspace();
   }, [loadWorkspace]);
 
+  // Poll direct messages with assigned coach every 25s and trigger native notification on new unread coach message
+  useEffect(() => {
+    if (!isOnline || !data?.coach?.id) return;
+    const poll = async () => {
+      try {
+        const res = await apiRequest<{ messages: CoachMessage[]; unreadCount: number }>('/api/athlete/messages');
+        setCoachMessages(res.messages || []);
+        setUnreadCoachMsgs(res.unreadCount || 0);
+        const latestUnread = [...(res.messages || [])]
+          .reverse()
+          .find((m) => m.sender_role === 'COACH' && !m.read_by_athlete);
+        if (latestUnread && getBrowserNotificationPermission() === 'granted') {
+          const msgKey = `coach-msg-${latestUnread.id}`;
+          if (!hasBrowserNotifiedKey(msgKey)) {
+            markBrowserNotifiedKey(msgKey);
+            void showBrowserNotification({
+              title: `Message de ${latestUnread.sender_nom || 'votre coach'}`,
+              body: latestUnread.body.slice(0, 120),
+              tag: `tp-coach-msg-${latestUnread.id}`,
+              url: '/?tab=dashboard',
+            });
+          }
+        }
+      } catch {
+        // Ignore transient network errors during poll
+      }
+    };
+    const timer = window.setInterval(poll, 25000);
+    return () => window.clearInterval(timer);
+  }, [isOnline, data?.coach?.id]);
+
   // Embedded evaluation timer
   useEffect(() => {
     if (!chronoRunning) return;
@@ -308,9 +347,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     currentPlanTier === 'COACH_PRIVE'
       ? 'Suivi Coach · 5 000 F/mois'
       : currentPlanTier === 'PROGRESSION'
-        ? data?.profile.plan_billing_cycle === 'TRIMESTRIEL'
-          ? 'Progression+ · 4 000 F/trim.'
-          : 'Progression+ · 1 500 F/mois'
+        ? 'Accès Complet (hérité)'
         : 'Essentiel · 0 FCFA';
 
   const todaySession: ScheduledSession | null = useMemo(() => {
@@ -327,11 +364,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     if (levelFilter === 'all') return data.library;
     return data.library.filter((s) => s.niveau === levelFilter);
   }, [data, levelFilter]);
-
-  const filteredFiches = useMemo(() => {
-    if (ficheCategoryFilter === 'Toutes') return TECHNIQUE_FICHES;
-    return TECHNIQUE_FICHES.filter((f) => f.category === ficheCategoryFilter);
-  }, [ficheCategoryFilter]);
 
   const evalChartData = useMemo(() => {
     if (!data) return [];
@@ -596,9 +628,9 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     }
     if (s.access_tier === 'PROGRESSION' && !isProgressionUnlocked) {
       setUpgradePrompt({
-        title: `Téléchargement Progression+ : ${s.titre}`,
+        title: `Téléchargement Suivi Coach : ${s.titre}`,
         reason:
-          'Activez Progression+ (1 500 FCFA / mois ou 4 000 FCFA / trimestre) ou Suivi Coach (5 000 FCFA / mois) pour télécharger les cycles avancés hors ligne.',
+          'Activez la formule Suivi Coach (5 000 FCFA / mois) pour télécharger les cycles avancés hors ligne et bénéficier d’un accompagnement dédié.',
       });
       return;
     }
@@ -606,7 +638,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       setUpgradePrompt({
         title: 'Limite hors ligne Essentiel atteinte (2 séances)',
         reason:
-          'Votre formule Essentiel gratuite permet de garder jusqu’à 2 séances hors ligne simultanément. Retirez une séance déjà en cache ou passez à Progression+ (1 500 FCFA / mois) pour les téléchargements illimités.',
+          'Votre formule Essentiel gratuite permet de garder jusqu’à 2 séances hors ligne simultanément. Retirez une séance déjà en cache ou passez à Suivi Coach (5 000 FCFA / mois) pour les téléchargements illimités.',
       });
       return;
     }
@@ -617,26 +649,68 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
   const handleLaunchLibrarySession = (sess: SessionTemplate) => {
     if (sess.access_tier === 'PROGRESSION' && !isProgressionUnlocked) {
       setUpgradePrompt({
-        title: `Cycle Progression+ : ${sess.titre}`,
+        title: `Cycle Suivi Coach : ${sess.titre}`,
         reason:
-          'Toutes les séances fondamentales et la sécurité douleur restent 100 % gratuites. Passez à Progression+ (1 500 FCFA / mois) ou Suivi Coach (5 000 FCFA / mois) pour débloquer les cycles avancés et variantes avec charge.',
+          'Toutes les séances fondamentales restent 100 % gratuites. Passez à Suivi Coach (5 000 FCFA / mois) pour débloquer les cycles avancés et l’encadrement par un coach vérifié.',
       });
       return;
     }
     setActivePlayer({ session: sess, scheduledId: null });
   };
 
-  const handleOpenTechniqueFiche = (fiche: TechniqueFiche) => {
-    if (fiche.tier === 'PROGRESSION' && !isProgressionUnlocked) {
-      setUpgradePrompt({
-        title: `Fiche technique Progression+ : ${fiche.titre}`,
-        reason:
-          'Les 7 fiches posturales de base (squats sans matériel, pompes classiques, gainage) sont gratuites. Passez à Progression+ (1 500 FCFA / mois) pour agrandir et exploiter les variantes avec charge ou barre.',
+  const handleEnableBrowserNotifications = async () => {
+    const next = await requestBrowserNotificationPermission();
+    setBrowserNotifPermission(next);
+    if (next === 'granted') {
+      await showBrowserNotification({
+        title: 'Terrain+ · Notifications activées',
+        body: 'Vous recevrez vos rappels de séance et les messages de votre coach directement ici.',
+        tag: 'tp-notif-enabled',
+        url: '/',
       });
-      return;
+      setFeedbackBanner('Notifications natives navigateur activées.');
+    } else if (next === 'denied') {
+      setFeedbackBanner('Notifications bloquées dans votre navigateur. Autorisez-les dans les paramètres du site.');
     }
-    setFicheModalMode('video');
-    setSelectedFicheModal(fiche);
+  };
+
+  const handleSendTestBrowserNotification = async () => {
+    const ok = await showBrowserNotification({
+      title: 'Terrain+ · Test de rappel',
+      body: 'Vos notifications natives fonctionnent correctement pour vos séances.',
+      tag: 'tp-notif-test',
+      url: '/?tab=programme',
+    });
+    setFeedbackBanner(ok ? 'Notification test envoyée.' : 'Activez d’abord les notifications navigateur.');
+  };
+
+  const handleSendCoachMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = messageDraft.trim();
+    if (!trimmed || sendingMessage) return;
+    setSendingMessage(true);
+    try {
+      const res = await apiRequest<{ message: CoachMessage | null }>('/api/athlete/messages', {
+        method: 'POST',
+        body: JSON.stringify({ body: trimmed }),
+      });
+      setMessageDraft('');
+      if (res.message) {
+        setCoachMessages((prev) => [...prev, res.message!]);
+      }
+      setUnreadCoachMsgs(0);
+    } catch (err) {
+      setFeedbackBanner(err instanceof Error ? err.message : 'Impossible d’envoyer le message.');
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  const handleMarkMessagesRead = async () => {
+    if (unreadCoachMsgs === 0) return;
+    setUnreadCoachMsgs(0);
+    setCoachMessages((prev) => prev.map((m) => ({ ...m, read_by_athlete: true })));
+    await apiRequest('/api/athlete/messages/read', { method: 'POST' }).catch(() => undefined);
   };
 
   const handleStartChrono = (mode: 'up' | '30' | '20') => {
@@ -767,30 +841,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
     }
   };
 
-  const handleToggleGroup = async (groupId: number) => {
-    try {
-      await apiRequest(`/api/athlete/groups/${groupId}/toggle`, { method: 'POST' });
-      await loadWorkspace();
-    } catch (err) {
-      setFeedbackBanner(err instanceof Error ? err.message : 'Erreur.');
-    }
-  };
-
-  const handleRequestCoachChange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await apiRequest('/api/athlete/request-coach-change', {
-        method: 'POST',
-        body: JSON.stringify({ motif: coachChangeMotif || 'Demande de changement de coach' }),
-      });
-      setCoachChangeMotif('');
-      setFeedbackBanner('Demande transmise à l’administrateur Terrain+.');
-      await loadWorkspace();
-    } catch (err) {
-      setFeedbackBanner(err instanceof Error ? err.message : 'Erreur.');
-    }
-  };
-
   const handleSwitchAthletePlan = async (e?: React.FormEvent, explicitTier?: AthletePlanTier) => {
     if (e) e.preventDefault();
     const tierToApply = explicitTier || targetPlanDraft;
@@ -808,7 +858,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
         method: 'POST',
         body: JSON.stringify({
           plan_tier: tierToApply,
-          billing_cycle: tierToApply === 'PROGRESSION' ? planSwitchBilling : 'MENSUEL',
+          billing_cycle: 'MENSUEL',
           coach_user_id: tierToApply === 'COACH_PRIVE' ? selectedCoachDraftId : null,
           confirm_plan: tierToApply !== 'ESSENTIEL',
         }),
@@ -966,15 +1016,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
         <div className="p-4 border-t border-[#E2EBE5] space-y-3">
           <button
             type="button"
-            onClick={() => setShowPainModal(true)}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700 hover:bg-red-100 min-h-[44px] transition-colors"
-          >
-            <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-            <span>Signaler une douleur</span>
-          </button>
-
-          <button
-            type="button"
             onClick={handleLogout}
             className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-[#D5E2DA] px-3 py-2 text-xs font-medium text-[#3D5246] hover:bg-[#F1F6F3] hover:text-[#063725] min-h-[40px] transition-colors"
           >
@@ -1010,53 +1051,52 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 · {sportTheme.nom}
               </span>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowPainModal(true)}
-                className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-700 min-h-[36px]"
-              >
-                <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                <span>Douleur</span>
-              </button>
-            </div>
           </div>
 
-          {mobileMenuOpen && (
-            <nav aria-label="Menu athlète mobile" className="border-t border-[#E2EBE5] bg-white px-4 py-3 space-y-1.5">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const active = tab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      setTab(item.id);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-xs font-semibold min-h-[40px] ${
-                      active ? 'bg-[#0D6E46] text-white' : 'bg-[#F6F8F5] text-[#063725]'
-                    }`}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  handleLogout();
-                }}
-                className="w-full flex items-center gap-2.5 rounded-xl border border-[#D5E2DA] px-3.5 py-2.5 text-xs font-semibold text-[#3D5246] min-h-[40px]"
+          <AnimatePresence>
+            {mobileMenuOpen && (
+              <motion.nav
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                aria-label="Menu athlète mobile"
+                className="border-t border-[#E2EBE5] bg-white px-4 py-3 space-y-1.5"
               >
-                <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>Déconnexion</span>
-              </button>
-            </nav>
-          )}
+                {navItems.map((item) => {
+                  const Icon = item.icon;
+                  const active = tab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setTab(item.id);
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-xs font-semibold min-h-[40px] ${
+                        active ? 'bg-[#0D6E46] text-white' : 'bg-[#F6F8F5] text-[#063725]'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    handleLogout();
+                  }}
+                  className="w-full flex items-center gap-2.5 rounded-xl border border-[#D5E2DA] px-3.5 py-2.5 text-xs font-semibold text-[#3D5246] min-h-[40px]"
+                >
+                  <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>Déconnexion</span>
+                </button>
+              </motion.nav>
+            )}
+          </AnimatePresence>
         </header>
 
         {/* Main Viewport */}
@@ -1097,18 +1137,35 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               </div>
             )}
 
-            {feedbackBanner && (
-              <div className="obsidian-card rounded-2xl px-4 py-3 text-sm text-[#063725] flex items-center justify-between gap-4">
-                <span>{feedbackBanner}</span>
-                <button
-                  type="button"
-                  onClick={() => setFeedbackBanner(null)}
-                  className="text-xs font-semibold text-[#0D6E46] hover:underline"
+            <AnimatePresence>
+              {feedbackBanner && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18 }}
+                  className="obsidian-card rounded-2xl px-4 py-3 text-sm text-[#063725] flex items-center justify-between gap-4"
                 >
-                  Fermer
-                </button>
-              </div>
-            )}
+                  <span>{feedbackBanner}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFeedbackBanner(null)}
+                    className="text-xs font-semibold text-[#0D6E46] hover:underline"
+                  >
+                    Fermer
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+          <AnimatePresence mode="wait">
+          <motion.div
+            key={tab}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          >
 
           {/* ---------------- TAB 1: DASHBOARD ---------------- */}
           {tab === 'dashboard' && (
@@ -1121,7 +1178,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       Bonjour {data.user.prenom} · <span className="font-semibold text-[#0D6E46]">{sportTheme.nom}</span> · {data.profile.poste || 'Tout poste'}
                     </div>
                     <h1 className="mt-2 font-display text-2xl sm:text-3xl font-bold tracking-tight text-[#063725]">
-                      {todaySession?.session ? todaySession.session.titre : 'Séance de récupération'}
+                      {todaySession?.session ? todaySession.session.titre : 'Journée sans séance'}
                     </h1>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[#3D5246]">
                       <span>
@@ -1151,8 +1208,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-[#E2EBE5] pt-4">
                     <div className="text-xs text-[#3D5246] font-mono tabular-nums">
                       {todaySession?.session
-                        ? `${todaySession.session.duree_min} min · Prévention ${todaySession.session.prevention_focus}`
-                        : 'Repos actif'}
+                        ? `${todaySession.session.duree_min} min · ${sportTheme.nom}`
+                        : 'Pause planifiée'}
                     </div>
 
                     {todaySession?.session && (
@@ -1188,16 +1245,16 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       <div className="absolute inset-0 bg-gradient-to-t from-[#063725]/90 via-[#063725]/35 to-transparent" />
                       <div className="absolute bottom-3 left-4 right-4 text-white">
                         <div className="text-[11px] uppercase tracking-wider text-emerald-200 font-semibold">
-                          Prévention prioritaire
+                          Qualités ciblées
                         </div>
-                        <div className="text-sm font-semibold">{sportTheme.preventionZones.join(' & ')}</div>
+                        <div className="text-sm font-semibold">{sportTheme.qualities.slice(0, 2).join(' · ')}</div>
                       </div>
                     </div>
                   ) : (
                     <div className="p-4 border-b border-[#E2EBE5] bg-[#F1F6F3]">
                       <div className="text-xs font-semibold text-[#0D6E46]">Mode éco données actif</div>
                       <p className="mt-1 text-xs text-[#3D5246]">
-                        Images masquées pour économiser votre forfait mobile. Prévention : {sportTheme.preventionZones.join(' & ')}.
+                        Images masquées pour économiser votre forfait mobile. Objectifs : {sportTheme.qualities.slice(0, 2).join(' · ')}.
                       </p>
                     </div>
                   )}
@@ -1213,8 +1270,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       </div>
                       <div className="text-xs text-[#3D5246] font-mono tabular-nums">
                         Difficulté moy. : <span className="font-semibold text-[#063725]">{data.stats.avgRpe ? `${data.stats.avgRpe}/10` : '—'}</span>
-                        <br />
-                        Sommeil moy. : <span className="font-semibold text-[#063725]">{data.stats.avgSleep ? `${data.stats.avgSleep}/10` : '—'}</span>
                       </div>
                     </div>
 
@@ -1228,7 +1283,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           stroke="#E2EBE5"
                           strokeWidth="10"
                         />
-                        <circle
+                        <motion.circle
                           cx="60"
                           cy="60"
                           r="48"
@@ -1237,7 +1292,9 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           strokeWidth="10"
                           strokeLinecap="round"
                           strokeDasharray={regularityCircumference}
-                          strokeDashoffset={regularityOffset}
+                          initial={{ strokeDashoffset: regularityCircumference }}
+                          animate={{ strokeDashoffset: regularityOffset }}
+                          transition={{ duration: 0.65, ease: [0.22, 1, 0.36, 1] }}
                         />
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
@@ -1296,9 +1353,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       <span className="text-xs font-normal text-[#5B7064]"> / {data.stats.weeklyTarget} prévues</span>
                     </div>
                     <div className="h-3 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-[#0D6E46] transition-all duration-500"
-                        style={{ width: `${weeklySummary.completionPct}%` }}
+                      <motion.div
+                        className="h-full rounded-full bg-[#0D6E46]"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${weeklySummary.completionPct}%` }}
+                        transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
                       />
                     </div>
                   </div>
@@ -1316,9 +1375,11 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       <span className="text-xs font-normal text-[#5B7064]"> / {weeklySummary.totalMinutesPlanned} min</span>
                     </div>
                     <div className="h-3 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-[#15803D] transition-all duration-500"
-                        style={{ width: `${weeklySummary.minutesPct}%` }}
+                      <motion.div
+                        className="h-full rounded-full bg-[#15803D]"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${weeklySummary.minutesPct}%` }}
+                        transition={{ duration: 0.55, delay: 0.06, ease: [0.22, 1, 0.36, 1] }}
                       />
                     </div>
                   </div>
@@ -1336,14 +1397,13 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         {data.stats.avgRpe !== null ? `${data.stats.avgRpe}/10` : '—'}
                         <span className="ml-1 text-xs font-normal text-[#5B7064]">effort</span>
                       </span>
-                      <span className="font-mono text-xs text-[#3D5246]">
-                        Sommeil {data.stats.avgSleep !== null ? `${data.stats.avgSleep}/10` : '—'}
-                      </span>
                     </div>
                     <div className="h-3 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-[#0D6E46] transition-all duration-500"
-                        style={{ width: `${regularityPct}%` }}
+                      <motion.div
+                        className="h-full rounded-full bg-[#0D6E46]"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${regularityPct}%` }}
+                        transition={{ duration: 0.55, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
                       />
                     </div>
                   </div>
@@ -1361,7 +1421,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       </p>
                     </div>
                     <span className="font-mono text-xs font-medium text-[#5B7064]">
-                      {weeklySummary.restDaysCount} jour{weeklySummary.restDaysCount > 1 ? 's' : ''} de récupération
+                      {weeklySummary.restDaysCount} jour{weeklySummary.restDaysCount > 1 ? 's' : ''} sans séance
                     </span>
                   </div>
 
@@ -1394,10 +1454,10 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                 <div className="font-mono text-[11px] text-[#5B7064]">{d.dateLabel}</div>
                               </div>
                               <div className="text-xs text-[#5B7064]">
-                                Jour de récupération · Sommeil & hydratation
+                                Journée sans séance programmée
                               </div>
                             </div>
-                            <span className="text-[11px] font-medium text-[#5B7064] shrink-0">Repos</span>
+                            <span className="text-[11px] font-medium text-[#5B7064] shrink-0">Pause</span>
                           </div>
                         );
                       }
@@ -1448,7 +1508,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
                               {d.primarySlot?.completed && (
                                 <div className="text-[11px] font-mono text-[#3D5246] tabular-nums">
-                                  Difficulté {d.primarySlot.difficulte ?? '—'}/10 · Fatigue {d.primarySlot.ressenti_fatigue ?? '—'}/10 · Sommeil {d.primarySlot.qualite_sommeil ?? '—'}/10
+                                  Difficulté {d.primarySlot.difficulte ?? '—'}/10 · Fatigue {d.primarySlot.ressenti_fatigue ?? '—'}/10
                                 </div>
                               )}
                             </div>
@@ -1526,30 +1586,20 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         Gérer ma formule ou changer de coach
                       </button>
                     </div>
-                  ) : currentPlanTier === 'PROGRESSION' ? (
-                    <div className="mt-2.5 space-y-3">
-                      <p className="text-xs text-[#3D5246] leading-relaxed">
-                        Votre formule <strong className="text-[#063725]">Progression+</strong> débloque le hors-ligne illimité, les cycles avancés et les courbes complètes d’évaluation. Ajoutez un coach dédié à tout moment pour passer à 5 000 FCFA / mois.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setTab('profil')}
-                        className="rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
-                      >
-                        Ajouter un coach ou gérer ma formule
-                      </button>
-                    </div>
                   ) : (
                     <div className="mt-2.5 space-y-3">
                       <p className="text-xs text-[#3D5246] leading-relaxed">
-                        Vous utilisez l’accès <strong className="text-[#063725]">Essentiel (0 FCFA)</strong>. Débloquez tous les cycles avancés et le hors-ligne illimité dès 1 500 FCFA / mois, ou choisissez un coach dédié (5 000 FCFA / mois).
+                        Vous utilisez l’accès <strong className="text-[#063725]">Essentiel (0 FCFA)</strong>. Activez la formule <strong className="text-[#063725]">Suivi Coach (5 000 FCFA / mois)</strong> pour débloquer tous les cycles avancés, le hors-ligne illimité et un coach vérifié dédié.
                       </p>
                       <button
                         type="button"
-                        onClick={() => setTab('profil')}
+                        onClick={() => {
+                          setTargetPlanDraft('COACH_PRIVE');
+                          setTab('profil');
+                        }}
                         className="rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
                       >
-                        Comparer les formules Terrain+
+                        Choisir mon coach (5 000 F / mois)
                       </button>
                     </div>
                   )}
@@ -1610,6 +1660,21 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     </div>
                   )}
 
+                  {notifEnabled && browserNotifPermission === 'default' && (
+                    <div className="rounded-xl border border-[#BFE0CD] bg-[#ECF7F1] p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="text-[#063725] font-medium">
+                        Activez les notifications natives pour être alerté même onglet fermé.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleEnableBrowserNotifications}
+                        className="rounded-full bg-[#0D6E46] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-[#095637] min-h-[32px]"
+                      >
+                        Autoriser
+                      </button>
+                    </div>
+                  )}
+
                   {data.alerts.length === 0 ? (
                     <p className="text-xs text-[#5B7064]">Aucune alerte active.</p>
                   ) : (
@@ -1618,12 +1683,12 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         <button
                           key={al.id}
                           type="button"
-                          onClick={() => setTab(al.type === 'DOULEUR' ? 'evaluation' : 'profil')}
+                          onClick={() => setTab('profil')}
                           className="w-full text-left rounded-xl border border-[#D5E2DA] bg-[#F6F8F5] p-3 hover:bg-[#ECF7F1] transition-colors"
                         >
                           <div className="flex items-center justify-between text-xs">
-                            <span className={`font-semibold ${al.type === 'DOULEUR' ? 'text-red-700' : 'text-[#063725]'}`}>
-                              {al.type === 'DOULEUR' ? 'Signal douleur' : al.type}
+                            <span className="font-semibold text-[#063725]">
+                              {al.type}
                             </span>
                             <span className="text-[#5B7064]">{al.traitee ? 'Traitée' : 'En cours'}</span>
                           </div>
@@ -1635,63 +1700,85 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 </div>
               </div>
 
-              {/* Collectif & Défis (without individual ranking) */}
-              <div className="obsidian-card rounded-3xl p-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <h2 className="text-base font-semibold text-[#063725]">Groupes ASC / Campus et défis collectifs</h2>
-                    <p className="text-xs text-[#5B7064]">
-                      Valorisation de la régularité collective · Aucun classement individuel public.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {data.groups.map((grp) => (
-                    <div key={grp.id} className="obsidian-inset rounded-2xl p-4 flex flex-col justify-between gap-3">
-                      <div>
-                        <div className="text-xs text-[#5B7064]">
-                          {grp.partner_type} · {grp.partner_nom} · {grp.zone}
-                        </div>
-                        <div className="mt-1 text-sm font-semibold text-[#063725]">{grp.nom}</div>
-                        <div className="mt-1 text-xs text-[#3D5246] font-mono tabular-nums">
-                          Capitaine Prépa : {grp.captain_name} · {grp.member_count} membres
-                        </div>
-                      </div>
+              {/* Direct Discussion Thread with Coach */}
+              {currentPlanTier === 'COACH_PRIVE' && data.coach && (
+                <div
+                  onFocus={handleMarkMessagesRead}
+                  className="obsidian-card rounded-3xl p-6 space-y-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
+                      <h2 className="text-base font-semibold text-[#063725]">
+                        Discussion directe avec {data.coach.prenom} {data.coach.nom}
+                      </h2>
+                      {unreadCoachMsgs > 0 && (
+                        <span className="rounded-full bg-[#0D6E46] px-2 py-0.5 font-mono text-[10px] font-bold text-white">
+                          {unreadCoachMsgs} nouveau{unreadCoachMsgs > 1 ? 'x' : ''}
+                        </span>
+                      )}
+                    </div>
+                    {unreadCoachMsgs > 0 && (
                       <button
                         type="button"
-                        onClick={() => handleToggleGroup(grp.id)}
-                        className={`rounded-full px-3.5 py-2 text-xs min-h-[40px] border transition-colors ${
-                          grp.joined
-                            ? 'border-[#C3D6CA] bg-white font-medium text-[#3D5246] hover:bg-[#F1F6F3] hover:text-[#063725]'
-                            : 'border-[#0D6E46] bg-[#0D6E46] font-bold text-white hover:bg-[#095637]'
-                        }`}
+                        onClick={handleMarkMessagesRead}
+                        className="text-xs font-semibold text-[#0D6E46] underline"
                       >
-                        {grp.joined ? 'Quitter le groupe' : 'Rejoindre le groupe'}
+                        Marquer comme lu
                       </button>
-                    </div>
-                  ))}
-                </div>
+                    )}
+                  </div>
 
-                <div className="mt-6 border-t border-[#E2EBE5] pt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {data.challenges.map((ch) => {
-                    const pct = Math.min(100, Math.round((ch.current_sessions / ch.target_sessions) * 100));
-                    return (
-                      <div key={ch.id} className="obsidian-inset rounded-2xl p-3.5">
-                        <div className="text-xs text-[#5B7064]">{ch.partner_nom} · {ch.periode}</div>
-                        <div className="mt-1 text-sm font-semibold text-[#063725]">{ch.titre}</div>
-                        <div className="mt-2 h-2 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
-                          <div className="h-full bg-[#0D6E46]" style={{ width: `${pct}%` }} />
-                        </div>
-                        <div className="mt-1.5 flex justify-between text-xs font-mono tabular-nums text-[#3D5246]">
-                          <span>{ch.indicateur}</span>
-                          <span className="font-semibold text-[#0D6E46]">{ch.current_sessions}/{ch.target_sessions}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  <div className="max-h-64 overflow-y-auto space-y-2.5 rounded-2xl border border-[#E2EBE5] bg-[#F6F8F5] p-3.5">
+                    {coachMessages.length === 0 ? (
+                      <p className="text-xs text-[#5B7064] py-4 text-center">
+                        Démarrez l&apos;échange avec votre coach (ressenti, adaptation de séance, question technique).
+                      </p>
+                    ) : (
+                      coachMessages.map((msg) => {
+                        const mine = msg.sender_role === 'ATHLETE';
+                        return (
+                          <div key={msg.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
+                            <div
+                              className={`max-w-[85%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed ${
+                                mine
+                                  ? 'bg-[#0D6E46] text-white'
+                                  : 'border border-[#D5E2DA] bg-white text-[#063725]'
+                              }`}
+                            >
+                              {msg.body}
+                            </div>
+                            <span className="mt-1 px-1 font-mono text-[10px] text-[#5B7064]">
+                              {mine ? 'Vous' : msg.sender_nom || 'Coach'} · {msg.created_at.slice(0, 16).replace('T', ' ')}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <form onSubmit={handleSendCoachMessage} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={messageDraft}
+                      onFocus={handleMarkMessagesRead}
+                      onChange={(e) => setMessageDraft(e.target.value)}
+                      placeholder={`Écrire un message à ${data.coach.prenom}...`}
+                      maxLength={1000}
+                      className="flex-1 rounded-xl border border-[#C3D6CA] bg-white px-3.5 py-2.5 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[44px]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={sendingMessage || !messageDraft.trim()}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-5 py-2.5 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50 min-h-[44px]"
+                    >
+                      <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>{sendingMessage ? 'Envoi...' : 'Envoyer'}</span>
+                    </button>
+                  </form>
                 </div>
-              </div>
+              )}
+
             </div>
           )}
 
@@ -1736,6 +1823,14 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 </div>
               </div>
 
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={programmeView}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                >
               {programmeView === 'calendar' ? (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   {/* Monthly Calendar Grid */}
@@ -1824,7 +1919,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           <Clock className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
                           <span>Programmée</span>
                         </span>
-                        <span className="text-[#5B7064]">Repos</span>
+                        <span className="text-[#5B7064]">Pause</span>
                       </div>
                     </div>
 
@@ -1853,7 +1948,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                 : cell.plannedCount > 0
                                   ? `, ${cell.plannedCount} séance programmée`
                                   : cell.hasRest
-                                    ? ', jour de repos'
+                                    ? ', journée sans séance'
                                     : ''
                             }`}
                             className={`min-h-[58px] sm:min-h-[76px] rounded-xl border p-1.5 sm:p-2 text-left flex flex-col justify-between transition-colors ${
@@ -1905,7 +2000,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                 </div>
                               )}
                               {!hasActivity && cell.hasRest && (
-                                <div className="hidden sm:block text-[10px] text-[#5B7064]">Repos</div>
+                                <div className="hidden sm:block text-[10px] text-[#5B7064]">Pause</div>
                               )}
                             </div>
                           </button>
@@ -1952,12 +2047,12 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             >
                               {slot.is_rest_day || !slot.session ? (
                                 <div className="space-y-1">
-                                  <div className="text-xs font-medium text-[#5B7064]">Récupération</div>
+                                  <div className="text-xs font-medium text-[#5B7064]">Pause planifiée</div>
                                   <div className="text-sm font-semibold text-[#063725]">
-                                    Repos et récupération
+                                    Journée sans séance
                                   </div>
                                   <p className="text-xs text-[#3D5246]">
-                                    Journée dédiée au sommeil, à l’hydratation et à la récupération musculaire.
+                                    Journée libre avant la prochaine séance programmée.
                                   </p>
                                 </div>
                               ) : (
@@ -1989,7 +2084,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                       {slot.session.titre}
                                     </div>
                                     <div className="text-xs text-[#3D5246]">
-                                      Objectif : {slot.session.objectif} · Prévention {slot.session.prevention_focus}
+                                      Objectif : {slot.session.objectif}
                                     </div>
 
                                     {slot.ajustee_par_coach && (
@@ -2001,7 +2096,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
 
                                     {slot.completed && (
                                       <div className="pt-1 text-xs font-mono tabular-nums text-[#3D5246]">
-                                        Difficulté {slot.difficulte ?? '—'}/10 · Fatigue {slot.ressenti_fatigue ?? '—'}/10 · Sommeil {slot.qualite_sommeil ?? '—'}/10
+                                        Difficulté {slot.difficulte ?? '—'}/10 · Fatigue {slot.ressenti_fatigue ?? '—'}/10
                                       </div>
                                     )}
                                   </div>
@@ -2107,7 +2202,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         </div>
 
                         <div className="text-base font-semibold text-[#063725]">
-                          {slot.is_rest_day || !slot.session ? 'Repos et récupération' : slot.session.titre}
+                          {slot.is_rest_day || !slot.session ? 'Journée sans séance' : slot.session.titre}
                         </div>
 
                         {slot.motif_ajustement && (
@@ -2150,6 +2245,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                   ))}
                 </div>
               )}
+                </motion.div>
+              </AnimatePresence>
 
               {/* Sport Session Library */}
               <div className="space-y-4">
@@ -2241,7 +2338,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                                 }`}
                               >
                                 {isLockedProgression && <Lock className="h-3 w-3" aria-hidden="true" />}
-                                <span>Progression+</span>
+                                <span>Suivi Coach</span>
                               </span>
                             ) : (
                               <span className="font-medium text-[#5B7064]">Essentiel gratuit</span>
@@ -2249,9 +2346,9 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           </div>
                           <h3 className="mt-1.5 text-base font-semibold text-[#063725]">{sess.titre}</h3>
                           <p className="mt-1 text-xs text-[#3D5246]">Objectif : {sess.objectif}</p>
-                          <p className="mt-1 text-xs text-[#5B7064]">
-                            Prévention : {sess.prevention_focus} {sess.relue_par ? `· Relue par ${sess.relue_par}` : ''}
-                          </p>
+                          {sess.relue_par && (
+                            <p className="mt-1 text-xs text-[#5B7064]">Relue par {sess.relue_par}</p>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-[#E2EBE5]">
@@ -2274,8 +2371,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                               onClick={() => {
                                 if (isLockedProgression) {
                                   setUpgradePrompt({
-                                    title: 'Guides vidéo Progression+',
-                                    reason: 'Débloquez les vidéos guidées de cette séance avec Progression+ (2 000 FCFA / mois).',
+                                    title: 'Guides vidéo Suivi Coach',
+                                    reason: 'Débloquez les vidéos guidées de cette séance avec Suivi Coach (5 000 FCFA / mois).',
                                   });
                                   return;
                                 }
@@ -2398,133 +2495,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                 </div>
               )}
 
-              {/* Illustrated Exercise & Anatomy Technique Sheets */}
-              <div className="space-y-4 pt-4 border-t border-[#E2EBE5]">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-semibold text-[#063725]">
-                      Fiches techniques illustrées (Postures & Anatomie)
-                    </h2>
-                    <p className="text-xs text-[#5B7064]">
-                      Repères visuels d’alignement et muscles sollicités pour exécuter chaque mouvement sans vous blesser.
-                    </p>
-                  </div>
-
-                  {/* Downward slide-down category filter */}
-                  <div className="relative self-start sm:self-auto w-full sm:w-52 z-20">
-                    <button
-                      type="button"
-                      aria-expanded={ficheDropdownOpen}
-                      onClick={() => setFicheDropdownOpen((prev) => !prev)}
-                      className="w-full flex items-center justify-between gap-2 rounded-2xl border border-[#C3D6CA] bg-white px-4 py-2.5 text-xs font-semibold text-[#063725] shadow-xs hover:border-[#0D6E46] transition-colors min-h-[42px]"
-                    >
-                      <span className="truncate">Catégorie : {ficheCategoryFilter}</span>
-                      <ChevronDown
-                        className={`h-4 w-4 text-[#0D6E46] shrink-0 transition-transform duration-200 ${
-                          ficheDropdownOpen ? 'rotate-180' : ''
-                        }`}
-                        aria-hidden="true"
-                      />
-                    </button>
-                    <div
-                      className={`overflow-hidden transition-all duration-200 ease-out origin-top ${
-                        ficheDropdownOpen
-                          ? 'max-h-64 opacity-100 mt-1.5'
-                          : 'max-h-0 opacity-0 pointer-events-none'
-                      }`}
-                    >
-                      <div className="rounded-2xl border border-[#D5E2DA] bg-white p-1.5 shadow-lg space-y-1">
-                        {(['Toutes', 'Squats', 'Pompes', 'Gainage'] as const).map((cat) => {
-                          const active = ficheCategoryFilter === cat;
-                          return (
-                            <button
-                              key={cat}
-                              type="button"
-                              onClick={() => {
-                                setFicheCategoryFilter(cat);
-                                setFicheDropdownOpen(false);
-                              }}
-                              className={`w-full flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs text-left transition-colors ${
-                                active
-                                  ? 'bg-[#0D6E46] text-white font-semibold'
-                                  : 'text-[#3D5246] hover:bg-[#ECF7F1] hover:text-[#063725] font-medium'
-                              }`}
-                            >
-                              <span>{cat}</span>
-                              {active && <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {ecoMode ? (
-                  <div className="obsidian-card rounded-3xl p-5 text-xs text-[#3D5246]">
-                    Mode éco données actif : les {filteredFiches.length} planches techniques illustrées sont masquées pour préserver votre forfait mobile. Désactivez le mode éco données dans Profil pour les afficher.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredFiches.map((fiche) => {
-                      const locked = fiche.tier === 'PROGRESSION' && !isProgressionUnlocked;
-                      return (
-                        <div
-                          key={fiche.id}
-                          className="obsidian-card rounded-3xl overflow-hidden flex flex-col justify-between"
-                        >
-                          <div className="relative bg-[#F6F8F5] border-b border-[#E2EBE5] p-3">
-                            <img
-                              src={fiche.imageUrl}
-                              alt={fiche.titre}
-                              loading="lazy"
-                              decoding="async"
-                              referrerPolicy="no-referrer"
-                              className={`h-44 w-full object-contain ${locked ? 'opacity-75' : ''}`}
-                            />
-                            <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
-                              <span className="font-semibold text-[#3D5246]">{fiche.category}</span>
-                              <span className={locked ? 'font-semibold text-amber-800' : 'font-semibold text-[#0D6E46]'}>
-                                {fiche.tier === 'PROGRESSION' ? 'Progression+' : 'Essentiel gratuit'}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="p-4 flex-1 flex flex-col justify-between gap-3">
-                            <div>
-                              <h3 className="text-sm font-semibold text-[#063725]">{fiche.titre}</h3>
-                              <div className="mt-1 text-[11px] font-semibold text-[#0D6E46]">{fiche.muscles}</div>
-                              <p className="mt-1.5 text-xs text-[#3D5246] leading-relaxed">{fiche.caption}</p>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => handleOpenTechniqueFiche(fiche)}
-                              className={`w-full inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-xs min-h-[38px] transition-colors ${
-                                locked
-                                  ? 'border border-amber-200 bg-amber-50 font-semibold text-amber-800 hover:bg-amber-100'
-                                  : 'border border-[#BFE0CD] bg-[#ECF7F1] font-semibold text-[#0D6E46] hover:bg-[#DCF0E5]'
-                              }`}
-                            >
-                              {locked ? (
-                                <>
-                                  <Lock className="h-3.5 w-3.5 text-amber-700" aria-hidden="true" />
-                                  <span>Débloquer avec Progression+</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Video className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
-                                  <span>Voir la vidéo guidée & posture</span>
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
             </div>
           )}
 
@@ -2540,15 +2510,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     Tests physiques sans matériel à réaliser toutes les 4 semaines pour mesurer votre progression.
                   </p>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowPainModal(true)}
-                  className="inline-flex items-center justify-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-700 hover:bg-red-100 min-h-[44px] self-start transition-colors"
-                >
-                  <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                  <span>Signaler une douleur</span>
-                </button>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -2707,7 +2668,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       <h2 className="text-base font-semibold text-[#063725]">Historique et avis du coach</h2>
                       {!isProgressionUnlocked && data.evaluations.length > 1 && (
                         <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
-                          Progression+
+                          Suivi Coach
                         </span>
                       )}
                     </div>
@@ -2782,14 +2743,14 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                               </span>
                             </div>
                             <p className="text-xs text-amber-900 leading-relaxed">
-                              Votre évaluation du moment reste 100 % gratuite. Activez <strong className="text-[#063725]">Progression+ (1 500 FCFA / mois)</strong> pour consulter la courbe d’évolution et tout votre historique comparatif.
+                              Votre évaluation du moment reste 100 % gratuite. Passez à <strong className="text-[#063725]">Suivi Coach (5 000 FCFA / mois)</strong> pour consulter la courbe d’évolution et tout votre historique comparatif.
                             </p>
                             <button
                               type="button"
                               onClick={() => setTab('profil')}
                               className="rounded-full bg-[#0D6E46] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#095637] transition-colors"
                             >
-                              Activer Progression+
+                              Activer Suivi Coach
                             </button>
                           </div>
                         )}
@@ -3060,7 +3021,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       </p>
                     )}
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
                         disabled={reminderSubmitting}
@@ -3069,6 +3030,39 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                       >
                         {reminderSubmitting ? 'Enregistrement...' : 'Enregistrer les rappels'}
                       </button>
+
+                      {browserNotifPermission === 'default' && (
+                        <button
+                          type="button"
+                          onClick={handleEnableBrowserNotifications}
+                          className="rounded-full border border-[#0D6E46] bg-[#ECF7F1] px-4 py-2 text-xs font-semibold text-[#0D6E46] hover:bg-[#DCF0E5] min-h-[40px] transition-colors"
+                        >
+                          Autoriser notifications navigateur
+                        </button>
+                      )}
+
+                      {browserNotifPermission === 'granted' && (
+                        <button
+                          type="button"
+                          onClick={handleSendTestBrowserNotification}
+                          className="rounded-full border border-[#C3D6CA] bg-white px-4 py-2 text-xs font-semibold text-[#063725] hover:bg-[#F1F6F3] min-h-[40px] transition-colors"
+                        >
+                          Tester une notification
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="text-[11px] text-[#5B7064]">
+                      Statut navigateur :{' '}
+                      <span className="font-semibold text-[#063725]">
+                        {browserNotifPermission === 'granted'
+                          ? 'Autorisées'
+                          : browserNotifPermission === 'denied'
+                            ? 'Bloquées (modifiable dans les paramètres du navigateur)'
+                            : browserNotifPermission === 'unsupported'
+                              ? 'Non prises en charge par ce navigateur'
+                              : 'Non demandées'}
+                      </span>
                     </div>
                   </div>
 
@@ -3124,7 +3118,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                     </div>
                   )}
 
-                  {/* 3-Tier Plan Selector */}
+                  {/* 2-Tier Plan Selector */}
                   <form onSubmit={(e) => handleSwitchAthletePlan(e)} className="space-y-3">
                     <div className="space-y-2">
                       {(
@@ -3133,22 +3127,13 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                             tier: 'ESSENTIEL' as const,
                             title: 'Essentiel',
                             price: '0 FCFA / mois',
-                            desc: 'Programme hebdo, séance du jour, alerte douleur 100 % gratuite, collectif & 2 séances hors ligne.',
-                          },
-                          {
-                            tier: 'PROGRESSION' as const,
-                            title: 'Progression+',
-                            price:
-                              planSwitchBilling === 'TRIMESTRIEL'
-                                ? '4 000 FCFA / trimestre'
-                                : '1 500 FCFA / mois',
-                            desc: 'Hors-ligne illimité, tous les cycles avancés, fiches anatomie avec charge et courbes d’évolution.',
+                            desc: 'Séances fondamentales FR/Wolof, chrono, suivi du poids, auto-évaluation et 2 séances hors ligne.',
                           },
                           {
                             tier: 'COACH_PRIVE' as const,
                             title: 'Suivi Coach',
                             price: '5 000 FCFA / mois',
-                            desc: 'Tout Progression+ + coach vérifié dédié (80 % reversés au coach, 20 % plateforme).',
+                            desc: 'Tous les cycles spécialisés, hors-ligne illimité et coach dédié (80 % reversés au coach, 20 % plateforme).',
                           },
                         ] as const
                       ).map((opt) => {
@@ -3180,33 +3165,6 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         );
                       })}
                     </div>
-
-                    {targetPlanDraft === 'PROGRESSION' && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPlanSwitchBilling('MENSUEL')}
-                          className={`rounded-full border px-3 py-2 text-xs min-h-[38px] transition-colors ${
-                            planSwitchBilling === 'MENSUEL'
-                              ? 'border-[#0D6E46] bg-[#0D6E46] font-bold text-white'
-                              : 'border-[#D5E2DA] bg-[#F1F6F3] font-medium text-[#3D5246]'
-                          }`}
-                        >
-                          Mensuel · 1 500 F
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPlanSwitchBilling('TRIMESTRIEL')}
-                          className={`rounded-full border px-3 py-2 text-xs min-h-[38px] transition-colors ${
-                            planSwitchBilling === 'TRIMESTRIEL'
-                              ? 'border-[#0D6E46] bg-[#0D6E46] font-bold text-white'
-                              : 'border-[#D5E2DA] bg-[#F1F6F3] font-medium text-[#3D5246]'
-                          }`}
-                        >
-                          Trimestriel · 4 000 F
-                        </button>
-                      </div>
-                    )}
 
                     {targetPlanDraft === 'COACH_PRIVE' && data.availableCoaches.length > 0 && (
                       <div className="space-y-2 border-t border-[#E2EBE5] pt-3">
@@ -3256,9 +3214,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                           className="mt-0.5 h-4 w-4 accent-[#0D6E46]"
                         />
                         <span className="text-[11px] text-[#3D5246] leading-relaxed">
-                          {targetPlanDraft === 'COACH_PRIVE'
-                            ? 'Je confirme la formule Suivi Coach à 5 000 FCFA / mois (dont 80 % reversés au coach sélectionné).'
-                            : `Je confirme la formule Progression+ (${planSwitchBilling === 'TRIMESTRIEL' ? '4 000 FCFA / trimestre' : '1 500 FCFA / mois'}).`}
+                          Je confirme la formule Suivi Coach à 5 000 FCFA / mois (dont 80 % reversés au coach sélectionné).
                         </span>
                       </label>
                     )}
@@ -3272,25 +3228,7 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
                         ? 'Mise à jour...'
                         : targetPlanDraft === 'ESSENTIEL'
                           ? 'Passer / Rester en Essentiel gratuit (0 FCFA)'
-                          : targetPlanDraft === 'PROGRESSION'
-                            ? `Activer Progression+ (${planSwitchBilling === 'TRIMESTRIEL' ? '4 000 F / trim.' : '1 500 F / mois'})`
-                            : 'Activer / Mettre à jour Suivi Coach (5 000 F / mois)'}
-                    </button>
-                  </form>
-
-                  <form onSubmit={handleRequestCoachChange} className="flex gap-2 border-t border-[#E2EBE5] pt-3">
-                    <input
-                      type="text"
-                      value={coachChangeMotif}
-                      onChange={(e) => setCoachChangeMotif(e.target.value)}
-                      placeholder="Note optionnelle pour l’administrateur"
-                      className="flex-1 rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
-                    />
-                    <button
-                      type="submit"
-                      className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#063725] hover:bg-[#ECF7F1] min-h-[40px] whitespace-nowrap transition-colors"
-                    >
-                      Signaler
+                          : 'Activer / Mettre à jour Suivi Coach (5 000 F / mois)'}
                     </button>
                   </form>
                 </div>
@@ -3393,6 +3331,8 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
               </div>
             </div>
           )}
+          </motion.div>
+          </AnimatePresence>
             <LegalFooter />
           </div>
         </main>
@@ -3424,326 +3364,299 @@ export const AthleteWorkspace: React.FC<AthleteWorkspaceProps> = ({
       </nav>
 
       {/* Sport Change Confirmation Modal */}
-      {pendingSportChange && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md obsidian-card-glow rounded-3xl p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-[#063725]">
-              Passer au {SPORTS_CONFIG[pendingSportChange].nom} ?
-            </h3>
-            <p className="text-sm text-[#3D5246] leading-relaxed">
-              Ce changement adapte immédiatement les couleurs de l’interface, les séances de votre semaine et les tests d’auto-évaluation. Votre historique de poids et d’évaluations passées est conservé.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setPendingSportChange(null)}
-                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-sm font-medium text-[#3D5246] hover:text-[#063725] min-h-[44px] transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmSportChange}
-                className="rounded-full bg-[#0D6E46] px-5 py-2 text-sm font-bold text-white hover:bg-[#095637] min-h-[44px] transition-colors"
-              >
-                Confirmer le changement
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AnimatePresence>
+        {pendingSportChange && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 6 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="w-full max-w-md obsidian-card-glow rounded-3xl p-6 space-y-4"
+            >
+              <h3 className="text-lg font-semibold text-[#063725]">
+                Passer au {SPORTS_CONFIG[pendingSportChange].nom} ?
+              </h3>
+              <p className="text-sm text-[#3D5246] leading-relaxed">
+                Ce changement adapte immédiatement les couleurs de l’interface, les séances de votre semaine et les tests d’auto-évaluation. Votre historique de poids et d’évaluations passées est conservé.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPendingSportChange(null)}
+                  className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-sm font-medium text-[#3D5246] hover:text-[#063725] min-h-[44px] transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSportChange}
+                  className="rounded-full bg-[#0D6E46] px-5 py-2 text-sm font-bold text-white hover:bg-[#095637] min-h-[44px] transition-colors"
+                >
+                  Confirmer le changement
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Delete Account Confirmation Modal */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4">
-          <form
-            onSubmit={handleDeleteAccount}
-            className="w-full max-w-md obsidian-card-glow rounded-3xl p-6 space-y-4"
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4"
           >
-            <h3 className="text-lg font-semibold text-[#063725]">Supprimer définitivement votre compte ?</h3>
-            <p className="text-sm text-[#3D5246] leading-relaxed">
-              Toutes vos données personnelles, mesures de poids, évaluations et séances planifiées seront supprimées de la base Terrain+. Saisissez votre mot de passe actuel pour confirmer cette action irréversible.
-            </p>
-            <div>
-              <label htmlFor="delete-account-password" className="block text-xs font-medium text-[#3D5246] mb-1">
-                Mot de passe actuel *
-              </label>
-              <input
-                id="delete-account-password"
-                type="password"
-                required
-                value={deletePassword}
-                onChange={(e) => setDeletePassword(e.target.value)}
-                placeholder="Confirmez votre mot de passe"
-                className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3.5 py-2.5 text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[44px]"
-              />
-            </div>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setDeletePassword('');
-                  setShowDeleteConfirm(false);
-                }}
-                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-sm font-medium text-[#3D5246] hover:text-[#063725] min-h-[44px] transition-colors"
-              >
-                Annuler
-              </button>
-              <button
-                type="submit"
-                className="rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-white hover:bg-red-700 min-h-[44px] transition-colors"
-              >
-                Supprimer définitivement
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {activePlayer && (
-        <GuidedSessionPlayer
-          session={activePlayer.session}
-          scheduledId={activePlayer.scheduledId}
-          defaultLangue={data.user.langue}
-          ecoMode={ecoMode}
-          coachVideos={data.coachVideos || []}
-          onClose={() => setActivePlayer(null)}
-          onCompleted={() => {
-            setActivePlayer(null);
-            setFeedbackBanner('Séance enregistrée. Bravo pour votre régularité.');
-            loadWorkspace();
-          }}
-          onReportPain={() => {
-            setActivePlayer(null);
-            setShowPainModal(true);
-          }}
-        />
-      )}
-
-      {selectedFicheModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-2xl obsidian-card-glow rounded-3xl overflow-hidden my-auto">
-            <div className="flex items-center justify-between gap-4 border-b border-[#E2EBE5] px-5 py-3.5">
+            <motion.form
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 6 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              onSubmit={handleDeleteAccount}
+              className="w-full max-w-md obsidian-card-glow rounded-3xl p-6 space-y-4"
+            >
+              <h3 className="text-lg font-semibold text-[#063725]">Supprimer définitivement votre compte ?</h3>
+              <p className="text-sm text-[#3D5246] leading-relaxed">
+                Toutes vos données personnelles, mesures de poids, évaluations et séances planifiées seront supprimées de la base Terrain+. Saisissez votre mot de passe actuel pour confirmer cette action irréversible.
+              </p>
               <div>
-                <div className="text-[11px] font-semibold text-[#0D6E46]">
-                  {selectedFicheModal.category} · {selectedFicheModal.muscles}
-                </div>
-                <h3 className="text-base font-semibold text-[#063725]">{selectedFicheModal.titre}</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedFicheModal(null)}
-                aria-label="Fermer la fiche"
-                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] p-2 text-[#3D5246] hover:text-[#063725] min-h-[40px] min-w-[40px] flex items-center justify-center transition-colors"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
-            <div className="px-5 pt-3 flex items-center justify-between gap-2">
-              <div className="inline-flex items-center gap-1 rounded-full bg-[#F1F6F3] border border-[#D5E2DA] p-1">
-                <button
-                  type="button"
-                  onClick={() => setFicheModalMode('video')}
-                  className={`rounded-full px-3.5 py-1.5 text-xs min-h-[34px] transition-colors ${
-                    ficheModalMode === 'video'
-                      ? 'bg-[#0D6E46] text-white font-bold'
-                      : 'font-medium text-[#3D5246] hover:text-[#063725]'
-                  }`}
-                >
-                  Vidéo guidée
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFicheModalMode('photo')}
-                  className={`rounded-full px-3.5 py-1.5 text-xs min-h-[34px] transition-colors ${
-                    ficheModalMode === 'photo'
-                      ? 'bg-[#0D6E46] text-white font-bold'
-                      : 'font-medium text-[#3D5246] hover:text-[#063725]'
-                  }`}
-                >
-                  Planche anatomique
-                </button>
-              </div>
-              <span className="text-[11px] text-[#5B7064]">Vitesse réglable (0.75x à 1.25x)</span>
-            </div>
-            <div className="p-4 sm:p-5">
-              {ficheModalMode === 'video' ? (
-                <ExerciseVideoGuide
-                  exerciseName={selectedFicheModal.titre}
-                  accentHex="#0D6E46"
-                  theme="light"
+                <label htmlFor="delete-account-password" className="block text-xs font-medium text-[#3D5246] mb-1">
+                  Mot de passe actuel *
+                </label>
+                <input
+                  id="delete-account-password"
+                  type="password"
+                  required
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Confirmez votre mot de passe"
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3.5 py-2.5 text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[44px]"
                 />
-              ) : (
-                <div className="flex items-center justify-center rounded-2xl border border-[#E2EBE5] bg-[#F6F8F5] p-3">
-                  <img
-                    src={selectedFicheModal.imageUrl}
-                    alt={selectedFicheModal.titre}
-                    decoding="async"
-                    referrerPolicy="no-referrer"
-                    className="max-h-[56vh] w-auto object-contain"
-                  />
-                </div>
-              )}
-            </div>
-            <div className="border-t border-[#E2EBE5] bg-[#F1F6F3] px-5 py-3.5 text-xs text-[#3D5246] leading-relaxed">
-              {selectedFicheModal.caption}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {videoPreviewSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-2xl obsidian-card-glow rounded-3xl overflow-hidden my-auto">
-            <div className="flex items-center justify-between gap-4 border-b border-[#E2EBE5] px-5 py-3.5">
-              <div className="min-w-0">
-                <div className="text-[11px] font-semibold text-[#0D6E46]">
-                  Guides vidéo · {videoPreviewSession.session.titre}
-                </div>
-                <h3 className="text-base font-semibold text-[#063725] truncate">
-                  {videoPreviewSession.session.exercises[videoPreviewSession.stepIdx]?.nom}
-                </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setVideoPreviewSession(null)}
-                aria-label="Fermer les guides vidéo"
-                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] p-2 text-[#3D5246] hover:text-[#063725] min-h-[40px] min-w-[40px] flex items-center justify-center transition-colors"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
-
-            <div className="p-4 sm:p-5 space-y-4">
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                {videoPreviewSession.session.exercises.map((ex, idx) => (
-                  <button
-                    key={ex.id}
-                    type="button"
-                    onClick={() => setVideoPreviewSession({ ...videoPreviewSession, stepIdx: idx })}
-                    className={`rounded-full px-3 py-1.5 text-xs whitespace-nowrap min-h-[36px] transition-colors ${
-                      videoPreviewSession.stepIdx === idx
-                        ? 'bg-[#0D6E46] text-white font-bold'
-                        : 'border border-[#D5E2DA] bg-[#F1F6F3] font-medium text-[#3D5246] hover:text-[#063725]'
-                    }`}
-                  >
-                    {idx + 1}. {ex.nom}
-                  </button>
-                ))}
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeletePassword('');
+                    setShowDeleteConfirm(false);
+                  }}
+                  className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-sm font-medium text-[#3D5246] hover:text-[#063725] min-h-[44px] transition-colors"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-full bg-red-600 px-5 py-2 text-sm font-semibold text-white hover:bg-red-700 min-h-[44px] transition-colors"
+                >
+                  Supprimer définitivement
+                </button>
               </div>
+            </motion.form>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-              {videoPreviewSession.session.exercises[videoPreviewSession.stepIdx] && (
-                <>
-                  <ExerciseVideoGuide
-                    exerciseName={videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].nom}
-                    accentHex="#0D6E46"
-                    theme="light"
-                  />
-                  <div className="obsidian-inset rounded-2xl p-3.5 text-xs text-[#3D5246] space-y-1">
-                    <div className="font-semibold text-[#063725]">
-                      Consigne Terrain+ ({data.user.langue === 'wo' ? 'Wolof & Français' : 'Français'})
-                    </div>
-                    <p>
-                      {data.user.langue === 'wo'
-                        ? videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].consigneWo
-                        : videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].consigneFr}
-                    </p>
-                  </div>
-                </>
-              )}
+      <AnimatePresence>
+        {activePlayer && (
+          <GuidedSessionPlayer
+            session={activePlayer.session}
+            scheduledId={activePlayer.scheduledId}
+            defaultLangue={data.user.langue}
+            ecoMode={ecoMode}
+            coachVideos={data.coachVideos || []}
+            onClose={() => setActivePlayer(null)}
+            onCompleted={() => {
+              setActivePlayer(null);
+              setFeedbackBanner('Séance enregistrée. Bravo pour votre régularité.');
+              loadWorkspace();
+            }}
+          />
+        )}
+      </AnimatePresence>
 
-              {(data.coachVideos || []).some((v) => v.session_id === videoPreviewSession.session.id) && (
-                <div className="space-y-2.5 pt-2 border-t border-[#E2EBE5]">
-                  <div className="text-xs font-semibold text-[#063725]">Vidéo(s) du coach pour cette séance</div>
-                  <div className="space-y-3">
-                    {(data.coachVideos || [])
-                      .filter((v) => v.session_id === videoPreviewSession.session.id)
-                      .map((vid) => (
-                        <div key={vid.id} className="space-y-1.5">
-                          <div className="text-xs font-semibold text-[#0D6E46]">{vid.titre}</div>
-                          <CoachVideoPlayer video={vid} ecoMode={ecoMode} theme="light" />
-                          {vid.description && <p className="text-[11px] text-[#3D5246]">{vid.description}</p>}
-                        </div>
-                      ))}
+      <AnimatePresence>
+        {videoPreviewSession && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 6 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="w-full max-w-2xl obsidian-card-glow rounded-3xl overflow-hidden my-auto"
+            >
+              <div className="flex items-center justify-between gap-4 border-b border-[#E2EBE5] px-5 py-3.5">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold text-[#0D6E46]">
+                    Guides vidéo · {videoPreviewSession.session.titre}
                   </div>
+                  <h3 className="text-base font-semibold text-[#063725] truncate">
+                    {videoPreviewSession.session.exercises[videoPreviewSession.stepIdx]?.nom}
+                  </h3>
                 </div>
-              )}
-
-              <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#E2EBE5]">
                 <button
                   type="button"
                   onClick={() => setVideoPreviewSession(null)}
-                  className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#3D5246] hover:text-[#063725] min-h-[40px] transition-colors"
+                  aria-label="Fermer les guides vidéo"
+                  className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] p-2 text-[#3D5246] hover:text-[#063725] min-h-[40px] min-w-[40px] flex items-center justify-center transition-colors"
                 >
-                  Fermer
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+
+              <div className="p-4 sm:p-5 space-y-4">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  {videoPreviewSession.session.exercises.map((ex, idx) => (
+                    <button
+                      key={ex.id}
+                      type="button"
+                      onClick={() => setVideoPreviewSession({ ...videoPreviewSession, stepIdx: idx })}
+                      className={`rounded-full px-3 py-1.5 text-xs whitespace-nowrap min-h-[36px] transition-colors ${
+                        videoPreviewSession.stepIdx === idx
+                          ? 'bg-[#0D6E46] text-white font-bold'
+                          : 'border border-[#D5E2DA] bg-[#F1F6F3] font-medium text-[#3D5246] hover:text-[#063725]'
+                      }`}
+                    >
+                      {idx + 1}. {ex.nom}
+                    </button>
+                  ))}
+                </div>
+
+                {videoPreviewSession.session.exercises[videoPreviewSession.stepIdx] && (
+                  <>
+                    <ExerciseVideoGuide
+                      exerciseName={videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].nom}
+                      accentHex="#0D6E46"
+                      theme="light"
+                    />
+                    <div className="obsidian-inset rounded-2xl p-3.5 text-xs text-[#3D5246] space-y-1">
+                      <div className="font-semibold text-[#063725]">
+                        Consigne Terrain+ ({data.user.langue === 'wo' ? 'Wolof & Français' : 'Français'})
+                      </div>
+                      <p>
+                        {data.user.langue === 'wo'
+                          ? videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].consigneWo
+                          : videoPreviewSession.session.exercises[videoPreviewSession.stepIdx].consigneFr}
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {(data.coachVideos || []).some((v) => v.session_id === videoPreviewSession.session.id) && (
+                  <div className="space-y-2.5 pt-2 border-t border-[#E2EBE5]">
+                    <div className="text-xs font-semibold text-[#063725]">Vidéo(s) du coach pour cette séance</div>
+                    <div className="space-y-3">
+                      {(data.coachVideos || [])
+                        .filter((v) => v.session_id === videoPreviewSession.session.id)
+                        .map((vid) => (
+                          <div key={vid.id} className="space-y-1.5">
+                            <div className="text-xs font-semibold text-[#0D6E46]">{vid.titre}</div>
+                            <CoachVideoPlayer video={vid} ecoMode={ecoMode} theme="light" />
+                            {vid.description && <p className="text-[11px] text-[#3D5246]">{vid.description}</p>}
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#E2EBE5]">
+                  <button
+                    type="button"
+                    onClick={() => setVideoPreviewSession(null)}
+                    className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#3D5246] hover:text-[#063725] min-h-[40px] transition-colors"
+                  >
+                    Fermer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = videoPreviewSession.session;
+                      setVideoPreviewSession(null);
+                      handleLaunchLibrarySession(target);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px] transition-colors"
+                  >
+                    <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Démarrer cette séance</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {upgradePrompt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 6 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="w-full max-w-md obsidian-card-glow rounded-3xl p-6 space-y-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 text-amber-700">
+                  <Lock className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span className="text-xs font-semibold uppercase tracking-wide">Option Terrain+</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUpgradePrompt(null)}
+                  aria-label="Fermer"
+                  className="text-[#5B7064] hover:text-[#063725] transition-colors"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+              <h3 className="text-lg font-semibold text-[#063725]">{upgradePrompt.title}</h3>
+              <p className="text-sm text-[#3D5246] leading-relaxed">{upgradePrompt.reason}</p>
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setUpgradePrompt(null)}
+                  className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#3D5246] hover:text-[#063725] min-h-[42px] transition-colors"
+                >
+                  Rester en Essentiel
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    const target = videoPreviewSession.session;
-                    setVideoPreviewSession(null);
-                    handleLaunchLibrarySession(target);
+                    setUpgradePrompt(null);
+                    setTargetPlanDraft('COACH_PRIVE');
+                    setTab('profil');
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px] transition-colors"
+                  className="rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[42px] transition-colors"
                 >
-                  <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>Démarrer cette séance</span>
+                  Voir Suivi Coach (5 000 F/mois)
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {upgradePrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md obsidian-card-glow rounded-3xl p-6 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2 text-amber-700">
-                <Lock className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="text-xs font-semibold uppercase tracking-wide">Option Terrain+</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setUpgradePrompt(null)}
-                aria-label="Fermer"
-                className="text-[#5B7064] hover:text-[#063725] transition-colors"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
-            <h3 className="text-lg font-semibold text-[#063725]">{upgradePrompt.title}</h3>
-            <p className="text-sm text-[#3D5246] leading-relaxed">{upgradePrompt.reason}</p>
-            <div className="flex flex-wrap justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setUpgradePrompt(null)}
-                className="rounded-full border border-[#D5E2DA] bg-[#F1F6F3] px-4 py-2 text-xs font-medium text-[#3D5246] hover:text-[#063725] min-h-[42px] transition-colors"
-              >
-                Rester en Essentiel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setUpgradePrompt(null);
-                  setTargetPlanDraft('PROGRESSION');
-                  setTab('profil');
-                }}
-                className="rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[42px] transition-colors"
-              >
-                Voir Progression+ / Suivi Coach
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showPainModal && (
-        <PainReportModal
-          onClose={() => setShowPainModal(false)}
-          onSubmitted={() => loadWorkspace()}
-        />
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <LegalModal
         open={legalTab !== null}

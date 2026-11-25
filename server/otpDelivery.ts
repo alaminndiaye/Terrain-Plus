@@ -34,8 +34,9 @@ function isValidWebhookUrl(rawUrl: string): boolean {
 
 export function isOtpDeliveryConfigured(): boolean {
   const hasResend = Boolean((process.env.RESEND_API_KEY || '').trim() && (process.env.OTP_FROM_EMAIL || '').trim());
+  const hasBrevo = Boolean((process.env.BREVO_API_KEY || '').trim() && (process.env.OTP_FROM_EMAIL || '').trim());
   const hasWebhook = isValidWebhookUrl(process.env.OTP_WEBHOOK_URL || '');
-  return hasResend || hasWebhook;
+  return hasResend || hasBrevo || hasWebhook;
 }
 
 function getPurposeLabel(purpose: OtpDeliveryInput['purpose']): { subject: string; actionText: string } {
@@ -57,8 +58,17 @@ function getPurposeLabel(purpose: OtpDeliveryInput['purpose']): { subject: strin
   };
 }
 
+function parseFromHeader(fromEmail: string): { name: string; email: string } {
+  const match = fromEmail.match(/^(.*?)<([^>]+)>$/);
+  if (match) {
+    return { name: match[1].trim() || 'Terrain+', email: match[2].trim() };
+  }
+  return { name: 'Terrain+', email: fromEmail.trim() };
+}
+
 export async function deliverOtpCode(input: OtpDeliveryInput): Promise<OtpDeliveryResult> {
   const resendApiKey = (process.env.RESEND_API_KEY || '').trim();
+  const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
   const fromEmail = (process.env.OTP_FROM_EMAIL || '').trim();
   const webhookUrl = (process.env.OTP_WEBHOOK_URL || '').trim();
   const webhookToken = (process.env.OTP_WEBHOOK_TOKEN || '').trim();
@@ -67,6 +77,18 @@ export async function deliverOtpCode(input: OtpDeliveryInput): Promise<OtpDelive
   const safePrenomHtml = escapeHtml(input.prenom || '');
   const safeActionHtml = escapeHtml(actionText);
   const safeCodeHtml = escapeHtml(input.code);
+  const textContent = `Bonjour ${input.prenom || 'Sportif'},\n\nVotre code de sécurité à 6 chiffres pour ${actionText} est : ${input.code}\n\nCe code est valable pendant 15 minutes. Ne le partagez avec personne.\n\nL'équipe Terrain+`;
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; background: #080A07; color: #F5F7F1; border-radius: 16px;">
+      <h2 style="margin: 0 0 12px; color: #C8F62D;">Terrain+</h2>
+      <p style="margin: 0 0 16px; line-height: 1.5;">Bonjour ${safePrenomHtml},</p>
+      <p style="margin: 0 0 16px; line-height: 1.5;">Voici votre code à usage unique pour ${safeActionHtml} :</p>
+      <div style="font-family: monospace; font-size: 28px; font-weight: bold; letter-spacing: 6px; padding: 16px; text-align: center; background: #121610; border: 1px solid #C8F62D; border-radius: 12px; color: #C8F62D;">
+        ${safeCodeHtml}
+      </div>
+      <p style="margin: 16px 0 0; font-size: 12px; color: #B4BCA9;">Ce code expire dans 15 minutes. Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
+    </div>
+  `;
 
   if (resendApiKey && fromEmail && input.email) {
     try {
@@ -81,18 +103,8 @@ export async function deliverOtpCode(input: OtpDeliveryInput): Promise<OtpDelive
           from: fromEmail,
           to: [input.email],
           subject,
-          text: `Bonjour ${input.prenom || 'Sportif'},\n\nVotre code de sécurité à 6 chiffres pour ${actionText} est : ${input.code}\n\nCe code est valable pendant 15 minutes. Ne le partagez avec personne.\n\nL'équipe Terrain+`,
-          html: `
-            <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; padding: 24px; background: #080A07; color: #F5F7F1; border-radius: 16px;">
-              <h2 style="margin: 0 0 12px; color: #C8F62D;">Terrain+</h2>
-              <p style="margin: 0 0 16px; line-height: 1.5;">Bonjour ${safePrenomHtml},</p>
-              <p style="margin: 0 0 16px; line-height: 1.5;">Voici votre code à usage unique pour ${safeActionHtml} :</p>
-              <div style="font-family: monospace; font-size: 28px; font-weight: bold; letter-spacing: 6px; padding: 16px; text-align: center; background: #121610; border: 1px solid #C8F62D; border-radius: 12px; color: #C8F62D;">
-                ${safeCodeHtml}
-              </div>
-              <p style="margin: 16px 0 0; font-size: 12px; color: #B4BCA9;">Ce code expire dans 15 minutes. Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
-            </div>
-          `,
+          text: textContent,
+          html: htmlContent,
         }),
       });
       if (response.ok) {
@@ -102,6 +114,35 @@ export async function deliverOtpCode(input: OtpDeliveryInput): Promise<OtpDelive
       console.error('[OTP Email] Échec envoi Resend:', response.status, errText);
     } catch (err) {
       console.error('[OTP Email] Exception Resend:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  if (brevoApiKey && fromEmail && input.email) {
+    try {
+      const sender = parseFromHeader(fromEmail);
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        signal: AbortSignal.timeout(8000),
+        headers: {
+          'api-key': brevoApiKey,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          sender,
+          to: [{ email: input.email, name: input.prenom || input.email }],
+          subject,
+          textContent,
+          htmlContent,
+        }),
+      });
+      if (response.ok) {
+        return { delivered: true, channel: 'email' };
+      }
+      const errText = await response.text().catch(() => '');
+      console.error('[OTP Email] Échec envoi Brevo:', response.status, errText);
+    } catch (err) {
+      console.error('[OTP Email] Exception Brevo:', err instanceof Error ? err.message : err);
     }
   }
 

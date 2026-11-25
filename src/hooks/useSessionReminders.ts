@@ -2,8 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ScheduledSession } from '../types';
 import {
   computeUpcomingReminders,
+  formatReminderBannerCopy,
+  getBrowserNotificationPermission,
   getSentReminderKeys,
+  hasBrowserNotifiedKey,
+  markBrowserNotifiedKey,
   markReminderSent,
+  showBrowserNotification,
   type ComputedReminder,
 } from '../lib/pwaNotifications';
 
@@ -67,6 +72,21 @@ export function useSessionReminders({
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled || !dueReminder) return;
+    if (getBrowserNotificationPermission() !== 'granted') return;
+    if (hasBrowserNotifiedKey(dueReminder.key)) return;
+
+    markBrowserNotifiedKey(dueReminder.key);
+    const copy = formatReminderBannerCopy(dueReminder, reminderTime);
+    void showBrowserNotification({
+      title: `Terrain+ · ${copy.title}`,
+      body: copy.body,
+      tag: dueReminder.tag,
+      url: `/?tab=programme&scheduledId=${dueReminder.scheduledId}`,
+    });
+  }, [enabled, dueReminder, reminderTime]);
 
   const dismissReminder = useCallback((key: string) => {
     markReminderSent(key);

@@ -2,6 +2,7 @@ import {
   dbAll,
   dbGet,
   dbRun,
+  dbTransaction,
   getDefaultDbExecutor,
   type DbExecutor,
 } from './db.ts';
@@ -78,7 +79,7 @@ export async function buildDefaultScheduleForAthlete(
   );
 
   const pool = rankedSessions.length > 0 ? rankedSessions : fallback;
-  const trainingDays = objectiveSpec.code === 'PREVENTION' ? [1, 3, 5] : [1, 2, 4, 6];
+  const trainingDays = [1, 2, 4, 6];
 
   for (let day = 1; day <= 7; day++) {
     const d = new Date(monday);
@@ -185,7 +186,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
       },
       {
         id: 'fb-1-ex4',
-        nom: 'Pont fessier unilatéral (prévention ischios)',
+        nom: 'Pont fessier unilatéral (chaîne postérieure)',
         consigneFr: 'Allongé sur le dos, une jambe fléchie au sol, montez le bassin en contractant l’arrière de la cuisse.',
         consigneWo: 'Tëddël ci sa ginnaaw, yëkkal sa ndigg ci benn tànk ngir aar sa yàpp.',
         varianteFacile: 'Pont fessier à deux pieds au sol',
@@ -742,17 +743,17 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
   },
   {
     sport: 'athletisme',
-    titre: 'Fractionné court 15 s / 15 s & prévention ischios',
+    titre: 'Fractionné court 15 s / 15 s & chaîne postérieure',
     niveau: 'intermediaire',
     duree: 25,
-    objectif: 'Développer VMA et protection excentrique des ischio-jambiers',
+    objectif: 'Développer VMA et renforcement excentrique des ischio-jambiers',
     prevention: 'Ischio-jambiers et bas du dos',
     reluePar: 'Relecture technique Terrain+',
     accessTier: 'ESSENTIEL',
     exercises: [
       {
         id: 'ath2-ex1',
-        nom: 'Pont fessier unilatéral (protection ischios)',
+        nom: 'Pont fessier unilatéral (ischio-jambiers)',
         consigneFr: 'Allongé sur le dos, une jambe tendue, poussez fort dans le talon au sol pour monter les hanches.',
         consigneWo: 'Tëddël ci suuf, yékkatil sa ndigg ci benn tànk ngir aar sa tank.',
         varianteFacile: 'Pont fessier à deux pieds au sol',
@@ -963,7 +964,7 @@ const VALIDATED_CATALOG_SESSIONS: CatalogSessionSeed[] = [
     titre: 'Force & volume musculaire complet (avancé)',
     niveau: 'avance',
     duree: 28,
-    objectif: 'Prise de masse avancée, force globale et prévention articulaire',
+    objectif: 'Prise de masse avancée, force globale et stabilité articulaire',
     prevention: 'Coiffe des rotateurs, tendons rotuliens et lombaires',
     reluePar: 'Relecture technique Terrain+',
     accessTier: 'PROGRESSION',
@@ -1049,7 +1050,7 @@ async function ensureSessionsLibraryCatalog(): Promise<void> {
 }
 
 async function provisionBootstrapUser(params: {
-  role: 'ADMIN' | 'MINISTRE';
+  role: 'ADMIN';
   email: string;
   password: string;
   phone: string;
@@ -1101,18 +1102,128 @@ async function ensureBootstrapAccountsFromEnv(): Promise<void> {
     nom: (process.env.BOOTSTRAP_ADMIN_NOM || 'Administration').trim(),
     prenom: (process.env.BOOTSTRAP_ADMIN_PRENOM || 'Terrain+').trim(),
   });
+}
 
-  await provisionBootstrapUser({
-    role: 'MINISTRE',
-    email: (process.env.BOOTSTRAP_MINISTER_EMAIL || '').trim(),
-    password: process.env.BOOTSTRAP_MINISTER_PASSWORD || '',
-    phone: (process.env.BOOTSTRAP_MINISTER_PHONE || '+221770000002').trim(),
-    nom: (process.env.BOOTSTRAP_MINISTER_NOM || 'Observatoire').trim(),
-    prenom: (process.env.BOOTSTRAP_MINISTER_PRENOM || 'Ministère').trim(),
-  });
+async function ensureStarterCoachAndAthlete(): Promise<void> {
+  const starterCoachEmail = 'coach@terrainplus.sn';
+  const starterCoachPhone = '+221770000003';
+  const starterAthleteEmail = 'athlete@terrainplus.sn';
+  const starterAthletePhone = '+221770000004';
+
+  let coachUserId: number | null = null;
+  const existingCoach = await dbGet<{ id: number }>(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER(?) OR telephone = ? LIMIT 1',
+    starterCoachEmail,
+    starterCoachPhone
+  );
+
+  if (existingCoach) {
+    coachUserId = existingCoach.id;
+  } else {
+    const anyVerifiedCoach = await dbGet<{ id: number }>(
+      `SELECT u.id FROM users u
+       JOIN coaches c ON c.user_id = u.id
+       WHERE u.role = 'COACH' AND c.verification_status = 'VERIFIE'
+       LIMIT 1`
+    );
+
+    if (anyVerifiedCoach) {
+      coachUserId = anyVerifiedCoach.id;
+    } else {
+      coachUserId = await dbTransaction(async (tx) => {
+        const res = await tx.run(
+          `INSERT INTO users (
+            nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified
+          ) VALUES (?, ?, ?, ?, ?, 'COACH', '1990-04-12', 'fr', 'ACTIF', 0, 1)`,
+          'Diop',
+          'Moussa',
+          starterCoachPhone,
+          starterCoachEmail,
+          hashPassword('Coach2026')
+        );
+        const insertedCoachId = Number(res.lastInsertRowid);
+
+        await tx.run(
+          `INSERT INTO coaches (
+            user_id, specialite, qualification, zone, monthly_fee_fcfa, athlete_monthly_fee_fcfa,
+            platform_subscription_status, coach_plan, commission_pct, athlete_payout_fcfa,
+            verification_status, legal_status, honorability_attested
+          ) VALUES (?, 'football', 'Licence CAF B · Préparation physique', 'Dakar - Plateau', 0, 5000, 'ACTIF_1000', 'MARKETPLACE', 20, 4000, 'VERIFIE', 'Auto-entrepreneur', 1)`,
+          insertedCoachId
+        );
+
+        await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', insertedCoachId, 'NON_MEDICAL', 'v1.0');
+        await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', insertedCoachId, 'CGU_CONFIDENTIALITE_CDP', 'v1.0');
+        await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', insertedCoachId, 'COACH_HONORABILITY', 'v1.0');
+        return insertedCoachId;
+      });
+    }
+  }
+
+  const existingAthlete = await dbGet<{ id: number }>(
+    'SELECT id FROM users WHERE LOWER(email) = LOWER(?) OR telephone = ? LIMIT 1',
+    starterAthleteEmail,
+    starterAthletePhone
+  );
+
+  if (!existingAthlete) {
+    await dbTransaction(async (tx) => {
+      const res = await tx.run(
+        `INSERT INTO users (
+          nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified
+        ) VALUES (?, ?, ?, ?, ?, 'ATHLETE', '2001-08-20', 'fr', 'ACTIF', 0, 1)`,
+        'Ndiaye',
+        'Ibrahima',
+        starterAthletePhone,
+        starterAthleteEmail,
+        hashPassword('Athlete2026')
+      );
+      const insertedAthleteId = Number(res.lastInsertRowid);
+      const hasCoach = Boolean(coachUserId);
+
+      await tx.run(
+        `INSERT INTO athlete_profiles (
+          user_id, sport_code, niveau, taille_cm, poste, objectif,
+          coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at,
+          plan_tier, plan_fee_fcfa, plan_billing_cycle
+        ) VALUES (?, 'football', 'intermediaire', 178, 'Milieu relayeur', 'Vitesse & explosivité (Football)', ?, ?, ${hasCoach ? "datetime('now')" : 'NULL'}, ?, ?, 'MENSUEL')`,
+        insertedAthleteId,
+        hasCoach ? 'ACTIF_5000' : 'GRATUIT_BASE',
+        hasCoach ? 5000 : 0,
+        hasCoach ? 'COACH_PRIVE' : 'ESSENTIEL',
+        hasCoach ? 5000 : 0
+      );
+
+      await tx.run(
+        "INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, 72, date('now'))",
+        insertedAthleteId
+      );
+      await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', insertedAthleteId, 'DONNEES_SENSIBLES', 'v1.0');
+      await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', insertedAthleteId, 'NON_MEDICAL', 'v1.0');
+      await tx.run('INSERT INTO consents (user_id, type, version) VALUES (?, ?, ?)', insertedAthleteId, 'CGU_CONFIDENTIALITE_CDP', 'v1.0');
+
+      if (coachUserId) {
+        await tx.run(
+          "INSERT INTO assignments (coach_user_id, athlete_user_id, date_debut, statut) VALUES (?, ?, date('now'), 'ACTIF')",
+          coachUserId,
+          insertedAthleteId
+        );
+      }
+
+      await buildDefaultScheduleForAthlete(
+        insertedAthleteId,
+        'football',
+        'intermediaire',
+        coachUserId,
+        'Vitesse & explosivité (Football)',
+        tx
+      );
+    });
+  }
 }
 
 export async function seedIfEmpty(): Promise<void> {
   await ensureSessionsLibraryCatalog();
   await ensureBootstrapAccountsFromEnv();
+  await ensureStarterCoachAndAthlete();
 }

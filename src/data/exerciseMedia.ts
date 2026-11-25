@@ -178,7 +178,7 @@ export interface ExerciseDemoSpec {
   motion: ExerciseMotionType;
   title: string;
   tempoLabel: string;
-  preventionZone: string;
+  targetMuscles: string;
   breathing: string;
   cues: [string, string, string];
   phases: ExerciseDemoPhase[];
@@ -190,9 +190,9 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
   if (lower.includes('pont') || lower.includes('ischio')) {
     return {
       motion: 'glute_bridge',
-      title: 'Pont fessier & protection ischio-jambiers',
+      title: 'Pont fessier & chaîne postérieure',
       tempoLabel: '1.5s montée · 1.5s maintien haut · 1.5s descente',
-      preventionZone: 'Ischio-jambiers, fessiers & bas du dos',
+      targetMuscles: 'Ischio-jambiers, fessiers & bas du dos',
       breathing: 'Soufflez en décollant le bassin, inspirez à la descente',
       cues: [
         'Pousser uniquement à travers le talon au sol',
@@ -212,7 +212,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'pushup',
       title: 'Pompes — Alignement & poussée',
       tempoLabel: '2s descente · 0.5s pause · Poussée nette',
-      preventionZone: 'Épaules, coudes & gainage lombaire',
+      targetMuscles: 'Épaules, coudes & gainage lombaire',
       breathing: 'Inspirez à la descente vers le sol, soufflez sur la poussée',
       cues: [
         'Coudes orientés à 45 degrés du buste (pas écartés à 90 degrés)',
@@ -232,7 +232,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'shoulder_rotation',
       title: 'Mobilité d’épaule & contrôle scapulaire',
       tempoLabel: 'Amplitude progressive · Sans à-coup',
-      preventionZone: 'Coiffe des rotateurs & omoplates',
+      targetMuscles: 'Coiffe des rotateurs & omoplates',
       breathing: 'Inspirez à l’ouverture du buste, soufflez au retour',
       cues: [
         'Garder le bassin fixe et la nuque longue pendant la rotation',
@@ -256,7 +256,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'side_plank',
       title: 'Gainage latéral & alignement bassin',
       tempoLabel: 'Maintien isométrique · Sans affaissement',
-      preventionZone: 'Hanches, obliques & rachis lombaire',
+      targetMuscles: 'Hanches, obliques & rachis lombaire',
       breathing: 'Respiration abdominale fluide et continue sans bloquer le souffle',
       cues: [
         'Coude exactement sous l’épaule d’appui',
@@ -276,7 +276,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'plank',
       title: 'Planche & stabilité profonde du tronc',
       tempoLabel: 'Maintien contrôlé · Bassin neutre',
-      preventionZone: 'Bas du dos & ceinture abdominale',
+      targetMuscles: 'Bas du dos & ceinture abdominale',
       breathing: 'Expiration longue par la bouche en gardant le nombril rentré',
       cues: [
         'Serrer les fessiers et les abdominaux pour éviter de creuser les lombaires',
@@ -296,7 +296,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'pogo_hop',
       title: 'Rebonds élastiques cheville-mollet',
       tempoLabel: 'Contacts brefs au sol · Chevilles toniques',
-      preventionZone: 'Tendons d’Achille & stabilité cheville',
+      targetMuscles: 'Tendons d’Achille & stabilité cheville',
       breathing: 'Respiration rythmée sur la cadence des rebonds',
       cues: [
         'Rebondir sur l’avant-pied sans laisser le talon s’écraser',
@@ -316,7 +316,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'single_leg_balance',
       title: 'Proprioception & ancrage cheville',
       tempoLabel: 'Stabilisation fine · Genou déverrouillé',
-      preventionZone: 'Cheville & articulation du genou',
+      targetMuscles: 'Cheville & articulation du genou',
       breathing: 'Respiration lente et calme pour stabiliser le centre de gravité',
       cues: [
         'Ancrer gros orteil, petit orteil et talon au sol (trépied du pied)',
@@ -336,7 +336,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'jump_squat',
       title: 'Impulsion verticale & amorti silencieux',
       tempoLabel: 'Descente 1.5s · Saut explosif · Amorti 1s',
-      preventionZone: 'Tendons rotuliens, genoux & chevilles',
+      targetMuscles: 'Tendons rotuliens, genoux & chevilles',
       breathing: 'Inspirez en chargeant, soufflez à l’impulsion, amortissez souple',
       cues: [
         'Fléchir hanches et genoux dans l’axe sans rentrée vers l’intérieur',
@@ -356,7 +356,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'lunge',
       title: 'Fente contrôlée & alignement hanche-genou',
       tempoLabel: '2s descente · 0.5s bas · Remontée tonique',
-      preventionZone: 'Genoux, hanches & ischio-jambiers',
+      targetMuscles: 'Genoux, hanches & ischio-jambiers',
       breathing: 'Inspirez en descendant, soufflez en repoussant sur le pied avant',
       cues: [
         'Grand pas avant, buste vertical et regard à l’horizon',
@@ -376,7 +376,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'lateral_shuffle',
       title: 'Appuis latéraux bas & changements de direction',
       tempoLabel: 'Centre de gravité bas · Poussée jambe externe',
-      preventionZone: 'Adducteurs, genoux & chevilles',
+      targetMuscles: 'Adducteurs, genoux & chevilles',
       breathing: 'Respiration tonique à chaque poussée latérale',
       cues: [
         'Garder les hanches basses et les genoux fléchis pendant tout le déplacement',
@@ -403,7 +403,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
       motion: 'high_knees',
       title: 'Dynamique de course & fréquence d’appuis',
       tempoLabel: 'Appuis sous le bassin · Bras actifs à 90°',
-      preventionZone: 'Ischio-jambiers, fléchisseurs de hanche & mollets',
+      targetMuscles: 'Ischio-jambiers, fléchisseurs de hanche & mollets',
       breathing: 'Rythme respiratoire calé sur le balancier des bras',
       cues: [
         'Poser le pied sous le centre de gravité sur l’avant-pied',
@@ -422,7 +422,7 @@ export function resolveExerciseDemoSpec(exerciseName: string): ExerciseDemoSpec 
     motion: 'squat',
     title: 'Squat — Contrôle postural & flexion axiale',
     tempoLabel: '2s descente · 1s contrôle bas · Poussée complète',
-    preventionZone: 'Genoux, hanches & rachis neutre',
+    targetMuscles: 'Genoux, hanches & rachis neutre',
     breathing: 'Inspirez à la descente, soufflez en poussant vers le haut',
     cues: [
       'Pieds ancrés largeur d’épaules, pointes légèrement ouvertes',

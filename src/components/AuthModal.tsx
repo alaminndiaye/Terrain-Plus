@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Building2, Check, Clock, FileText, RefreshCw, ShieldCheck, Upload, UserPlus, X } from 'lucide-react';
+import { ArrowLeft, Check, Clock, FileText, RefreshCw, ShieldCheck, Upload, UserPlus, X } from 'lucide-react';
+import { motion } from 'motion/react';
 import { ApiError, apiRequest, setSessionToken } from '../lib/api';
 import { ALL_SPORT_CODES, SPORTS_CONFIG } from '../data/sportsConfig';
 import { OBJECTIVE_BY_CODE, TRAINING_OBJECTIVES } from '../data/objectivesConfig';
@@ -23,7 +24,6 @@ interface AuthModalProps {
   initialRole?: 'athlete' | 'coach';
   initialNotice?: string;
   onClose: () => void;
-  onOpenPartners?: () => void;
   onAuthenticated: (user: AuthUser, isNewRegistration: boolean) => void;
 }
 
@@ -52,7 +52,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialRole = 'athlete',
   initialNotice,
   onClose,
-  onOpenPartners,
   onAuthenticated,
 }) => {
   const [mode, setMode] = useState<'login' | 'register' | 'verify' | 'forgot' | 'resubmit'>(initialMode);
@@ -99,13 +98,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [legalTab, setLegalTab] = useState<LegalDocTab | null>(null);
   const [parentalName, setParentalName] = useState('');
   const [parentalPhone, setParentalPhone] = useState('+22177');
-  const [selectedPlanTier, setSelectedPlanTier] = useState<'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE'>('ESSENTIEL');
-  const [billingCycle, setBillingCycle] = useState<'MENSUEL' | 'TRIMESTRIEL'>('MENSUEL');
+  const [selectedPlanTier, setSelectedPlanTier] = useState<'ESSENTIEL' | 'COACH_PRIVE'>('ESSENTIEL');
   const [selectedCoachId, setSelectedCoachId] = useState<number | null>(null);
   const [confirmPlanChoice, setConfirmPlanChoice] = useState(false);
 
-  // Coach Registration states (0 FCFA Marketplace vs 3 000 FCFA Coach Pro)
-  const [coachPlan, setCoachPlan] = useState<'MARKETPLACE' | 'COACH_PRO'>('MARKETPLACE');
+  // Coach Registration states (0 FCFA fixe · 80 % Coach / 20 % Terrain+)
+  const coachPlan = 'MARKETPLACE' as const;
   const [coachSpecialite, setCoachSpecialite] = useState('');
   const [coachQualification, setCoachQualification] = useState('');
   const [coachZone, setCoachZone] = useState('');
@@ -437,17 +435,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     e.preventDefault();
     if (selectedPlanTier === 'COACH_PRIVE') {
       if (!selectedCoachId) {
-        setError('Veuillez choisir un coach dans la liste ou sélectionner Essentiel / Progression+.');
+        setError('Veuillez choisir un coach dans la liste ou sélectionner la formule gratuite Essentiel.');
         return;
       }
       if (!confirmPlanChoice) {
         setError('Veuillez confirmer la formule Suivi Coach à 5 000 FCFA / mois.');
         return;
       }
-    }
-    if (selectedPlanTier === 'PROGRESSION' && !confirmPlanChoice) {
-      setError('Veuillez confirmer la formule Progression+.');
-      return;
     }
     setLoading(true);
     setError(null);
@@ -480,7 +474,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           parental_consent_name: isMinor ? parentalName : null,
           parental_consent_phone: isMinor ? parentalPhone : null,
           plan_tier: selectedPlanTier,
-          plan_billing_cycle: billingCycle,
+          plan_billing_cycle: 'MENSUEL',
           selected_coach_id: selectedPlanTier === 'COACH_PRIVE' ? selectedCoachId : null,
           confirm_plan_choice: selectedPlanTier !== 'ESSENTIEL' ? confirmPlanChoice : true,
         }),
@@ -682,8 +676,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="w-full max-w-xl rounded-3xl obsidian-card-glow p-6 shadow-2xl my-auto text-[#063725]">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.16 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto"
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 6 }}
+        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+        className="w-full max-w-xl rounded-3xl obsidian-card-glow p-6 shadow-2xl my-auto text-[#063725]"
+      >
         <div className="flex items-center justify-between gap-4 border-b border-[#E2EBE5] pb-4">
           <div className="flex items-center gap-3">
             <img
@@ -935,7 +941,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </form>
             )}
 
-            <div className="border-t border-[#E2EBE5] pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#475E52]">
+            <div className="border-t border-[#E2EBE5] pt-4 flex items-center justify-center text-xs text-[#475E52]">
               <span>
                 Pas encore de compte ?{' '}
                 <button
@@ -950,16 +956,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   Créer un compte
                 </button>
               </span>
-              {onOpenPartners && (
-                <button
-                  type="button"
-                  onClick={onOpenPartners}
-                  className="inline-flex items-center gap-1 font-semibold text-[#0D6E46] hover:underline"
-                >
-                  <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>Espace Partenaire (ASC / Campus)</span>
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -980,7 +976,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               >
                 <div className="text-xs font-bold">Jeune Sportif</div>
                 <div className={`text-[11px] ${regAccountType === 'athlete' ? 'text-emerald-50' : 'text-[#5B7064]'}`}>
-                  Essentiel 0 F · Progression+ · Coach
+                  Essentiel 0 F · Suivi Coach 5 000 F
                 </div>
               </button>
               <button
@@ -999,21 +995,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </button>
             </div>
-
-            {onOpenPartners && (
-              <div className="rounded-xl border border-[#D5E2DA] bg-[#F1F6F3] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="text-[#475E52]">
-                  Vous représentez une ASC, un Campus ou une Ligue ?
-                </span>
-                <button
-                  type="button"
-                  onClick={onOpenPartners}
-                  className="font-bold text-[#0D6E46] underline hover:text-[#095637]"
-                >
-                  Inscrire un partenaire
-                </button>
-              </div>
-            )}
 
             {regAccountType === 'athlete' ? (
               <form onSubmit={handleAthleteRegisterSubmit} className="space-y-5">
@@ -1299,18 +1280,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                 {regStep === 3 && (
                   <div className="space-y-4">
-                    {/* 3-Tier Freemium Athlete Plan Selection */}
+                    {/* 2-Tier Clear Athlete Plan Selection */}
                     <div className="rounded-2xl obsidian-inset p-4 space-y-3">
                       <div>
                         <div className="text-xs font-semibold text-[#063725]">
                           Choisissez votre formule d’entraînement
                         </div>
                         <p className="text-[11px] text-[#475E52] mt-0.5">
-                          Toutes vos bases sportives et le signalement douleur sont gratuits à vie. Vous pouvez faire évoluer votre formule à tout moment.
+                          Démarrez gratuitement ou choisissez un coach dédié dès maintenant. Modifiable à tout moment.
                         </p>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <button
                           type="button"
                           onClick={() => {
@@ -1318,7 +1299,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                             setSelectedCoachId(null);
                             setConfirmPlanChoice(true);
                           }}
-                          className={`rounded-xl border p-3 text-left transition-colors ${
+                          className={`rounded-xl border p-3.5 text-left transition-colors ${
                             selectedPlanTier === 'ESSENTIEL'
                               ? 'border-[#0D6E46] bg-[#ECF7F1]'
                               : 'border-[#D5E2DA] bg-white hover:border-[#0D6E46]/45'
@@ -1326,32 +1307,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         >
                           <div className="flex items-center justify-between gap-1">
                             <span className="text-xs font-semibold text-[#063725]">Essentiel</span>
-                            <span className="font-mono text-xs font-bold text-[#0D6E46]">0 F</span>
+                            <span className="font-mono text-xs font-bold text-[#0D6E46]">0 FCFA</span>
                           </div>
                           <div className="mt-1 text-[11px] text-[#475E52]">
-                            Programme, séances FR/Wolof, 2 téléchargements hors ligne.
-                          </div>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedPlanTier('PROGRESSION');
-                            setSelectedCoachId(null);
-                            setConfirmPlanChoice(false);
-                          }}
-                          className={`rounded-xl border p-3 text-left transition-colors ${
-                            selectedPlanTier === 'PROGRESSION'
-                              ? 'border-amber-500 bg-amber-50'
-                              : 'border-[#D5E2DA] bg-white hover:border-amber-400'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="text-xs font-semibold text-[#063725]">Progression+</span>
-                            <span className="font-mono text-xs font-bold text-[#B45309]">1 500 F</span>
-                          </div>
-                          <div className="mt-1 text-[11px] text-[#475E52]">
-                            Cycles spécialisés, hors-ligne illimité & bilans comparés.
+                            Séances fondamentales FR/Wolof, chrono, auto-évaluation et 2 séances hors ligne.
                           </div>
                         </button>
 
@@ -1364,7 +1323,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                               setSelectedCoachId(availableCoaches[0].id);
                             }
                           }}
-                          className={`rounded-xl border p-3 text-left transition-colors ${
+                          className={`rounded-xl border p-3.5 text-left transition-colors ${
                             selectedPlanTier === 'COACH_PRIVE'
                               ? 'border-[#0D6E46] bg-[#ECF7F1]'
                               : 'border-[#D5E2DA] bg-white hover:border-[#0D6E46]/45'
@@ -1372,64 +1331,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         >
                           <div className="flex items-center justify-between gap-1">
                             <span className="text-xs font-semibold text-[#063725]">Suivi Coach</span>
-                            <span className="font-mono text-xs font-bold text-[#0D6E46]">5 000 F</span>
+                            <span className="font-mono text-xs font-bold text-[#0D6E46]">5 000 F / mois</span>
                           </div>
                           <div className="mt-1 text-[11px] text-[#475E52]">
-                            Progression+ inclus + coach personnel qui ajuste vos séances.
+                            Tous les cycles spécialisés, hors-ligne illimité + coach personnel &amp; messagerie directe.
                           </div>
                         </button>
                       </div>
 
-                      {selectedPlanTier === 'PROGRESSION' && (
-                        <div className="space-y-2.5 pt-1">
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setBillingCycle('MENSUEL')}
-                              className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold ${
-                                billingCycle === 'MENSUEL'
-                                  ? 'border-amber-500 bg-amber-50 text-[#063725]'
-                                  : 'border-[#D5E2DA] bg-white text-[#475E52]'
-                              }`}
-                            >
-                              1 500 FCFA / mois
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setBillingCycle('TRIMESTRIEL')}
-                              className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold ${
-                                billingCycle === 'TRIMESTRIEL'
-                                  ? 'border-amber-500 bg-amber-50 text-[#063725]'
-                                  : 'border-[#D5E2DA] bg-white text-[#475E52]'
-                              }`}
-                            >
-                              4 000 FCFA / trimestre (-11 %)
-                            </button>
-                          </div>
-                          <label className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-white p-3 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={confirmPlanChoice}
-                              onChange={(e) => setConfirmPlanChoice(e.target.checked)}
-                              className="mt-0.5 h-4 w-4 accent-[#0D6E46]"
-                            />
-                            <span className="text-[11px] text-[#475E52] leading-relaxed">
-                              Je confirme la formule <strong className="text-[#063725]">Progression+</strong> ({billingCycle === 'TRIMESTRIEL' ? '4 000 FCFA / trimestre' : '1 500 FCFA / mois'}), résiliable à tout moment.
-                            </span>
-                          </label>
-                        </div>
-                      )}
-
                       {selectedPlanTier === 'COACH_PRIVE' && (
                         <div className="space-y-2.5 pt-1">
                           <div className="text-xs font-medium text-[#063725]">
-                            Choisissez votre Coach Prépa (5 000 FCFA / mois · 80 % reversés au coach) :
+                            Choisissez votre Coach Terrain+ (5 000 FCFA / mois · 80 % reversés au coach) :
                           </div>
                           {loadingCoaches ? (
                             <div className="text-xs text-[#5B7064]">Chargement des coachs disponibles...</div>
                           ) : availableCoaches.length === 0 ? (
                             <div className="text-xs text-[#B45309]">
-                              Aucun coach vérifié disponible pour l’instant. Choisissez Essentiel ou Progression+ pour commencer.
+                              Aucun coach vérifié disponible pour l’instant. Choisissez Essentiel pour commencer gratuitement.
                             </div>
                           ) : (
                             <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
@@ -1475,7 +1394,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                                 className="mt-0.5 h-4 w-4 accent-[#0D6E46]"
                               />
                               <span className="text-[11px] text-[#475E52] leading-relaxed">
-                                Je confirme mon choix de suivi coach Privilège Jeunes à <strong className="text-[#063725]">5 000 FCFA / mois</strong> (inclut tous les modules Progression+, résiliable à tout moment).
+                                Je confirme mon choix de suivi coach à <strong className="text-[#063725]">5 000 FCFA / mois</strong> (inclut tous les modules complets, résiliable à tout moment).
                               </span>
                             </label>
                           )}
@@ -1517,7 +1436,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         className="mt-1 h-4 w-4 accent-[#0D6E46]"
                       />
                       <span className="text-xs text-[#3D5246] leading-relaxed">
-                        J’accepte la collecte minimale de mes données de suivi physique (poids, évaluations, ressenti, douleurs), accessibles uniquement à moi et au coach que je choisis, sans partage commercial.
+                        J’accepte la collecte minimale de mes données de suivi physique (poids, évaluations, ressenti), accessibles uniquement à moi et au coach que je choisis, sans partage commercial.
                       </span>
                     </label>
 
@@ -1529,7 +1448,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         className="mt-1 h-4 w-4 accent-[#0D6E46]"
                       />
                       <span className="text-xs text-[#3D5246] leading-relaxed">
-                        J’ai compris que Terrain+ propose une préparation physique générale et ne remplace ni un coach diplômé en présentiel ni un avis médical. En cas de douleur, j’arrête la pratique et consulte un professionnel de santé.
+                        J’ai compris que Terrain+ propose une préparation physique générale et ne remplace ni un coach diplômé en présentiel ni un avis médical.
                       </span>
                     </label>
 
@@ -1598,52 +1517,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 )}
               </form>
             ) : (
-              /* Coach Registration Form (Zero-Friction Marketplace 0 FCFA vs Coach Pro) */
+              /* Coach Registration Form (Single Simple 80/20 Model) */
               <form onSubmit={handleCoachRegisterSubmit} className="space-y-4">
-                <div className="rounded-2xl border border-[#BFE0CD] bg-[#ECF7F1] p-3.5 space-y-2.5">
+                <div className="rounded-2xl border border-[#BFE0CD] bg-[#ECF7F1] p-3.5 space-y-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold text-[#063725]">
-                      Choisissez votre modèle Coach Prépa
+                      Conditions Coach Terrain+
                     </span>
-                    <span className="font-mono text-xs font-bold text-[#0D6E46]">0 FCFA à l’entrée</span>
+                    <span className="font-mono text-xs font-bold text-[#0D6E46]">0 FCFA à l’inscription</span>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCoachPlan('MARKETPLACE')}
-                      className={`rounded-xl border p-2.5 text-left transition-colors ${
-                        coachPlan === 'MARKETPLACE'
-                          ? 'border-[#0D6E46] bg-white shadow-sm'
-                          : 'border-[#D5E2DA] bg-white/70 hover:border-[#BFE0CD]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-1 text-xs font-semibold text-[#063725]">
-                        <span>Marketplace</span>
-                        <span className="font-mono text-[#0D6E46]">0 F / mois</span>
-                      </div>
-                      <p className="mt-1 text-[11px] text-[#3D5246]">
-                        Inscription gratuite. Vous percevez <strong className="text-[#063725]">4 000 F (80 %)</strong> par athlète suivi.
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setCoachPlan('COACH_PRO')}
-                      className={`rounded-xl border p-2.5 text-left transition-colors ${
-                        coachPlan === 'COACH_PRO'
-                          ? 'border-[#0D6E46] bg-white shadow-sm'
-                          : 'border-[#D5E2DA] bg-white/70 hover:border-[#BFE0CD]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-1 text-xs font-semibold text-[#063725]">
-                        <span>Coach Pro</span>
-                        <span className="font-mono text-[#0D6E46]">3 000 F / mois</span>
-                      </div>
-                      <p className="mt-1 text-[11px] text-[#3D5246]">
-                        Licence fixe à <strong className="text-[#063725]">0 % commission</strong> : vous conservez 5 000 F / athlète.
-                      </p>
-                    </button>
-                  </div>
+                  <p className="text-[11px] text-[#3D5246] leading-relaxed">
+                    Aucun abonnement fixe : vous percevez <strong className="text-[#063725]">4 000 FCFA (80 %)</strong> par athlète actif accompagné (20 % commission plateforme pour l’hébergement, le suivi et les paiements).
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2001,15 +1886,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     className="mt-0.5 h-4 w-4 accent-[#0D6E46]"
                   />
                   <span className="text-xs text-[#3D5246] leading-relaxed">
-                    {coachPlan === 'COACH_PRO' ? (
-                      <>
-                        Je choisis la licence <strong className="text-[#063725]">Coach Pro (3 000 FCFA / mois)</strong> avec 0 % de commission sur mes athlètes suivis.
-                      </>
-                    ) : (
-                      <>
-                        J’active mon profil <strong className="text-[#063725]">Coach Marketplace (0 FCFA / mois fixe)</strong> et accepte le partage 80 % Coach (4 000 F) / 20 % Terrain+ (1 000 F) par élève actif.
-                      </>
-                    )}
+                    J’active mon profil <strong className="text-[#063725]">Coach Terrain+ (0 FCFA fixe)</strong> et j’accepte le partage 80 % Coach (4 000 F) / 20 % Terrain+ (1 000 F) par athlète actif.
                   </span>
                 </label>
 
@@ -2021,7 +1898,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     className="mt-0.5 h-4 w-4 accent-[#0D6E46]"
                   />
                   <span className="text-xs text-[#3D5246] leading-relaxed">
-                    Je m’engage à respecter la charte éthique Terrain+ : encadrement non médical, protection stricte des mineurs et orientation médicale immédiate en cas de douleur signalée.
+                    Je m’engage à respecter la charte éthique Terrain+ : encadrement sportif non médical et protection stricte des mineurs.
                   </span>
                 </label>
 
@@ -2076,9 +1953,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 >
                   {loading
                     ? 'Création du compte Coach...'
-                    : coachPlan === 'COACH_PRO'
-                      ? 'Créer mon compte Coach Pro (3 000 F / mois)'
-                      : 'Inscrire mon profil Coach gratuitement (0 FCFA)'}
+                    : 'Inscrire mon profil Coach gratuitement (0 FCFA)'}
                 </button>
               </form>
             )}
@@ -2537,7 +2412,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </form>
         )}
-      </div>
+      </motion.div>
 
       <LegalModal
         open={legalTab !== null}
@@ -2545,6 +2420,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         onChangeTab={(next) => setLegalTab(next)}
         onClose={() => setLegalTab(null)}
       />
-    </div>
+    </motion.div>
   );
 };

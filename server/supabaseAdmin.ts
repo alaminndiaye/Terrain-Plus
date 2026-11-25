@@ -44,6 +44,10 @@ export function getPgPool(): Pool | null {
     max: process.env.VERCEL ? 3 : 5,
     idleTimeoutMillis: 20000,
     connectionTimeoutMillis: 10000,
+    allowExitOnIdle: Boolean(process.env.VERCEL),
+  });
+  pgPool.on('error', (err) => {
+    console.error('[Postgres Pool] Erreur client inactif:', err.message);
   });
   return pgPool;
 }

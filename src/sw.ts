@@ -14,12 +14,32 @@ interface SWMessageEvent extends SWExtendableEvent {
   } | null;
 }
 
+interface SWClient {
+  url: string;
+  focus(): Promise<SWClient>;
+  navigate?(url: string): Promise<SWClient | null>;
+}
+
+interface SWClientsNamespace {
+  matchAll(options?: {
+    type?: 'window' | 'worker' | 'sharedworker' | 'all';
+    includeUncontrolled?: boolean;
+  }): Promise<SWClient[]>;
+  openWindow(url: string): Promise<SWClient | null>;
+}
+
+interface SWNotificationEvent extends SWExtendableEvent {
+  notification: Notification & { data?: { url?: string } };
+}
+
 interface SWGlobalScope {
   __WB_MANIFEST: Array<PrecacheEntry | string>;
   location: Location;
+  clients: SWClientsNamespace;
   skipWaiting(): Promise<void>;
   addEventListener(type: 'message', listener: (event: SWMessageEvent) => void): void;
   addEventListener(type: 'install' | 'activate', listener: (event: SWExtendableEvent) => void): void;
+  addEventListener(type: 'notificationclick', listener: (event: SWNotificationEvent) => void): void;
 }
 
 declare global {
@@ -138,3 +158,21 @@ sw.addEventListener('message', (event: SWMessageEvent) => {
     event.waitUntil(caches.delete(API_RUNTIME_CACHE));
   }
 });
+
+sw.addEventListener('notificationclick', (event: SWNotificationEvent) => {
+  event.notification.close();
+  const rawUrl = event.notification?.data?.url || '/';
+  const targetUrl = new URL(rawUrl, sw.location.origin).href;
+
+  event.waitUntil(
+    sw.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if (client.url.startsWith(sw.location.origin)) {
+          return client.focus().then((focused) => (focused.navigate ? focused.navigate(targetUrl) : focused));
+        }
+      }
+      return sw.clients.openWindow(targetUrl);
+    })
+  );
+});
+

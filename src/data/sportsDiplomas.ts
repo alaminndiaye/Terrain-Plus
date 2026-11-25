@@ -148,12 +148,12 @@ export const SPORT_DIPLOMA_FORMATS: Record<DiplomaTypeCode, SportDiplomaFormatSp
   },
   PREPARATEUR_PHYSIQUE_CERT: {
     code: 'PREPARATEUR_PHYSIQUE_CERT',
-    label: 'DU / Certificat Préparation Physique & Prévention',
+    label: 'DU / Certificat Préparation Physique',
     acceptedOrganisms: ['INSEPS Dakar', 'CNEPS Thiès', 'Université', 'Fédération Nationale'],
     formatExample: 'Ex : DU-PP-2023-019 ou CERT-PREPA-2022-88',
     numberPattern: /^[A-Z0-9][A-Z0-9/\-_]{3,39}$/i,
     relatedSports: 'ALL',
-    summary: 'Diplôme universitaire ou fédéral dédié à la préparation physique et à la prévention des blessures.',
+    summary: 'Diplôme universitaire ou fédéral dédié à la préparation physique et à l’encadrement sportif.',
   },
 };
 

@@ -51,7 +51,7 @@ export const TRAINING_OBJECTIVES: TrainingObjectiveSpec[] = [
     label: 'Endurance & souffle',
     shortLabel: 'Endurance',
     description: 'Tenir tout un match ou une longue course sans baisse de régime ni essoufflement.',
-    programSummary: 'Développement VMA, intermittents progressifs et récupération active',
+    programSummary: 'Développement VMA, intermittents progressifs et tenue d’effort',
     recommendedSports: ['athletisme', 'football', 'fitness', 'basket', 'handball', 'volleyball'],
     sportGuidance: {
       athletisme: 'Mécanique de foulée économique et fractionné VMA structuré.',
@@ -81,27 +81,10 @@ export const TRAINING_OBJECTIVES: TrainingObjectiveSpec[] = [
     sessionKeywords: ['explosiv', 'détente', 'sprint', 'vitesse', 'impulsion', 'plyométrie', 'accélération', 'réactivité', 'saut'],
   },
   {
-    code: 'PREVENTION',
-    label: 'Reprise douce & prévention blessures',
-    shortLabel: 'Prévention & reprise',
-    description: 'Protéger genoux, chevilles, épaules et dos tout en reprenant une routine régulière.',
-    programSummary: 'Renforcement articulaire ciblé, équilibre et mobilité progressive',
-    recommendedSports: ['fitness', 'volleyball', 'athletisme', 'football', 'basket', 'handball'],
-    sportGuidance: {
-      fitness: 'Mobilité articulaire, gainage doux et remise en forme sécurisée.',
-      volleyball: 'Protection du tendon rotulien, des chevilles et des épaules.',
-      athletisme: 'Prévention des ischio-jambiers et des tendons d’Achille.',
-      football: 'Équilibre unipodal et protection ischios / chevilles.',
-      basket: 'Réception de saut contrôlée et stabilité des genoux.',
-      handball: 'Stabilisation scapulaire et renforcement progressif de l’épaule.',
-    },
-    sessionKeywords: ['prévention', 'stabilité', 'gainage', 'mobilité', 'réception', 'équilibre', 'protection', 'contrôl'],
-  },
-  {
     code: 'PERFORMANCE',
     label: 'Préparation physique complète',
     shortLabel: 'Performance globale',
-    description: 'Combiner force, vitesse, endurance et prévention pour votre meilleure forme.',
+    description: 'Combiner force, vitesse, endurance et explosivité pour votre meilleure forme.',
     programSummary: 'Cycle complet équilibré et adapté à votre discipline',
     recommendedSports: ['football', 'basket', 'handball', 'volleyball', 'athletisme', 'fitness'],
     sportGuidance: {
@@ -144,9 +127,6 @@ export function resolveObjectiveSpec(codeOrText?: string | null): TrainingObject
   }
   if (lower.includes('explos') || lower.includes('vitesse') || lower.includes('détente') || lower.includes('detente')) {
     return OBJECTIVE_BY_CODE.EXPLOSIVITE;
-  }
-  if (lower.includes('prévention') || lower.includes('prevention') || lower.includes('reprise') || lower.includes('blessure')) {
-    return OBJECTIVE_BY_CODE.PREVENTION;
   }
   return OBJECTIVE_BY_CODE.PERFORMANCE;
 }

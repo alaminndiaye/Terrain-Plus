@@ -1,34 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Activity,
-  AlertTriangle,
   BarChart3,
   BookCheck,
-  Building2,
   CheckCircle2,
-  Database,
   Download,
+  Edit3,
   Eye,
-  FileSearch,
   LogOut,
   Menu,
+  Plus,
   RefreshCw,
-  Server,
+  Search,
   ShieldCheck,
+  Trash2,
+  UserPlus,
   Users,
   Wallet,
   X,
   XCircle,
 } from 'lucide-react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   ApiError,
   apiRequest,
@@ -41,22 +32,25 @@ import {
 import { ALL_SPORT_CODES, LEVEL_LABELS, SPORTS_CONFIG } from '../data/sportsConfig';
 import { COACH_LEGAL_STATUS_OPTIONS } from '../data/sportsDiplomas';
 import { LegalFooter } from './LegalFooter';
-
-const ADMIN_OVERVIEW_CACHE_KEY = 'terrain_plus_admin_overview_v1';
 import type {
+  AdminFinancesPayload,
   AdminSystemOverviewPayload,
   AthleteLevel,
   AthleteStatus,
   AuditLogEntry,
   CoachDocumentSummary,
-  PartnerRequestRecord,
-  PartnerSummary,
+  ExerciseItem,
+  PaymentTransactionCategory,
+  PaymentTransactionMethod,
+  PaymentTransactionStatus,
   SportCode,
   UserRole,
   ValidationStatus,
 } from '../types';
 
-type AdminTab = 'overview' | 'comptes' | 'contenus' | 'journal' | 'partenaires';
+const ADMIN_OVERVIEW_CACHE_KEY = 'terrain_plus_admin_overview_v1';
+
+type AdminTab = 'overview' | 'finances' | 'comptes' | 'contenus';
 
 interface AdminUserRow {
   id: number;
@@ -70,6 +64,8 @@ interface AdminUserRow {
   verified: number;
   sport_code: SportCode | null;
   niveau: AthleteLevel | null;
+  plan_tier?: 'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE';
+  plan_fee_fcfa?: number;
   assigned_coach_id: number | null;
 }
 
@@ -104,22 +100,12 @@ interface AdminSessionRow {
   niveau: AthleteLevel;
   duree_min: number;
   objectif: string;
-  prevention_focus: string;
+  prevention_focus?: string;
+  access_tier?: 'ESSENTIEL' | 'PROGRESSION';
+  exercises_json?: string;
   relue_par: string | null;
   validation_status: ValidationStatus;
   proposee_par_nom: string | null;
-}
-
-interface AdminGroupRow {
-  id: number;
-  nom: string;
-  partner_id: number;
-  partner_nom: string;
-  partner_type: 'ASC' | 'CAMPUS' | 'LIGUE';
-  zone: string;
-  captain_name: string;
-  sport_code: SportCode;
-  member_count: number;
 }
 
 interface AdminOverviewResponse {
@@ -127,20 +113,55 @@ interface AdminOverviewResponse {
   coaches: AdminCoachRow[];
   sessions: AdminSessionRow[];
   auditLogs: AuditLogEntry[];
-  partners: PartnerSummary[];
-  groups: AdminGroupRow[];
-  challenges: Array<{
-    id: number;
-    partner_id: number;
-    partner_nom: string;
-    titre: string;
-    indicateur: string;
-    periode: string;
-    target_sessions: number;
-    current_sessions: number;
-  }>;
-  partnerRequests: PartnerRequestRecord[];
   systemOverview?: AdminSystemOverviewPayload;
+}
+
+interface EditableExercise {
+  id: string;
+  nom: string;
+  consigneFr: string;
+  consigneWo: string;
+  mode: 'duree' | 'repetitions';
+  dureeSec: number;
+  repetitions: number;
+  reposSec: number;
+}
+
+function makeBlankExercise(idx = 1): EditableExercise {
+  return {
+    id: `ex-${Date.now()}-${idx}`,
+    nom: '',
+    consigneFr: '',
+    consigneWo: 'Toppal ndigal yi ci ndànk.',
+    mode: 'duree',
+    dureeSec: 40,
+    repetitions: 12,
+    reposSec: 20,
+  };
+}
+
+function downloadCsv(
+  filename: string,
+  headers: string[],
+  rows: Array<Array<string | number | boolean | null | undefined>>
+): void {
+  const escapeCell = (val: string | number | boolean | null | undefined) => {
+    const str = val === null || val === undefined ? '' : String(val);
+    if (/[",\r\n;]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+  const lines = [headers.map(escapeCell).join(','), ...rows.map((r) => r.map(escapeCell).join(','))];
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 export const AdminWorkspace: React.FC<{
@@ -163,13 +184,35 @@ export const AdminWorkspace: React.FC<{
   );
   const [tab, setTab] = useState<AdminTab>('overview');
   const [data, setData] = useState<AdminOverviewResponse | null>(cachedAdmin);
+  const [financesData, setFinancesData] = useState<AdminFinancesPayload | null>(null);
+  const [financesLoading, setFinancesLoading] = useState(false);
   const [loading, setLoading] = useState(!cachedAdmin);
   const [refreshingSystem, setRefreshingSystem] = useState(false);
-  const [trafficFilter, setTrafficFilter] = useState<'ALL' | 'ERRORS' | 'AUTH'>('ALL');
   const [notice, setNotice] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [reviewerBySession, setReviewerBySession] = useState<Record<number, string>>({});
-  const [auditFilter, setAuditFilter] = useState('');
+
+  // Comptes & Dossiers filtering
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<'ALL' | UserRole>('ALL');
+
+  // Edit User modal
+  const [editingUser, setEditingUser] = useState<AdminUserRow | null>(null);
+  const [editUserRole, setEditUserRole] = useState<UserRole>('ATHLETE');
+  const [editUserStatut, setEditUserStatut] = useState<AthleteStatus>('ACTIF');
+  const [editUserSport, setEditUserSport] = useState<SportCode>('football');
+  const [editUserNiveau, setEditUserNiveau] = useState<AthleteLevel>('debutant');
+  const [editUserPlan, setEditUserPlan] = useState<'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE'>('ESSENTIEL');
+  const [savingUserEdit, setSavingUserEdit] = useState(false);
+
+  // Create Admin modal
+  const [adminCreateOpen, setAdminCreateOpen] = useState(false);
+  const [newAdminPrenom, setNewAdminPrenom] = useState('');
+  const [newAdminNom, setNewAdminNom] = useState('');
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [newAdminPhone, setNewAdminPhone] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
 
   // Coach document inspection modal state
   const [inspectedCoach, setInspectedCoach] = useState<AdminCoachRow | null>(null);
@@ -179,35 +222,56 @@ export const AdminWorkspace: React.FC<{
   const [reviewNoteInput, setReviewNoteInput] = useState('');
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
 
-  // Partner creation forms
-  const [newPartnerNom, setNewPartnerNom] = useState('');
-  const [newPartnerType, setNewPartnerType] = useState<'ASC' | 'CAMPUS' | 'LIGUE'>('ASC');
-  const [newPartnerZone, setNewPartnerZone] = useState('');
+  // Finances manual transaction & payout forms
+  const [txLabel, setTxLabel] = useState('');
+  const [txCategory, setTxCategory] = useState<PaymentTransactionCategory>('COACH_PRIVATE_FEE');
+  const [txAmount, setTxAmount] = useState('5000');
+  const [txMethod, setTxMethod] = useState<PaymentTransactionMethod>('WAVE');
+  const [txStatus, setTxStatus] = useState<PaymentTransactionStatus>('PAYE');
+  const [txUserId, setTxUserId] = useState('');
+  const [txCoachId, setTxCoachId] = useState('');
+  const [txReference, setTxReference] = useState('');
+  const [txNotes, setTxNotes] = useState('');
+  const [savingTx, setSavingTx] = useState(false);
+  const [payoutMethodByCoach, setPayoutMethodByCoach] = useState<Record<number, 'WAVE' | 'ORANGE_MONEY' | 'VIREMENT' | 'ESPECES'>>({});
+  const [payoutRefByCoach, setPayoutRefByCoach] = useState<Record<number, string>>({});
 
-  const [newGroupNom, setNewGroupNom] = useState('');
-  const [newGroupPartnerId, setNewGroupPartnerId] = useState(() =>
-    cachedAdmin?.partners[0] ? String(cachedAdmin.partners[0].id) : ''
-  );
-  const [newGroupCaptain, setNewGroupCaptain] = useState('');
-  const [newGroupSport, setNewGroupSport] = useState<SportCode>('football');
+  // Session create / edit modal
+  const [sessionModalOpen, setSessionModalOpen] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<number | null>(null);
+  const [sessSport, setSessSport] = useState<SportCode>('football');
+  const [sessTitre, setSessTitre] = useState('');
+  const [sessNiveau, setSessNiveau] = useState<AthleteLevel>('debutant');
+  const [sessDuree, setSessDuree] = useState('30');
+  const [sessObjectif, setSessObjectif] = useState('');
+  const [sessAccessTier, setSessAccessTier] = useState<'ESSENTIEL' | 'PROGRESSION'>('ESSENTIEL');
+  const [sessValidationStatus, setSessValidationStatus] = useState<ValidationStatus>('VALIDEE');
+  const [sessReluePar, setSessReluePar] = useState('Direction Technique Terrain+');
+  const [sessExercises, setSessExercises] = useState<EditableExercise[]>([makeBlankExercise(1)]);
+  const [savingSession, setSavingSession] = useState(false);
 
-  const [newChallPartnerId, setNewChallPartnerId] = useState(() =>
-    cachedAdmin?.partners[0] ? String(cachedAdmin.partners[0].id) : ''
-  );
-  const [newChallTitre, setNewChallTitre] = useState('');
-  const [newChallIndicateur, setNewChallIndicateur] = useState('Séances collectives terminées');
-  const [newChallPeriode, setNewChallPeriode] = useState('Décembre 2026');
-  const [newChallTarget, setNewChallTarget] = useState('100');
+  const loadFinances = useCallback(async () => {
+    setFinancesLoading(true);
+    try {
+      const res = await apiRequest<AdminFinancesPayload>('/api/admin/finances');
+      setFinancesData(res);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        clearAllWorkspaceCaches();
+        onSessionExpired();
+        return;
+      }
+      setNotice(err instanceof Error ? err.message : 'Impossible de charger les finances.');
+    } finally {
+      setFinancesLoading(false);
+    }
+  }, [onSessionExpired]);
 
   const loadAdmin = useCallback(async () => {
     try {
       const res = await apiRequest<AdminOverviewResponse>('/api/admin/overview');
       setData(res);
       writeJsonCache(ADMIN_OVERVIEW_CACHE_KEY, res);
-      if (res.partners.length > 0) {
-        setNewGroupPartnerId((prev) => prev || String(res.partners[0].id));
-        setNewChallPartnerId((prev) => prev || String(res.partners[0].id));
-      }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         clearAllWorkspaceCaches();
@@ -228,7 +292,14 @@ export const AdminWorkspace: React.FC<{
 
   useEffect(() => {
     loadAdmin();
-  }, [loadAdmin]);
+    loadFinances();
+  }, [loadAdmin, loadFinances]);
+
+  useEffect(() => {
+    if (tab === 'finances') {
+      void loadFinances();
+    }
+  }, [tab, loadFinances]);
 
   useEffect(() => {
     if (tab !== 'overview') return;
@@ -321,7 +392,7 @@ export const AdminWorkspace: React.FC<{
         body: JSON.stringify({ athlete_user_id: athleteId, coach_user_id: coachId }),
       });
       setNotice('Affectation coach-athlète enregistrée et journalisée.');
-      await loadAdmin();
+      await Promise.all([loadAdmin(), loadFinances()]);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Erreur.');
     }
@@ -337,6 +408,71 @@ export const AdminWorkspace: React.FC<{
       await loadAdmin();
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Erreur.');
+    }
+  };
+
+  const openEditUserModal = (u: AdminUserRow) => {
+    setEditingUser(u);
+    setEditUserRole(u.role);
+    setEditUserStatut(u.statut);
+    setEditUserSport(u.sport_code || 'football');
+    setEditUserNiveau(u.niveau || 'debutant');
+    setEditUserPlan(u.plan_tier || 'ESSENTIEL');
+  };
+
+  const handleSaveUserEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser || savingUserEdit) return;
+    setSavingUserEdit(true);
+    try {
+      await apiRequest(`/api/admin/users/${editingUser.id}/profile`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          role: editUserRole,
+          statut: editUserStatut,
+          sport_code: editUserRole === 'ATHLETE' ? editUserSport : undefined,
+          niveau: editUserRole === 'ATHLETE' ? editUserNiveau : undefined,
+          plan_tier: editUserRole === 'ATHLETE' ? editUserPlan : undefined,
+        }),
+      });
+      setNotice(`Compte de ${editingUser.prenom} ${editingUser.nom} mis à jour.`);
+      setEditingUser(null);
+      await Promise.all([loadAdmin(), loadFinances()]);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Erreur lors de la mise à jour du compte.');
+    } finally {
+      setSavingUserEdit(false);
+    }
+  };
+
+  const handleCreateAdminAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (creatingAdmin) return;
+    setCreatingAdmin(true);
+    try {
+      await apiRequest('/api/admin/admins', {
+        method: 'POST',
+        body: JSON.stringify({
+          prenom: newAdminPrenom.trim(),
+          nom: newAdminNom.trim(),
+          email: newAdminEmail.trim(),
+          telephone: newAdminPhone.trim(),
+          password: newAdminPassword,
+          role: 'ADMIN',
+        }),
+      });
+      setNotice('Compte Administrateur créé avec succès.');
+      setAdminCreateOpen(false);
+      setNewAdminPrenom('');
+      setNewAdminNom('');
+      setNewAdminEmail('');
+      setNewAdminPhone('');
+      setNewAdminPassword('');
+      await loadAdmin();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Impossible de créer ce compte.');
+    } finally {
+      setCreatingAdmin(false);
     }
   };
 
@@ -364,7 +500,7 @@ export const AdminWorkspace: React.FC<{
       if (options?.closeModal) {
         setInspectedCoach(null);
       }
-      await loadAdmin();
+      await Promise.all([loadAdmin(), loadFinances()]);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Erreur.');
     }
@@ -397,83 +533,266 @@ export const AdminWorkspace: React.FC<{
     }
   };
 
-  const handleCreatePartner = async (e: React.FormEvent) => {
+  const openNewSessionModal = () => {
+    setEditingSessionId(null);
+    setSessSport('football');
+    setSessTitre('');
+    setSessNiveau('debutant');
+    setSessDuree('30');
+    setSessObjectif('');
+    setSessAccessTier('ESSENTIEL');
+    setSessValidationStatus('VALIDEE');
+    setSessReluePar('Direction Technique Terrain+');
+    setSessExercises([makeBlankExercise(1)]);
+    setSessionModalOpen(true);
+  };
+
+  const openEditSessionModal = (s: AdminSessionRow) => {
+    setEditingSessionId(s.id);
+    setSessSport(s.sport_code);
+    setSessTitre(s.titre);
+    setSessNiveau(s.niveau);
+    setSessDuree(String(s.duree_min));
+    setSessObjectif(s.objectif);
+    setSessAccessTier(s.access_tier === 'PROGRESSION' ? 'PROGRESSION' : 'ESSENTIEL');
+    setSessValidationStatus(s.validation_status);
+    setSessReluePar(s.relue_par || 'Direction Technique Terrain+');
+    let parsed: EditableExercise[] = [makeBlankExercise(1)];
+    if (s.exercises_json) {
+      try {
+        const arr = JSON.parse(s.exercises_json) as ExerciseItem[];
+        if (Array.isArray(arr) && arr.length > 0) {
+          parsed = arr.map((ex, idx) => ({
+            id: ex.id || `ex-${idx + 1}`,
+            nom: ex.nom || '',
+            consigneFr: ex.consigneFr || '',
+            consigneWo: ex.consigneWo || 'Toppal ndigal yi ci ndànk.',
+            mode: ex.mode === 'repetitions' ? 'repetitions' : 'duree',
+            dureeSec: Number(ex.dureeSec || 40),
+            repetitions: Number(ex.repetitions || 12),
+            reposSec: Number(ex.reposSec || 20),
+          }));
+        }
+      } catch {
+        // Keep single blank fallback
+      }
+    }
+    setSessExercises(parsed);
+    setSessionModalOpen(true);
+  };
+
+  const handleSaveSession = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingSession) return;
+    setSavingSession(true);
     try {
-      await apiRequest('/api/admin/partners', {
-        method: 'POST',
-        body: JSON.stringify({
-          nom: newPartnerNom,
-          type: newPartnerType,
-          zone: newPartnerZone,
-        }),
-      });
-      setNewPartnerNom('');
-      setNewPartnerZone('');
-      setNotice('Organisation partenaire ajoutée à Terrain+.');
+      const payload = {
+        sport_code: sessSport,
+        titre: sessTitre.trim(),
+        niveau: sessNiveau,
+        duree_min: Number(sessDuree) || 30,
+        objectif: sessObjectif.trim(),
+        prevention_focus: 'Général',
+        access_tier: sessAccessTier,
+        validation_status: sessValidationStatus,
+        relue_par: sessReluePar.trim() || 'Direction Technique Terrain+',
+        exercises: sessExercises.map((ex) => ({
+          id: ex.id,
+          nom: ex.nom.trim(),
+          consigneFr: ex.consigneFr.trim(),
+          consigneWo: ex.consigneWo.trim() || 'Toppal ndigal yi ci ndànk.',
+          mode: ex.mode,
+          dureeSec: Number(ex.dureeSec) || 40,
+          repetitions: ex.mode === 'repetitions' ? Number(ex.repetitions) || 12 : undefined,
+          reposSec: Number(ex.reposSec) || 20,
+        })),
+      };
+      if (editingSessionId) {
+        await apiRequest(`/api/admin/sessions/${editingSessionId}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        setNotice('Séance officielle mise à jour.');
+      } else {
+        await apiRequest('/api/admin/sessions', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        setNotice('Nouvelle séance officielle créée et ajoutée à la bibliothèque.');
+      }
+      setSessionModalOpen(false);
       await loadAdmin();
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Erreur.');
+      setNotice(err instanceof Error ? err.message : 'Erreur lors de la sauvegarde de la séance.');
+    } finally {
+      setSavingSession(false);
     }
   };
 
-  const handleCreateGroup = async (e: React.FormEvent) => {
+  const handleCreateTransaction = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingTx) return;
+    setSavingTx(true);
     try {
-      await apiRequest('/api/admin/groups', {
+      await apiRequest('/api/admin/transactions', {
         method: 'POST',
         body: JSON.stringify({
-          nom: newGroupNom,
-          partner_id: Number(newGroupPartnerId),
-          captain_name: newGroupCaptain,
-          sport_code: newGroupSport,
+          user_id: txUserId ? Number(txUserId) : null,
+          coach_user_id: txCoachId ? Number(txCoachId) : null,
+          category: txCategory,
+          label: txLabel.trim(),
+          amount_fcfa: Number(txAmount),
+          payment_method: txMethod,
+          reference: txReference.trim() || null,
+          status: txStatus,
+          notes: txNotes.trim() || null,
         }),
       });
-      setNewGroupNom('');
-      setNewGroupCaptain('');
-      setNotice('Groupe créé et rattaché à son Capitaine Prépa.');
-      await loadAdmin();
+      setTxLabel('');
+      setTxReference('');
+      setTxNotes('');
+      setNotice('Transaction enregistrée dans le grand livre.');
+      await loadFinances();
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Erreur.');
+      setNotice(err instanceof Error ? err.message : 'Erreur lors de la création de la transaction.');
+    } finally {
+      setSavingTx(false);
     }
   };
 
-  const handleCreateChallenge = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleUpdateTransactionStatus = async (txId: number, status: PaymentTransactionStatus) => {
     try {
-      await apiRequest('/api/admin/challenges', {
-        method: 'POST',
-        body: JSON.stringify({
-          partner_id: Number(newChallPartnerId),
-          titre: newChallTitre,
-          indicateur: newChallIndicateur,
-          periode: newChallPeriode,
-          target_sessions: Number(newChallTarget),
-        }),
-      });
-      setNewChallTitre('');
-      setNotice('Défi collectif publié.');
-      await loadAdmin();
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Erreur.');
-    }
-  };
-
-  const handlePartnerRequestStatus = async (reqId: number, statut: 'NOUVELLE' | 'EN_ETUDE' | 'VALIDEE') => {
-    try {
-      await apiRequest(`/api/admin/partner-requests/${reqId}`, {
+      await apiRequest(`/api/admin/transactions/${txId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ statut }),
+        body: JSON.stringify({ status }),
+      });
+      setNotice('Statut de transaction mis à jour.');
+      await loadFinances();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Erreur.');
+    }
+  };
+
+  const handleRecordCoachPayout = async (
+    coachUserId: number,
+    status: 'VERSE' | 'EN_ATTENTE'
+  ) => {
+    if (!financesData) return;
+    try {
+      await apiRequest('/api/admin/coach-payouts', {
+        method: 'POST',
+        body: JSON.stringify({
+          coach_user_id: coachUserId,
+          period_month: financesData.currentPeriodMonth,
+          payment_method: payoutMethodByCoach[coachUserId] || 'WAVE',
+          reference: payoutRefByCoach[coachUserId]?.trim() || null,
+          status,
+        }),
       });
       setNotice(
-        statut === 'VALIDEE'
-          ? 'Demande validée : l’organisation a été ajoutée aux partenaires actifs.'
-          : 'Statut de la demande mis à jour.'
+        status === 'VERSE'
+          ? 'Reversement coach enregistré comme versé.'
+          : 'Reversement coach enregistré en attente.'
       );
-      await loadAdmin();
+      await loadFinances();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Erreur lors du reversement.');
+    }
+  };
+
+  const handleUpdatePayoutStatus = async (payoutId: number, status: 'VERSE' | 'EN_ATTENTE') => {
+    try {
+      await apiRequest(`/api/admin/coach-payouts/${payoutId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      setNotice('Statut du reversement mis à jour.');
+      await loadFinances();
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Erreur.');
     }
+  };
+
+  const handleExportUsersCsv = () => {
+    if (!data) return;
+    const rows = data.users.map((u) => [
+      u.id,
+      u.prenom,
+      u.nom,
+      u.email,
+      u.telephone,
+      u.role,
+      u.statut,
+      u.sport_code ? SPORTS_CONFIG[u.sport_code].nom : '',
+      u.niveau || '',
+      u.plan_tier || '',
+      u.plan_fee_fcfa ?? '',
+      u.is_minor ? 'Oui' : 'Non',
+    ]);
+    downloadCsv(
+      `terrain-plus-utilisateurs-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['ID', 'Prénom', 'Nom', 'Email', 'Téléphone', 'Rôle', 'Statut', 'Sport', 'Niveau', 'Formule', 'Tarif FCFA', 'Mineur'],
+      rows
+    );
+    setNotice('Export CSV des utilisateurs téléchargé.');
+  };
+
+  const handleExportAuditCsv = () => {
+    if (!data) return;
+    const rows = data.auditLogs.map((l) => [
+      l.id,
+      l.created_at,
+      l.actor_nom,
+      l.actor_role,
+      l.action,
+      l.athlete_nom || '',
+      l.resource,
+    ]);
+    downloadCsv(
+      `terrain-plus-journal-cdp-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['ID', 'Horodatage', 'Acteur', 'Rôle', 'Action', 'Athlète concerné', 'Ressource'],
+      rows
+    );
+    setNotice('Journal d’audit CDP exporté en CSV.');
+  };
+
+  const handleExportTransactionsCsv = () => {
+    if (!financesData) return;
+    const rows = financesData.transactions.map((t) => [
+      t.id,
+      t.created_at,
+      t.category,
+      t.label,
+      t.user_nom || '',
+      t.coach_nom || '',
+      t.amount_fcfa,
+      t.platform_share_fcfa,
+      t.coach_share_fcfa,
+      t.payment_method,
+      t.reference || '',
+      t.status,
+      t.notes || '',
+    ]);
+    downloadCsv(
+      `terrain-plus-transactions-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        'ID',
+        'Date',
+        'Catégorie',
+        'Libellé',
+        'Utilisateur',
+        'Coach',
+        'Montant FCFA',
+        'Part Plateforme FCFA',
+        'Part Coach FCFA',
+        'Moyen',
+        'Référence',
+        'Statut',
+        'Notes',
+      ],
+      rows
+    );
+    setNotice('Export CSV des transactions téléchargé.');
   };
 
   const handleLogout = async () => {
@@ -486,7 +805,10 @@ export const AdminWorkspace: React.FC<{
   const handleRefreshOverview = async () => {
     setRefreshingSystem(true);
     try {
-      const freshOverview = await apiRequest<AdminSystemOverviewPayload>('/api/admin/system-overview');
+      const [freshOverview] = await Promise.all([
+        apiRequest<AdminSystemOverviewPayload>('/api/admin/system-overview'),
+        loadFinances(),
+      ]);
       setData((prev) => {
         if (!prev) return prev;
         const next = { ...prev, systemOverview: freshOverview };
@@ -500,26 +822,19 @@ export const AdminWorkspace: React.FC<{
     }
   };
 
-  const filteredLogs = useMemo(() => {
+  const filteredUsers = useMemo(() => {
     if (!data) return [];
-    const q = auditFilter.trim().toLowerCase();
-    if (!q) return data.auditLogs;
-    return data.auditLogs.filter(
-      (l) =>
-        l.actor_nom.toLowerCase().includes(q) ||
-        (l.athlete_nom || '').toLowerCase().includes(q) ||
-        l.action.toLowerCase().includes(q)
-    );
-  }, [data, auditFilter]);
-
-  const filteredTrafficLogs = useMemo(() => {
-    const logs = data?.systemOverview?.traffic.recentLogs || [];
-    if (trafficFilter === 'ERRORS') return logs.filter((l) => l.status_code >= 400);
-    if (trafficFilter === 'AUTH') {
-      return logs.filter((l) => l.status_code === 401 || l.status_code === 403 || l.status_code === 429 || l.full_path.includes('/auth/'));
-    }
-    return logs;
-  }, [data, trafficFilter]);
+    const q = userSearch.trim().toLowerCase();
+    return data.users.filter((u) => {
+      if (userRoleFilter !== 'ALL' && u.role !== userRoleFilter) return false;
+      if (!q) return true;
+      return (
+        `${u.prenom} ${u.nom}`.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        u.telephone.toLowerCase().includes(q)
+      );
+    });
+  }, [data, userSearch, userRoleFilter]);
 
   if (loading && !data) {
     return (
@@ -532,7 +847,10 @@ export const AdminWorkspace: React.FC<{
   const pendingSessionsCount = data?.sessions.filter((s) => s.validation_status === 'EN_RELECTURE').length || 0;
   const pendingCoachesCount =
     data?.coaches.filter((c) => c.verification_status === 'EN_ATTENTE').length || 0;
-  const newPartnerRequestsCount = data?.partnerRequests.filter((r) => r.statut === 'NOUVELLE').length || 0;
+  const pendingFinancesCount = financesData
+    ? financesData.transactions.filter((t) => t.status === 'EN_ATTENTE').length +
+      financesData.monthlyCoachEstimates.filter((c) => c.net_payout_fcfa > 0 && c.existing_payout?.status !== 'VERSE').length
+    : 0;
 
   const adminNavItems: Array<{
     id: AdminTab;
@@ -548,6 +866,13 @@ export const AdminWorkspace: React.FC<{
       icon: BarChart3,
     },
     {
+      id: 'finances',
+      label: 'Finances & Coachs',
+      mobileLabel: 'Finances',
+      icon: Wallet,
+      badge: pendingFinancesCount,
+    },
+    {
       id: 'comptes',
       label: 'Comptes & Dossiers',
       mobileLabel: 'Dossiers',
@@ -556,18 +881,10 @@ export const AdminWorkspace: React.FC<{
     },
     {
       id: 'contenus',
-      label: 'Contenus & Relecture',
+      label: 'Contenus & Séances',
       mobileLabel: 'Contenus',
       icon: BookCheck,
       badge: pendingSessionsCount,
-    },
-    { id: 'journal', label: 'Journal d’accès', mobileLabel: 'Journal', icon: FileSearch },
-    {
-      id: 'partenaires',
-      label: 'Partenaires & Défis',
-      mobileLabel: 'Réseau',
-      icon: Building2,
-      badge: newPartnerRequestsCount,
     },
   ];
 
@@ -622,7 +939,7 @@ export const AdminWorkspace: React.FC<{
         <div className="p-4 border-t border-[#E2EBE5] space-y-3">
           <div className="flex items-center gap-2 text-xs text-[#3D5246]">
             <ShieldCheck className="h-4 w-4 text-[#0D6E46] shrink-0" aria-hidden="true" />
-            <span>Traçabilité et validation active</span>
+            <span>Traçabilité CDP & gestion active</span>
           </div>
           <button
             type="button"
@@ -670,62 +987,89 @@ export const AdminWorkspace: React.FC<{
               <LogOut className="h-4 w-4" />
             </button>
           </div>
-          {mobileMenuOpen && (
-            <nav aria-label="Menu administration mobile" className="border-t border-[#E2EBE5] bg-white px-4 py-3 space-y-1.5">
-              {adminNavItems.map((item) => {
-                const Icon = item.icon;
-                const active = tab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      setTab(item.id);
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold min-h-[40px] ${
-                      active ? 'bg-[#0D6E46] text-white' : 'bg-[#F6F8F5] text-[#063725]'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                      <span>{item.label}</span>
-                    </span>
-                    {item.badge && item.badge > 0 ? (
-                      <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                        {item.badge}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="w-full flex items-center gap-2.5 rounded-xl border border-[#D5E2DA] px-3.5 py-2.5 text-xs font-semibold text-[#3D5246] min-h-[40px]"
+          <AnimatePresence>
+            {mobileMenuOpen && (
+              <motion.nav
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                aria-label="Menu administration mobile"
+                className="border-t border-[#E2EBE5] bg-white px-4 py-3 space-y-1.5"
               >
-                <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>Déconnexion</span>
-              </button>
-            </nav>
-          )}
+                {adminNavItems.map((item) => {
+                  const Icon = item.icon;
+                  const active = tab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setTab(item.id);
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold min-h-[40px] ${
+                        active ? 'bg-[#0D6E46] text-white' : 'bg-[#F6F8F5] text-[#063725]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span>{item.label}</span>
+                      </span>
+                      {item.badge && item.badge > 0 ? (
+                        <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2.5 rounded-xl border border-[#D5E2DA] px-3.5 py-2.5 text-xs font-semibold text-[#3D5246] min-h-[40px]"
+                >
+                  <LogOut className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span>Déconnexion</span>
+                </button>
+              </motion.nav>
+            )}
+          </AnimatePresence>
         </header>
 
         <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8 pb-24 md:pb-10">
           <div className="mx-auto max-w-6xl space-y-6">
-            {notice && (
-              <div className="obsidian-card rounded-xl px-4 py-3 text-sm text-[#063725] flex items-center justify-between gap-3">
-                <span>{notice}</span>
-                <button
-                  type="button"
-                  onClick={() => setNotice(null)}
-                  className="text-xs font-semibold text-[#0D6E46] hover:text-[#095637] shrink-0"
+            <AnimatePresence>
+              {notice && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.18 }}
+                  className="obsidian-card rounded-xl px-4 py-3 text-sm text-[#063725] flex items-center justify-between gap-3"
                 >
-                  Fermer
-                </button>
-              </div>
-            )}
+                  <span>{notice}</span>
+                  <button
+                    type="button"
+                    onClick={() => setNotice(null)}
+                    className="text-xs font-semibold text-[#0D6E46] hover:text-[#095637] shrink-0"
+                  >
+                    Fermer
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
+          <AnimatePresence mode="wait">
+          <motion.div
+            key={tab}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          >
+
+          {/* ---------------- VUE D'ENSEMBLE ---------------- */}
           {tab === 'overview' && data && (
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -734,7 +1078,7 @@ export const AdminWorkspace: React.FC<{
                     Vue d’ensemble
                   </h1>
                   <p className="text-sm text-[#3D5246]">
-                    Statistiques en temps réel : athlètes inscrits, coachs actifs, ratio payants vs gratuits, estimation du chiffre d’affaires mensuel et trafic.
+                    Statistiques métier en temps réel : athlètes inscrits, coachs actifs, ratio payants vs gratuits et chiffre d’affaires mensuel estimé.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 shrink-0">
@@ -761,7 +1105,7 @@ export const AdminWorkspace: React.FC<{
 
               {data.systemOverview ? (
                 <>
-                  {/* 4 Real-Time Overview KPIs */}
+                  {/* 4 Real-Time Business KPIs */}
                   {(() => {
                     const m = data.systemOverview.monetization;
                     const p = data.systemOverview.platformTotals;
@@ -770,7 +1114,12 @@ export const AdminWorkspace: React.FC<{
                     const freePct = ratioTotal > 0 ? 100 - paidPct : 0;
                     return (
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.22, delay: 0 }}
+                          className="obsidian-card rounded-2xl p-5 space-y-1.5"
+                        >
                           <div className="flex items-center justify-between text-xs text-[#5B7064]">
                             <span>Athlètes inscrits</span>
                             <Users className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
@@ -779,11 +1128,16 @@ export const AdminWorkspace: React.FC<{
                             {p.athletesCount.toLocaleString('fr-FR')}
                           </div>
                           <div className="text-xs font-mono text-[#3D5246] tabular-nums">
-                            {p.totalUsers.toLocaleString('fr-FR')} comptes totaux · {p.partnersCount} partenaires
+                            {p.totalUsers.toLocaleString('fr-FR')} comptes totaux
                           </div>
-                        </div>
+                        </motion.div>
 
-                        <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.22, delay: 0.04 }}
+                          className="obsidian-card rounded-2xl p-5 space-y-1.5"
+                        >
                           <div className="flex items-center justify-between text-xs text-[#5B7064]">
                             <span>Coachs actifs</span>
                             <ShieldCheck className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
@@ -794,9 +1148,14 @@ export const AdminWorkspace: React.FC<{
                           <div className="text-xs font-mono text-[#3D5246] tabular-nums">
                             {p.coachesPendingCount} en attente · {p.coachesRefusedCount} refusés
                           </div>
-                        </div>
+                        </motion.div>
 
-                        <div className="obsidian-card rounded-2xl p-5 space-y-2">
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.22, delay: 0.08 }}
+                          className="obsidian-card rounded-2xl p-5 space-y-2"
+                        >
                           <div className="flex items-center justify-between text-xs text-[#5B7064]">
                             <span>Ratio payants vs gratuits</span>
                             <Users className="h-4 w-4 text-[#B45309]" aria-hidden="true" />
@@ -805,17 +1164,24 @@ export const AdminWorkspace: React.FC<{
                             {paidPct}% / {freePct}%
                           </div>
                           <div className="h-1.5 w-full rounded-full bg-[#E2EBE5] overflow-hidden" aria-hidden="true">
-                            <div
-                              className="h-full rounded-full bg-[#0D6E46] transition-all"
-                              style={{ width: `${paidPct}%` }}
+                            <motion.div
+                              className="h-full rounded-full bg-[#0D6E46]"
+                              initial={{ width: 0 }}
+                              animate={{ width: `${paidPct}%` }}
+                              transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
                             />
                           </div>
                           <div className="text-xs font-mono text-[#3D5246] tabular-nums">
                             {m.totalPaidUsers} payants · {m.totalFreeUsers} gratuits
                           </div>
-                        </div>
+                        </motion.div>
 
-                        <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.22, delay: 0.12 }}
+                          className="obsidian-card rounded-2xl p-5 space-y-1.5"
+                        >
                           <div className="flex items-center justify-between text-xs text-[#5B7064]">
                             <span>Estimation CA mensuel</span>
                             <Wallet className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
@@ -826,7 +1192,7 @@ export const AdminWorkspace: React.FC<{
                           <div className="text-xs font-mono text-[#3D5246] tabular-nums">
                             Brut : {m.grossMonthlyVolumeFcfa.toLocaleString('fr-FR')} F · Coachs : {m.coachPayoutsMonthlyFcfa.toLocaleString('fr-FR')} F
                           </div>
-                        </div>
+                        </motion.div>
                       </div>
                     );
                   })()}
@@ -865,33 +1231,23 @@ export const AdminWorkspace: React.FC<{
                             </td>
                             <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[#5B7064]">0 FCFA</td>
                           </tr>
+                          {(data.systemOverview.monetization.progressionMonthlyCount > 0 ||
+                            data.systemOverview.monetization.progressionQuarterlyCount > 0) && (
+                            <tr className="hover:bg-[#F6F8F5]">
+                              <td className="px-4 py-2.5 font-medium text-[#063725]">Athlètes · Ancienne formule</td>
+                              <td className="px-4 py-2.5 font-mono text-[#3D5246]">Héritée</td>
+                              <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
+                                {data.systemOverview.monetization.progressionMonthlyCount +
+                                  data.systemOverview.monetization.progressionQuarterlyCount}
+                              </td>
+                              <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#0D6E46]">
+                                {data.systemOverview.monetization.breakdown.progressionMonthlyRevenueFcfa.toLocaleString('fr-FR')} FCFA
+                              </td>
+                            </tr>
+                          )}
                           <tr className="hover:bg-[#F6F8F5]">
-                            <td className="px-4 py-2.5 font-medium text-[#063725]">Athlètes · Progression+ (Mensuel)</td>
-                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">1 500 FCFA / mois</td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
-                              {data.systemOverview.monetization.progressionMonthlyCount}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#0D6E46]">
-                              {(data.systemOverview.monetization.progressionMonthlyCount * 1500).toLocaleString('fr-FR')} FCFA
-                            </td>
-                          </tr>
-                          <tr className="hover:bg-[#F6F8F5]">
-                            <td className="px-4 py-2.5 font-medium text-[#063725]">Athlètes · Progression+ (Trimestriel)</td>
-                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">4 000 F / 3 mois (1 333 F/m)</td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
-                              {data.systemOverview.monetization.progressionQuarterlyCount}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#0D6E46]">
-                              {Math.max(
-                                0,
-                                data.systemOverview.monetization.breakdown.progressionMonthlyRevenueFcfa -
-                                  data.systemOverview.monetization.progressionMonthlyCount * 1500
-                              ).toLocaleString('fr-FR')} FCFA
-                            </td>
-                          </tr>
-                          <tr className="hover:bg-[#F6F8F5]">
-                            <td className="px-4 py-2.5 font-medium text-[#063725]">Athlètes · Suivi Coach (5 000 F/mois)</td>
-                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">20 % Marketplace / 0 % Pro</td>
+                            <td className="px-4 py-2.5 font-medium text-[#063725]">Athlètes · Suivi Coach</td>
+                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">5 000 F / mois (20 % plat.)</td>
                             <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
                               {data.systemOverview.monetization.coachPrivateAthletesCount}
                             </td>
@@ -900,21 +1256,15 @@ export const AdminWorkspace: React.FC<{
                             </td>
                           </tr>
                           <tr className="hover:bg-[#F6F8F5]">
-                            <td className="px-4 py-2.5 font-medium text-[#063725]">Coachs vérifiés · Marketplace (Gratuit)</td>
+                            <td className="px-4 py-2.5 font-medium text-[#063725]">Coachs vérifiés (Modèle 80 / 20)</td>
                             <td className="px-4 py-2.5 font-mono text-[#5B7064]">0 FCFA fixe</td>
                             <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
-                              {data.systemOverview.monetization.freeCoachesCount}
+                              {data.systemOverview.monetization.freeCoachesCount + data.systemOverview.monetization.paidCoachesCount}
                             </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[#5B7064]">0 FCFA</td>
-                          </tr>
-                          <tr className="hover:bg-[#F6F8F5]">
-                            <td className="px-4 py-2.5 font-medium text-[#063725]">Coachs vérifiés · Licence Coach Pro</td>
-                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">3 000 FCFA / mois</td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
-                              {data.systemOverview.monetization.paidCoachesCount}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#0D6E46]">
-                              {data.systemOverview.monetization.breakdown.coachProLicenseRevenueFcfa.toLocaleString('fr-FR')} FCFA
+                            <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[#5B7064]">
+                              {data.systemOverview.monetization.breakdown.coachProLicenseRevenueFcfa > 0
+                                ? `${data.systemOverview.monetization.breakdown.coachProLicenseRevenueFcfa.toLocaleString('fr-FR')} FCFA`
+                                : '0 FCFA'}
                             </td>
                           </tr>
                         </tbody>
@@ -978,24 +1328,12 @@ export const AdminWorkspace: React.FC<{
                             {data.systemOverview.platformTotals.evaluationsCount.toLocaleString('fr-FR')}
                           </div>
                         </div>
-                        <div>
-                          <div className="text-[#5B7064]">Groupes encadrés</div>
-                          <div className="font-mono text-base font-bold tabular-nums text-[#0D6E46]">
-                            {data.systemOverview.platformTotals.groupsCount}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-[#5B7064]">Défis collectifs</div>
-                          <div className="font-mono text-base font-bold tabular-nums text-[#0D6E46]">
-                            {data.systemOverview.platformTotals.challengesCount}
-                          </div>
-                        </div>
                       </div>
                     </div>
                   </div>
 
                   {/* Operational Action Queues */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <button
                       type="button"
                       onClick={() => setTab('comptes')}
@@ -1025,259 +1363,22 @@ export const AdminWorkspace: React.FC<{
                       <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
                         {data.systemOverview.queues.pendingSessionsReview}
                       </div>
-                      <div className="mt-1 text-[11px] text-[#5B7064]">Validation technique requise</div>
+                      <div className="mt-1 text-[11px] text-[#5B7064]">Validation technique & bibliothèque</div>
                     </button>
-
-                    <div className="obsidian-card rounded-2xl p-4">
-                      <div className="text-xs font-medium text-[#3D5246]">Alertes douleur ouvertes</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.queues.openPainAlerts}
-                      </div>
-                      <div className="mt-1 text-[11px] text-[#5B7064]">Signalements athlètes en cours</div>
-                    </div>
 
                     <button
                       type="button"
-                      onClick={() => setTab('partenaires')}
+                      onClick={() => setTab('finances')}
                       className="obsidian-card rounded-2xl p-4 text-left hover:bg-[#F6F8F5] transition-colors"
                     >
-                      <div className="text-xs font-medium text-[#3D5246]">Demandes partenariats</div>
-                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.queues.newPartnerRequests}
+                      <div className="text-xs font-medium text-[#3D5246]">Encaissements enregistrés</div>
+                      <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-[#0D6E46]">
+                        {(financesData?.summary.collectedTotalFcfa ?? 0).toLocaleString('fr-FR')} F
                       </div>
-                      <div className="mt-1 text-[11px] text-[#5B7064]">ASC, Campus & Ligues</div>
+                      <div className="mt-1 text-[11px] font-semibold text-[#0D6E46]">
+                        Ouvrir Finances & Reversements -&gt;
+                      </div>
                     </button>
-                  </div>
-
-                  {/* Platform Traffic & Infrastructure KPIs */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
-                        <span>Trafic plateforme (24h)</span>
-                        <Activity className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
-                      </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.traffic.requestsLast24h.toLocaleString('fr-FR')} req
-                      </div>
-                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
-                        {data.systemOverview.traffic.requestsLastHour} req / 1h · {data.systemOverview.traffic.bandwidthOutKb24h} Ko sortants
-                      </div>
-                    </div>
-
-                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
-                        <span>Latence & Erreurs HTTP</span>
-                        <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
-                      </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.traffic.avgLatencyMs} ms
-                      </div>
-                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
-                        {data.systemOverview.traffic.errorRatePct}% erreurs · {data.systemOverview.traffic.authBlocks24h} blocages 401/403/429
-                      </div>
-                    </div>
-
-                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
-                        <span>Sessions & Sécurité</span>
-                        <Server className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
-                      </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.system.activeSessionsCount} actives
-                      </div>
-                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
-                        {data.systemOverview.system.lockedAccountsCount} verrouillés · {data.systemOverview.system.unverifiedAccountsCount} OTP en attente
-                      </div>
-                    </div>
-
-                    <div className="obsidian-card rounded-2xl p-5 space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-[#5B7064]">
-                        <span>Base & Stockage</span>
-                        <Database className="h-4 w-4 text-[#0D6E46]" aria-hidden="true" />
-                      </div>
-                      <div className="font-mono text-2xl font-bold tabular-nums text-[#063725]">
-                        {data.systemOverview.system.dbSizeKb} Ko
-                      </div>
-                      <div className="text-xs font-mono text-[#3D5246] tabular-nums">
-                        {data.systemOverview.system.uploadsCount} diplômes ({data.systemOverview.system.uploadsSizeKb} Ko)
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Traffic Chart & Breakdown by Role */}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 obsidian-card rounded-2xl p-5 space-y-3">
-                      <div>
-                        <h2 className="text-base font-semibold text-[#063725]">Volume horaire du trafic (24h)</h2>
-                        <p className="text-xs text-[#5B7064]">
-                          Requêtes traitées et erreurs / refus par tranche horaire.
-                        </p>
-                      </div>
-                      <div className="h-60 w-full">
-                        {data.systemOverview.traffic.hourlySeries.length > 0 ? (
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={data.systemOverview.traffic.hourlySeries}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#E2EBE5" />
-                              <XAxis
-                                dataKey="hour"
-                                tick={{ fontSize: 11, fill: '#5B7064' }}
-                                axisLine={{ stroke: '#D5E2DA' }}
-                                tickLine={{ stroke: '#D5E2DA' }}
-                              />
-                              <YAxis
-                                tick={{ fontSize: 11, fill: '#5B7064' }}
-                                allowDecimals={false}
-                                axisLine={{ stroke: '#D5E2DA' }}
-                                tickLine={{ stroke: '#D5E2DA' }}
-                              />
-                              <Tooltip
-                                contentStyle={{
-                                  backgroundColor: '#FFFFFF',
-                                  borderColor: '#D5E2DA',
-                                  borderRadius: 12,
-                                  color: '#063725',
-                                }}
-                                itemStyle={{ color: '#063725' }}
-                                labelStyle={{ color: '#0D6E46', fontWeight: 600 }}
-                              />
-                              <Bar dataKey="requests" name="Requêtes" fill="#0D6E46" radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="errors" name="Erreurs / Blocages" fill="#EF4444" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        ) : (
-                          <div className="h-full flex items-center justify-center text-xs text-[#5B7064]">
-                            En attente des premières requêtes enregistrées...
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="obsidian-card rounded-2xl p-5 space-y-4">
-                      <div>
-                        <h2 className="text-base font-semibold text-[#063725]">Trafic par rôle (24h)</h2>
-                        <div className="mt-3 space-y-2">
-                          {data.systemOverview.traffic.byRole.map((r) => (
-                            <div key={r.role} className="flex items-center justify-between text-xs">
-                              <span className="font-medium text-[#3D5246]">{r.role}</span>
-                              <span className="font-mono font-semibold tabular-nums text-[#0D6E46]">
-                                {r.requests} req
-                              </span>
-                            </div>
-                          ))}
-                          {data.systemOverview.traffic.byRole.length === 0 && (
-                            <div className="text-xs text-[#5B7064]">Aucune requête enregistrée sur 24h.</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Top Routes */}
-                  <div className="obsidian-card rounded-2xl overflow-x-auto">
-                    <div className="px-5 py-4 border-b border-[#E2EBE5]">
-                      <h2 className="text-base font-semibold text-[#063725]">Endpoints les plus sollicités (24h)</h2>
-                    </div>
-                    <table className="w-full text-left text-xs">
-                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
-                        <tr>
-                          <th className="px-4 py-2.5 font-medium">Méthode</th>
-                          <th className="px-4 py-2.5 font-medium">Endpoint</th>
-                          <th className="px-4 py-2.5 font-medium text-right">Requêtes</th>
-                          <th className="px-4 py-2.5 font-medium text-right">Latence moy.</th>
-                          <th className="px-4 py-2.5 font-medium text-right">Erreurs HTTP</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#E2EBE5]">
-                        {data.systemOverview.traffic.topRoutes.map((route) => (
-                          <tr key={`${route.method}:${route.path_group}`} className="hover:bg-[#F6F8F5]">
-                            <td className="px-4 py-2.5 font-mono font-semibold text-[#0D6E46]">{route.method}</td>
-                            <td className="px-4 py-2.5 font-mono text-[#063725]">{route.path_group}</td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right font-semibold text-[#063725]">
-                              {route.hits}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[#3D5246]">{route.avg_ms} ms</td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right">
-                              <span className={route.errors > 0 ? 'text-red-700 font-semibold' : 'text-[#5B7064]'}>
-                                {route.errors}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Recent Traffic Log Stream */}
-                  <div className="obsidian-card rounded-2xl overflow-x-auto">
-                    <div className="px-5 py-4 border-b border-[#E2EBE5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <h2 className="text-base font-semibold text-[#063725]">Flux récent des requêtes plateforme</h2>
-                        <p className="text-xs text-[#5B7064]">
-                          Dernières requêtes HTTP enregistrées avec code réponse, rôle et temps de traitement.
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        {(
-                          [
-                            ['ALL', 'Tout'],
-                            ['ERRORS', 'Erreurs (>= 400)'],
-                            ['AUTH', 'Auth & Blocages'],
-                          ] as const
-                        ).map(([code, label]) => (
-                          <button
-                            key={code}
-                            type="button"
-                            onClick={() => setTrafficFilter(code)}
-                            className={`rounded-lg px-3 py-1.5 text-xs font-medium min-h-[34px] transition-colors ${
-                              trafficFilter === code
-                                ? 'bg-[#0D6E46] text-white font-bold'
-                                : 'border border-[#C3D6CA] bg-[#F1F6F3] text-[#3D5246] hover:text-[#063725]'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <table className="w-full text-left text-xs">
-                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
-                        <tr>
-                          <th className="px-4 py-2.5 font-medium">Horodatage</th>
-                          <th className="px-4 py-2.5 font-medium">Requête</th>
-                          <th className="px-4 py-2.5 font-medium">Statut</th>
-                          <th className="px-4 py-2.5 font-medium text-right">Latence</th>
-                          <th className="px-4 py-2.5 font-medium">Rôle</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#E2EBE5]">
-                        {filteredTrafficLogs.map((log) => (
-                          <tr key={log.id} className="hover:bg-[#F6F8F5]">
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-[#5B7064] whitespace-nowrap">
-                              {log.created_at}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">
-                              <span className="font-semibold text-[#063725] mr-1.5">{log.method}</span>
-                              {log.full_path}
-                            </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums">
-                              <span
-                                className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${
-                                  log.status_code >= 500
-                                    ? 'bg-red-50 text-red-700 border border-red-200'
-                                    : log.status_code >= 400
-                                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                                      : 'bg-[#ECF7F1] text-[#0D6E46] border border-[#BFE0CD]'
-                                }`}
-                              >
-                                {log.status_code}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[#3D5246]">{log.duration_ms} ms</td>
-                            <td className="px-4 py-2.5 font-mono text-[#3D5246]">{log.user_role}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
                   </div>
                 </>
               ) : (
@@ -1288,13 +1389,458 @@ export const AdminWorkspace: React.FC<{
             </div>
           )}
 
+          {/* ---------------- FINANCES & REVERSIONS COACH ---------------- */}
+          {tab === 'finances' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="font-display text-2xl font-bold text-[#063725]">
+                    Finances, paiements et reversements coachs
+                  </h1>
+                  <p className="text-sm text-[#3D5246]">
+                    Grand livre des encaissements Wave / Orange Money / manuels et suivi mensuel des parts reversées aux coachs.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleExportTransactionsCsv}
+                    disabled={!financesData || financesData.transactions.length === 0}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#C3D6CA] bg-white px-4 py-2 text-xs font-semibold text-[#063725] hover:bg-[#ECF7F1] disabled:opacity-50 min-h-[40px]"
+                  >
+                    <Download className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
+                    <span>Exporter Transactions (CSV)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={loadFinances}
+                    disabled={financesLoading}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#C3D6CA] bg-white px-4 py-2 text-xs font-semibold text-[#063725] hover:bg-[#ECF7F1] min-h-[40px]"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 text-[#0D6E46] ${financesLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+                    <span>Actualiser</span>
+                  </button>
+                </div>
+              </div>
+
+              {financesData ? (
+                <>
+                  {/* Finance KPI Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div className="obsidian-card rounded-2xl p-4 space-y-1">
+                      <div className="text-[11px] text-[#5B7064]">Encaissé total</div>
+                      <div className="font-mono text-xl font-bold tabular-nums text-[#063725]">
+                        {financesData.summary.collectedTotalFcfa.toLocaleString('fr-FR')} F
+                      </div>
+                    </div>
+                    <div className="obsidian-card rounded-2xl p-4 space-y-1">
+                      <div className="text-[11px] text-[#5B7064]">Revenu net plateforme</div>
+                      <div className="font-mono text-xl font-bold tabular-nums text-[#0D6E46]">
+                        {financesData.summary.collectedPlatformFcfa.toLocaleString('fr-FR')} F
+                      </div>
+                    </div>
+                    <div className="obsidian-card rounded-2xl p-4 space-y-1">
+                      <div className="text-[11px] text-[#5B7064]">En attente / Échoués</div>
+                      <div className="font-mono text-xl font-bold tabular-nums text-amber-800">
+                        {financesData.summary.pendingTotalFcfa.toLocaleString('fr-FR')} F
+                      </div>
+                      <div className="text-[11px] font-mono text-[#5B7064]">
+                        {financesData.summary.failedCount} échec(s)
+                      </div>
+                    </div>
+                    <div className="obsidian-card rounded-2xl p-4 space-y-1">
+                      <div className="text-[11px] text-[#5B7064]">À reverser ({financesData.currentPeriodMonth})</div>
+                      <div className="font-mono text-xl font-bold tabular-nums text-[#063725]">
+                        {financesData.summary.estimatedMonthlyCoachPayoutFcfa.toLocaleString('fr-FR')} F
+                      </div>
+                    </div>
+                    <div className="obsidian-card rounded-2xl p-4 space-y-1">
+                      <div className="text-[11px] text-[#5B7064]">Déjà versé ce mois</div>
+                      <div className="font-mono text-xl font-bold tabular-nums text-[#0D6E46]">
+                        {financesData.summary.paidOutCurrentMonthFcfa.toLocaleString('fr-FR')} F
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Monthly Coach Payouts Table */}
+                  <div className="obsidian-card rounded-2xl overflow-x-auto">
+                    <div className="px-5 py-4 border-b border-[#E2EBE5] flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h2 className="text-base font-semibold text-[#063725]">
+                          Reversements mensuels des coachs · Période {financesData.currentPeriodMonth}
+                        </h2>
+                        <p className="text-xs text-[#5B7064]">
+                          Calcul automatique sur les athlètes affectés actifs (5 000 F/athlète : 80 % reversés au coach, 20 % plateforme).
+                        </p>
+                      </div>
+                    </div>
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Coach</th>
+                          <th className="px-4 py-3 font-medium">Formule</th>
+                          <th className="px-4 py-3 font-medium text-right">Athlètes</th>
+                          <th className="px-4 py-3 font-medium text-right">Brut</th>
+                          <th className="px-4 py-3 font-medium text-right">Commission</th>
+                          <th className="px-4 py-3 font-medium text-right">Net à reverser</th>
+                          <th className="px-4 py-3 font-medium">Statut & Versement</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E2EBE5]">
+                        {financesData.monthlyCoachEstimates.map((est) => {
+                          const existing = est.existing_payout;
+                          return (
+                            <tr key={est.coach_user_id} className="hover:bg-[#F6F8F5]">
+                              <td className="px-4 py-3">
+                                <div className="font-semibold text-[#063725]">{est.coach_nom}</div>
+                                <div className="font-mono text-[11px] text-[#5B7064]">{est.coach_telephone}</div>
+                              </td>
+                              <td className="px-4 py-3 font-mono text-[#3D5246]">{est.coach_plan}</td>
+                              <td className="px-4 py-3 font-mono tabular-nums text-right font-semibold text-[#063725]">
+                                {est.active_athletes_count}
+                              </td>
+                              <td className="px-4 py-3 font-mono tabular-nums text-right text-[#3D5246]">
+                                {est.gross_amount_fcfa.toLocaleString('fr-FR')} F
+                              </td>
+                              <td className="px-4 py-3 font-mono tabular-nums text-right text-[#5B7064]">
+                                {est.commission_fcfa.toLocaleString('fr-FR')} F
+                              </td>
+                              <td className="px-4 py-3 font-mono tabular-nums text-right font-bold text-[#0D6E46]">
+                                {est.net_payout_fcfa.toLocaleString('fr-FR')} F
+                              </td>
+                              <td className="px-4 py-3">
+                                {existing ? (
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span
+                                      className={`rounded px-2 py-0.5 font-mono text-[11px] font-bold ${
+                                        existing.status === 'VERSE'
+                                          ? 'border border-[#BFE0CD] bg-[#ECF7F1] text-[#0D6E46]'
+                                          : 'border border-amber-200 bg-amber-50 text-amber-800'
+                                      }`}
+                                    >
+                                      {existing.status} · {existing.payment_method}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleUpdatePayoutStatus(
+                                          existing.id,
+                                          existing.status === 'VERSE' ? 'EN_ATTENTE' : 'VERSE'
+                                        )
+                                      }
+                                      className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1 text-[11px] font-medium text-[#063725] hover:bg-[#ECF7F1]"
+                                    >
+                                      {existing.status === 'VERSE' ? 'Repasser en attente' : 'Marquer versé'}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <select
+                                      value={payoutMethodByCoach[est.coach_user_id] || 'WAVE'}
+                                      onChange={(e) =>
+                                        setPayoutMethodByCoach((prev) => ({
+                                          ...prev,
+                                          [est.coach_user_id]: e.target.value as 'WAVE' | 'ORANGE_MONEY' | 'VIREMENT' | 'ESPECES',
+                                        }))
+                                      }
+                                      className="rounded-lg border border-[#C3D6CA] bg-white px-2 py-1 text-[11px] text-[#063725]"
+                                    >
+                                      <option value="WAVE">Wave</option>
+                                      <option value="ORANGE_MONEY">Orange Money</option>
+                                      <option value="VIREMENT">Virement</option>
+                                      <option value="ESPECES">Espèces</option>
+                                    </select>
+                                    <input
+                                      type="text"
+                                      value={payoutRefByCoach[est.coach_user_id] || ''}
+                                      onChange={(e) =>
+                                        setPayoutRefByCoach((prev) => ({
+                                          ...prev,
+                                          [est.coach_user_id]: e.target.value,
+                                        }))
+                                      }
+                                      placeholder="Réf."
+                                      className="w-24 rounded-lg border border-[#C3D6CA] bg-white px-2 py-1 font-mono text-[11px] text-[#063725]"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRecordCoachPayout(est.coach_user_id, 'VERSE')}
+                                      className="rounded-full bg-[#0D6E46] px-3 py-1 text-[11px] font-bold text-white hover:bg-[#095637]"
+                                    >
+                                      Marquer versé
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {financesData.monthlyCoachEstimates.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-6 text-center text-xs text-[#5B7064]">
+                              Aucun coach vérifié actif à reverser pour cette période.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Manual Payment Entry + Ledger */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <form onSubmit={handleCreateTransaction} className="lg:col-span-4 obsidian-card rounded-2xl p-5 space-y-3 h-fit">
+                      <h2 className="text-base font-semibold text-[#063725]">Enregistrer un paiement manuel</h2>
+                      <p className="text-xs text-[#5B7064]">
+                        Ajoutez un encaissement reçu par Wave, Orange Money, espèces ou virement.
+                      </p>
+
+                      <div>
+                        <label className="block text-xs font-medium text-[#3D5246] mb-1">Libellé *</label>
+                        <input
+                          type="text"
+                          required
+                          value={txLabel}
+                          onChange={(e) => setTxLabel(e.target.value)}
+                          placeholder="Ex: Suivi Coach mensuel Moussa"
+                          className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[38px]"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-[#3D5246] mb-1">Catégorie</label>
+                          <select
+                            value={txCategory}
+                            onChange={(e) => setTxCategory(e.target.value as PaymentTransactionCategory)}
+                            className="w-full rounded-xl border border-[#C3D6CA] bg-white px-2.5 py-2 text-xs text-[#063725] min-h-[38px]"
+                          >
+                            <option value="COACH_PRIVATE_FEE">Suivi Coach (5 000 F)</option>
+                            <option value="ATHLETE_PLAN">Formule Athlète</option>
+                            <option value="AUTRE">Autre</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-[#3D5246] mb-1">Montant (FCFA) *</label>
+                          <input
+                            type="number"
+                            min={100}
+                            required
+                            value={txAmount}
+                            onChange={(e) => setTxAmount(e.target.value)}
+                            className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-xs text-[#063725] min-h-[38px]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-[#3D5246] mb-1">Moyen</label>
+                          <select
+                            value={txMethod}
+                            onChange={(e) => setTxMethod(e.target.value as PaymentTransactionMethod)}
+                            className="w-full rounded-xl border border-[#C3D6CA] bg-white px-2.5 py-2 text-xs text-[#063725] min-h-[38px]"
+                          >
+                            <option value="WAVE">Wave</option>
+                            <option value="ORANGE_MONEY">Orange Money</option>
+                            <option value="FREE_MONEY">Free Money</option>
+                            <option value="CARTE">Carte</option>
+                            <option value="ESPECES">Espèces</option>
+                            <option value="MANUEL">Manuel</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-[#3D5246] mb-1">Statut</label>
+                          <select
+                            value={txStatus}
+                            onChange={(e) => setTxStatus(e.target.value as PaymentTransactionStatus)}
+                            className="w-full rounded-xl border border-[#C3D6CA] bg-white px-2.5 py-2 text-xs text-[#063725] min-h-[38px]"
+                          >
+                            <option value="PAYE">PAYE</option>
+                            <option value="EN_ATTENTE">EN_ATTENTE</option>
+                            <option value="ECHOUE">ECHOUE</option>
+                            <option value="REMBOURSE">REMBOURSE</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {data && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-xs font-medium text-[#3D5246] mb-1">Compte lié</label>
+                            <select
+                              value={txUserId}
+                              onChange={(e) => setTxUserId(e.target.value)}
+                              className="w-full rounded-xl border border-[#C3D6CA] bg-white px-2 py-2 text-xs text-[#063725] min-h-[38px]"
+                            >
+                              <option value="">Aucun</option>
+                              {data.users.map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.prenom} {u.nom}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-[#3D5246] mb-1">Coach lié</label>
+                            <select
+                              value={txCoachId}
+                              onChange={(e) => setTxCoachId(e.target.value)}
+                              className="w-full rounded-xl border border-[#C3D6CA] bg-white px-2 py-2 text-xs text-[#063725] min-h-[38px]"
+                            >
+                              <option value="">Aucun</option>
+                              {data.coaches.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.prenom} {c.nom}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={txReference}
+                          onChange={(e) => setTxReference(e.target.value)}
+                          placeholder="Référence Wave/OM"
+                          className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-xs text-[#063725] min-h-[38px]"
+                        />
+                        <input
+                          type="text"
+                          value={txNotes}
+                          onChange={(e) => setTxNotes(e.target.value)}
+                          placeholder="Note interne"
+                          className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[38px]"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={savingTx}
+                        className="w-full rounded-full bg-[#0D6E46] py-2.5 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50 min-h-[40px]"
+                      >
+                        {savingTx ? 'Enregistrement...' : 'Ajouter la transaction'}
+                      </button>
+                    </form>
+
+                    <div className="lg:col-span-8 obsidian-card rounded-2xl overflow-x-auto">
+                      <div className="px-5 py-4 border-b border-[#E2EBE5] flex items-center justify-between gap-2">
+                        <h2 className="text-base font-semibold text-[#063725]">
+                          Journal des transactions ({financesData.transactions.length})
+                        </h2>
+                      </div>
+                      <table className="w-full text-left text-xs">
+                        <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
+                          <tr>
+                            <th className="px-4 py-2.5 font-medium">Date</th>
+                            <th className="px-4 py-2.5 font-medium">Libellé & Acteur</th>
+                            <th className="px-4 py-2.5 font-medium text-right">Montant</th>
+                            <th className="px-4 py-2.5 font-medium">Moyen / Réf</th>
+                            <th className="px-4 py-2.5 font-medium">Statut</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E2EBE5]">
+                          {financesData.transactions.map((t) => (
+                            <tr key={t.id} className="hover:bg-[#F6F8F5]">
+                              <td className="px-4 py-3 font-mono tabular-nums text-[#5B7064] whitespace-nowrap">
+                                {t.created_at.slice(0, 16).replace('T', ' ')}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="font-semibold text-[#063725]">{t.label}</div>
+                                <div className="text-[11px] text-[#5B7064]">
+                                  {t.user_nom || 'Système'}
+                                  {t.coach_nom ? ` -> Coach ${t.coach_nom}` : ''}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 font-mono tabular-nums text-right">
+                                <div className="font-bold text-[#063725]">{t.amount_fcfa.toLocaleString('fr-FR')} F</div>
+                                <div className="text-[10px] text-[#5B7064]">
+                                  Plat. {t.platform_share_fcfa.toLocaleString('fr-FR')} / Coach {t.coach_share_fcfa.toLocaleString('fr-FR')}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 font-mono text-[#3D5246]">
+                                <div>{t.payment_method}</div>
+                                {t.reference && <div className="text-[10px] text-[#5B7064]">{t.reference}</div>}
+                              </td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={t.status}
+                                  onChange={(e) =>
+                                    handleUpdateTransactionStatus(t.id, e.target.value as PaymentTransactionStatus)
+                                  }
+                                  className={`rounded-lg border px-2 py-1 text-[11px] font-semibold ${
+                                    t.status === 'PAYE'
+                                      ? 'border-[#BFE0CD] bg-[#ECF7F1] text-[#0D6E46]'
+                                      : t.status === 'EN_ATTENTE'
+                                        ? 'border-amber-200 bg-amber-50 text-amber-800'
+                                        : 'border-red-200 bg-red-50 text-red-700'
+                                  }`}
+                                >
+                                  <option value="PAYE">PAYE</option>
+                                  <option value="EN_ATTENTE">EN_ATTENTE</option>
+                                  <option value="ECHOUE">ECHOUE</option>
+                                  <option value="REMBOURSE">REMBOURSE</option>
+                                </select>
+                              </td>
+                            </tr>
+                          ))}
+                          {financesData.transactions.length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="px-4 py-8 text-center text-xs text-[#5B7064]">
+                                Aucune transaction enregistrée pour le moment. Les souscriptions et paiements manuels apparaîtront ici.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="obsidian-card rounded-2xl p-6 text-sm text-[#3D5246]">
+                  Chargement des données financières...
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ---------------- COMPTES & DOSSIERS ---------------- */}
           {tab === 'comptes' && data && (
             <div className="space-y-6">
-              <div>
-                <h1 className="font-display text-2xl font-bold text-[#063725]">Comptes, dossiers coachs et affectations</h1>
-                <p className="text-sm text-[#3D5246]">
-                  Étudiez obligatoirement le diplôme d’un coach avant d’activer son accès et de le rendre visible aux athlètes.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="font-display text-2xl font-bold text-[#063725]">Comptes, dossiers coachs et affectations</h1>
+                  <p className="text-sm text-[#3D5246]">
+                    Étudiez obligatoirement le diplôme d’un coach avant activation, gérez les comptes et exportez vos journaux CDP.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setAdminCreateOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#0D6E46] px-4 py-2 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
+                  >
+                    <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                    <span>Nouveau compte Administrateur</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportUsersCsv}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#C3D6CA] bg-white px-3.5 py-2 text-xs font-semibold text-[#063725] hover:bg-[#ECF7F1] min-h-[40px]"
+                  >
+                    <Download className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
+                    <span>Exporter Utilisateurs (CSV)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportAuditCsv}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#C3D6CA] bg-white px-3.5 py-2 text-xs font-semibold text-[#063725] hover:bg-[#ECF7F1] min-h-[40px]"
+                  >
+                    <Download className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
+                    <span>Exporter Journal CDP (CSV)</span>
+                  </button>
+                </div>
               </div>
 
               {/* Coach Verification Section */}
@@ -1399,83 +1945,155 @@ export const AdminWorkspace: React.FC<{
                 </div>
               </div>
 
-              <div className="obsidian-card rounded-2xl overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-xs text-[#5B7064]">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Utilisateur</th>
-                      <th className="px-4 py-3 font-medium">Rôle & Sport</th>
-                      <th className="px-4 py-3 font-medium">Contact</th>
-                      <th className="px-4 py-3 font-medium">Coach affecté</th>
-                      <th className="px-4 py-3 font-medium">Statut</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E2EBE5]">
-                    {data.users.map((u) => (
-                      <tr key={u.id} className="hover:bg-[#F6F8F5]">
-                        <td className="px-4 py-3.5 font-medium text-[#063725]">
-                          {u.prenom} {u.nom}
-                          {u.is_minor ? <span className="ml-2 text-xs text-amber-700 font-semibold">(Mineur)</span> : null}
-                        </td>
-                        <td className="px-4 py-3.5 text-xs text-[#3D5246]">
-                          {u.role}
-                          {u.sport_code ? ` · ${SPORTS_CONFIG[u.sport_code].nom}` : ''}
-                          {u.niveau ? ` (${LEVEL_LABELS[u.niveau]})` : ''}
-                        </td>
-                        <td className="px-4 py-3.5 text-xs text-[#3D5246] font-mono">
-                          {u.telephone}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          {u.role === 'ATHLETE' ? (
-                            <select
-                              value={u.assigned_coach_id || ''}
-                              onChange={(e) => handleAssignCoach(u.id, Number(e.target.value))}
-                              className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725] min-h-[36px]"
-                            >
-                              <option value="">Non affecté</option>
-                              {data.coaches
-                                .filter((c) => (c.verification_status || 'VERIFIE') === 'VERIFIE')
-                                .map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.prenom} {c.nom} ({c.zone})
-                                  </option>
-                                ))}
-                            </select>
-                          ) : (
-                            <span className="text-xs text-[#5B7064]">—</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          {u.role !== 'ADMIN' ? (
-                            <select
-                              value={u.statut}
-                              onChange={(e) => handleStatusChange(u.id, e.target.value as AthleteStatus)}
-                              className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725] min-h-[36px]"
-                            >
-                              <option value="ACTIF">ACTIF</option>
-                              <option value="SUIVI_ACTIF">SUIVI_ACTIF</option>
-                              <option value="EN_PAUSE">EN_PAUSE</option>
-                              <option value="CLOTURE">CLOTURE</option>
-                            </select>
-                          ) : (
-                            <span className="text-xs font-semibold text-[#0D6E46]">{u.statut}</span>
-                          )}
-                        </td>
+              {/* Searchable Users Directory */}
+              <div className="obsidian-card rounded-2xl overflow-hidden">
+                <div className="px-5 py-4 border-b border-[#E2EBE5] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold text-[#063725]">
+                      Répertoire des comptes ({filteredUsers.length} / {data.users.length})
+                    </h2>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="relative">
+                      <Search className="h-3.5 w-3.5 text-[#5B7064] absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
+                      <input
+                        type="text"
+                        value={userSearch}
+                        onChange={(e) => setUserSearch(e.target.value)}
+                        placeholder="Nom, email ou téléphone..."
+                        className="rounded-xl border border-[#C3D6CA] bg-white pl-8 pr-3 py-1.5 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[38px] w-56"
+                      />
+                    </div>
+                    <select
+                      value={userRoleFilter}
+                      onChange={(e) => setUserRoleFilter(e.target.value as 'ALL' | UserRole)}
+                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-1.5 text-xs font-medium text-[#063725] min-h-[38px]"
+                    >
+                      <option value="ALL">Tous les rôles</option>
+                      <option value="ATHLETE">ATHLETE</option>
+                      <option value="COACH">COACH</option>
+                      <option value="ADMIN">ADMIN</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-xs text-[#5B7064]">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Utilisateur</th>
+                        <th className="px-4 py-3 font-medium">Rôle & Sport</th>
+                        <th className="px-4 py-3 font-medium">Contact</th>
+                        <th className="px-4 py-3 font-medium">Coach affecté</th>
+                        <th className="px-4 py-3 font-medium">Statut</th>
+                        <th className="px-4 py-3 font-medium text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-[#E2EBE5]">
+                      {filteredUsers.map((u) => (
+                        <tr key={u.id} className="hover:bg-[#F6F8F5]">
+                          <td className="px-4 py-3.5 font-medium text-[#063725]">
+                            <div>
+                              {u.prenom} {u.nom}
+                              {u.is_minor ? <span className="ml-2 text-xs text-amber-700 font-semibold">(Mineur)</span> : null}
+                            </div>
+                            {u.role === 'ATHLETE' && u.plan_tier && (
+                              <div className="mt-0.5 inline-block rounded border border-[#D5E2DA] bg-[#F1F6F3] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#0D6E46]">
+                                {u.plan_tier}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5 text-xs text-[#3D5246]">
+                            <span className="font-semibold text-[#063725]">{u.role}</span>
+                            {u.sport_code ? ` · ${SPORTS_CONFIG[u.sport_code].nom}` : ''}
+                            {u.niveau ? ` (${LEVEL_LABELS[u.niveau]})` : ''}
+                          </td>
+                          <td className="px-4 py-3.5 text-xs text-[#3D5246]">
+                            <div className="font-mono">{u.telephone}</div>
+                            <div className="text-[11px] text-[#5B7064]">{u.email}</div>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            {u.role === 'ATHLETE' ? (
+                              <select
+                                value={u.assigned_coach_id || ''}
+                                onChange={(e) => handleAssignCoach(u.id, Number(e.target.value))}
+                                className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725] min-h-[36px]"
+                              >
+                                <option value="">Non affecté</option>
+                                {data.coaches
+                                  .filter((c) => (c.verification_status || 'VERIFIE') === 'VERIFIE')
+                                  .map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.prenom} {c.nom} ({c.zone})
+                                    </option>
+                                  ))}
+                              </select>
+                            ) : (
+                              <span className="text-xs text-[#5B7064]">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            {u.role !== 'ADMIN' ? (
+                              <select
+                                value={u.statut}
+                                onChange={(e) => handleStatusChange(u.id, e.target.value as AthleteStatus)}
+                                className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725] min-h-[36px]"
+                              >
+                                <option value="ACTIF">ACTIF</option>
+                                <option value="SUIVI_ACTIF">SUIVI_ACTIF</option>
+                                <option value="EN_PAUSE">EN_PAUSE</option>
+                                <option value="CLOTURE">CLOTURE</option>
+                              </select>
+                            ) : (
+                              <span className="text-xs font-semibold text-[#0D6E46]">{u.statut}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => openEditUserModal(u)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#063725] hover:bg-[#ECF7F1] min-h-[34px]"
+                            >
+                              <Edit3 className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
+                              <span>Modifier</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredUsers.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-xs text-[#5B7064]">
+                            Aucun utilisateur ne correspond aux filtres sélectionnés.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}
 
+          {/* ---------------- CONTENUS & SEANCES ---------------- */}
           {tab === 'contenus' && data && (
             <div className="space-y-5">
-              <div>
-                <h1 className="font-display text-2xl font-bold text-[#063725]">Validation et relecture des séances</h1>
-                <p className="text-sm text-[#3D5246]">
-                  Chaque séance doit être relue par un préparateur physique ou un professionnel de santé avant publication.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h1 className="font-display text-2xl font-bold text-[#063725]">
+                    Contenus & Bibliothèque des séances
+                  </h1>
+                  <p className="text-sm text-[#3D5246]">
+                    Créez ou éditez les séances officielles Terrain+ et validez les propositions en relecture.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openNewSessionModal}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#0D6E46] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[42px] shrink-0"
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  <span>Nouvelle séance officielle</span>
+                </button>
               </div>
 
               <div className="space-y-4">
@@ -1483,27 +2101,42 @@ export const AdminWorkspace: React.FC<{
                   <div key={s.id} className="obsidian-card rounded-2xl p-5 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <div className="text-xs text-[#5B7064]">
-                          {SPORTS_CONFIG[s.sport_code].nom} · {LEVEL_LABELS[s.niveau]} · {s.duree_min} min
-                          {s.proposee_par_nom ? ` · Proposée par ${s.proposee_par_nom}` : ''}
+                        <div className="text-xs text-[#5B7064] flex flex-wrap items-center gap-1.5">
+                          <span>
+                            {SPORTS_CONFIG[s.sport_code].nom} · {LEVEL_LABELS[s.niveau]} · {s.duree_min} min
+                          </span>
+                          <span className="rounded border border-[#D5E2DA] bg-[#F1F6F3] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[#0D6E46]">
+                            {s.access_tier || 'ESSENTIEL'}
+                          </span>
+                          {s.proposee_par_nom ? <span>· Proposée par {s.proposee_par_nom}</span> : null}
                         </div>
                         <h2 className="text-base font-semibold text-[#063725] mt-0.5">{s.titre}</h2>
                       </div>
-                      <span
-                        className={`text-xs font-semibold ${
-                          s.validation_status === 'VALIDEE'
-                            ? 'text-[#0D6E46]'
-                            : s.validation_status === 'EN_RELECTURE'
-                              ? 'text-amber-700'
-                              : 'text-[#5B7064]'
-                        }`}
-                      >
-                        {s.validation_status}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-xs font-semibold ${
+                            s.validation_status === 'VALIDEE'
+                              ? 'text-[#0D6E46]'
+                              : s.validation_status === 'EN_RELECTURE'
+                                ? 'text-amber-700'
+                                : 'text-[#5B7064]'
+                          }`}
+                        >
+                          {s.validation_status}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => openEditSessionModal(s)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#063725] hover:bg-[#ECF7F1]"
+                        >
+                          <Edit3 className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
+                          <span>Éditer</span>
+                        </button>
+                      </div>
                     </div>
 
                     <p className="text-xs text-[#3D5246]">
-                      Objectif : {s.objectif} · Prévention : {s.prevention_focus}
+                      Objectif : {s.objectif}
                     </p>
                     {s.relue_par && (
                       <p className="text-xs text-[#0D6E46] font-semibold">Relue et validée par : {s.relue_par}</p>
@@ -1539,339 +2172,8 @@ export const AdminWorkspace: React.FC<{
               </div>
             </div>
           )}
-
-          {tab === 'journal' && data && (
-            <div className="space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <h1 className="font-display text-2xl font-bold text-[#063725]">Journal des accès aux fiches athlètes</h1>
-                  <p className="text-sm text-[#3D5246]">
-                    Traçabilité complète des consultations, ajustements et exports de données sensibles.
-                  </p>
-                </div>
-                <input
-                  type="text"
-                  value={auditFilter}
-                  onChange={(e) => setAuditFilter(e.target.value)}
-                  placeholder="Filtrer par acteur, athlète ou action..."
-                  className="w-full sm:w-64 rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-sm text-[#063725] placeholder:text-[#5B7064] min-h-[42px]"
-                />
-              </div>
-
-              <div className="obsidian-card rounded-2xl overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Horodatage</th>
-                      <th className="px-4 py-3 font-medium">Acteur</th>
-                      <th className="px-4 py-3 font-medium">Action</th>
-                      <th className="px-4 py-3 font-medium">Athlète concerné</th>
-                      <th className="px-4 py-3 font-medium">Ressource</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E2EBE5]">
-                    {filteredLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-[#F6F8F5]">
-                        <td className="px-4 py-3 font-mono tabular-nums text-[#5B7064]">{log.created_at}</td>
-                        <td className="px-4 py-3 font-medium text-[#063725]">
-                          {log.actor_nom} ({log.actor_role})
-                        </td>
-                        <td className="px-4 py-3 font-mono font-semibold text-[#0D6E46]">{log.action}</td>
-                        <td className="px-4 py-3 text-[#3D5246]">{log.athlete_nom || '—'}</td>
-                        <td className="px-4 py-3 font-mono text-[#5B7064]">{log.resource}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {tab === 'partenaires' && data && (
-            <div className="space-y-8">
-              <div>
-                <h1 className="font-display text-2xl font-bold text-[#063725]">
-                  Partenaires, Groupes et Défis collectifs
-                </h1>
-                <p className="text-sm text-[#3D5246]">
-                  Modèle collectif ASC, Campus et Ligues (suivi agrégé uniquement, sans classement individuel public).
-                </p>
-              </div>
-
-              {/* Active Partners */}
-              <section className="space-y-3">
-                <h2 className="text-base font-semibold text-[#063725]">Organisations partenaires actives</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {data.partners.map((p) => (
-                    <div key={p.id} className="obsidian-card rounded-2xl p-5 space-y-2">
-                      <div className="text-xs text-[#0D6E46] font-semibold">{p.type} · {p.zone}</div>
-                      <div className="text-base font-semibold text-[#063725]">{p.nom}</div>
-                      <div className="text-xs font-mono tabular-nums text-[#3D5246] pt-1">
-                        {p.groups_count} groupe(s) · {p.members_count} membre(s) agrégés
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              {/* Active Groups & Challenges */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <section className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h2 className="text-base font-semibold text-[#063725]">Groupes et Capitaines Prépa</h2>
-                  <div className="divide-y divide-[#E2EBE5]">
-                    {data.groups.map((g) => (
-                      <div key={g.id} className="py-3 flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-[#063725]">{g.nom}</div>
-                          <div className="text-xs text-[#5B7064]">
-                            {g.partner_nom} · {SPORTS_CONFIG[g.sport_code].nom} · Capitaine : {g.captain_name}
-                          </div>
-                        </div>
-                        <span className="font-mono text-xs tabular-nums font-semibold text-[#0D6E46]">
-                          {g.member_count} membres
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h2 className="text-base font-semibold text-[#063725]">Défis collectifs en cours</h2>
-                  <div className="space-y-3">
-                    {data.challenges.map((c) => {
-                      const pct = Math.min(100, Math.round((c.current_sessions / c.target_sessions) * 100));
-                      return (
-                        <div key={c.id} className="obsidian-inset rounded-xl p-3.5 space-y-2">
-                          <div className="flex items-center justify-between gap-2 text-xs text-[#5B7064]">
-                            <span>{c.partner_nom} · {c.periode}</span>
-                            <span className="font-mono tabular-nums font-semibold text-[#0D6E46]">{pct}%</span>
-                          </div>
-                          <div className="text-sm font-semibold text-[#063725]">{c.titre}</div>
-                          <div className="h-1.5 w-full rounded-full bg-[#DCE7E0] overflow-hidden">
-                            <div className="h-full bg-[#0D6E46]" style={{ width: `${pct}%` }} />
-                          </div>
-                          <div className="font-mono text-xs tabular-nums text-[#3D5246]">
-                            {c.current_sessions} / {c.target_sessions} · {c.indicateur}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-              </div>
-
-              {/* Partner Requests from Landing Page */}
-              <section className="obsidian-card rounded-2xl p-5 space-y-3">
-                <div>
-                  <h2 className="text-base font-semibold text-[#063725]">Demandes de partenariat reçues</h2>
-                  <p className="text-xs text-[#5B7064]">
-                    Valider une demande crée automatiquement le partenaire actif dans la plateforme.
-                  </p>
-                </div>
-                {data.partnerRequests.length === 0 ? (
-                  <p className="text-xs text-[#5B7064] py-3">
-                    Aucune demande de partenariat soumise depuis l’accueil public pour le moment.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="border-b border-[#E2EBE5] bg-[#F1F6F3] text-[#5B7064]">
-                        <tr>
-                          <th className="px-3 py-2.5 font-medium">Structure</th>
-                          <th className="px-3 py-2.5 font-medium">Responsable & Contact</th>
-                          <th className="px-3 py-2.5 font-medium">Détails</th>
-                          <th className="px-3 py-2.5 font-medium">Statut</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#E2EBE5]">
-                        {data.partnerRequests.map((req) => (
-                          <tr key={req.id} className="hover:bg-[#F6F8F5]">
-                            <td className="px-3 py-3 font-medium text-[#063725]">
-                              {req.organisation}
-                              <div className="text-[#5B7064] font-normal">
-                                {req.type} · {req.zone}
-                              </div>
-                            </td>
-                            <td className="px-3 py-3 text-[#3D5246]">
-                              <div>{req.contact_nom}</div>
-                              <div className="font-mono text-[#5B7064]">{req.contact_telephone}</div>
-                            </td>
-                            <td className="px-3 py-3 text-[#3D5246] max-w-xs">
-                              {req.pack_souhaite ? (
-                                <div className="mb-1 inline-block rounded border border-[#BFE0CD] bg-[#ECF7F1] px-2 py-0.5 font-mono text-[10px] font-semibold text-[#0D6E46]">
-                                  {req.pack_souhaite}
-                                </div>
-                              ) : null}
-                              <div>
-                                {req.sport_principal ? `${req.sport_principal} · ` : ''}
-                                {req.nombre_athletes_estime ? `${req.nombre_athletes_estime} sportifs · ` : ''}
-                                {req.message || '—'}
-                              </div>
-                            </td>
-                            <td className="px-3 py-3">
-                              <select
-                                value={req.statut}
-                                onChange={(e) =>
-                                  handlePartnerRequestStatus(
-                                    req.id,
-                                    e.target.value as 'NOUVELLE' | 'EN_ETUDE' | 'VALIDEE'
-                                  )
-                                }
-                                className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725] min-h-[36px]"
-                              >
-                                <option value="NOUVELLE">NOUVELLE</option>
-                                <option value="EN_ETUDE">EN_ETUDE</option>
-                                <option value="VALIDEE">VALIDEE</option>
-                              </select>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-
-              {/* Creation Forms */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <form onSubmit={handleCreatePartner} className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h3 className="text-sm font-semibold text-[#063725]">Ajouter un partenaire</h3>
-                  <input
-                    type="text"
-                    required
-                    value={newPartnerNom}
-                    onChange={(e) => setNewPartnerNom(e.target.value)}
-                    placeholder="Nom de l'ASC, Campus ou Ligue"
-                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={newPartnerType}
-                      onChange={(e) => setNewPartnerType(e.target.value as 'ASC' | 'CAMPUS' | 'LIGUE')}
-                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
-                    >
-                      <option value="ASC">ASC</option>
-                      <option value="CAMPUS">Campus</option>
-                      <option value="LIGUE">Ligue</option>
-                    </select>
-                    <input
-                      type="text"
-                      required
-                      value={newPartnerZone}
-                      onChange={(e) => setNewPartnerZone(e.target.value)}
-                      placeholder="Ville ou zone"
-                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full rounded-full bg-[#0D6E46] py-2.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
-                  >
-                    Créer le partenaire
-                  </button>
-                </form>
-
-                <form onSubmit={handleCreateGroup} className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h3 className="text-sm font-semibold text-[#063725]">Créer un groupe</h3>
-                  <select
-                    value={newGroupPartnerId}
-                    onChange={(e) => setNewGroupPartnerId(e.target.value)}
-                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
-                  >
-                    {data.partners.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.nom} ({p.zone})
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    required
-                    value={newGroupNom}
-                    onChange={(e) => setNewGroupNom(e.target.value)}
-                    placeholder="Nom du collectif"
-                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      required
-                      value={newGroupCaptain}
-                      onChange={(e) => setNewGroupCaptain(e.target.value)}
-                      placeholder="Capitaine Prépa"
-                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
-                    />
-                    <select
-                      value={newGroupSport}
-                      onChange={(e) => setNewGroupSport(e.target.value as SportCode)}
-                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
-                    >
-                      {ALL_SPORT_CODES.map((code) => (
-                        <option key={code} value={code}>
-                          {SPORTS_CONFIG[code].nom}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full rounded-full bg-[#0D6E46] py-2.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
-                  >
-                    Créer le groupe
-                  </button>
-                </form>
-
-                <form onSubmit={handleCreateChallenge} className="obsidian-card rounded-2xl p-5 space-y-3">
-                  <h3 className="text-sm font-semibold text-[#063725]">Lancer un défi collectif</h3>
-                  <select
-                    value={newChallPartnerId}
-                    onChange={(e) => setNewChallPartnerId(e.target.value)}
-                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
-                  >
-                    {data.partners.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.nom} ({p.zone})
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    required
-                    value={newChallTitre}
-                    onChange={(e) => setNewChallTitre(e.target.value)}
-                    placeholder="Titre du défi (ex: 100 séances prévention)"
-                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="text"
-                      required
-                      value={newChallPeriode}
-                      onChange={(e) => setNewChallPeriode(e.target.value)}
-                      placeholder="Période"
-                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
-                    />
-                    <input
-                      type="number"
-                      min={10}
-                      max={10000}
-                      required
-                      value={newChallTarget}
-                      onChange={(e) => setNewChallTarget(e.target.value)}
-                      placeholder="Objectif séances"
-                      className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-xs text-[#063725] placeholder:text-[#5B7064] min-h-[40px]"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    className="w-full rounded-full bg-[#0D6E46] py-2.5 text-xs font-bold text-white hover:bg-[#095637] min-h-[40px]"
-                  >
-                    Publier le défi
-                  </button>
-                </form>
-              </div>
-            </div>
-          )}
+          </motion.div>
+          </AnimatePresence>
             <LegalFooter />
           </div>
         </main>
@@ -1882,7 +2184,7 @@ export const AdminWorkspace: React.FC<{
         aria-label="Navigation mobile administration"
         className="md:hidden fixed bottom-3 left-3 right-3 z-40 rounded-2xl border border-[#D5E2DA] bg-white/95 backdrop-blur-md p-1.5 shadow-xl"
       >
-        <div className="grid grid-cols-5 gap-1">
+        <div className="grid grid-cols-4 gap-1">
           {adminNavItems.map((item) => {
             const Icon = item.icon;
             const active = tab === item.id;
@@ -1916,10 +2218,556 @@ export const AdminWorkspace: React.FC<{
         </div>
       </nav>
 
+      {/* Edit User Modal */}
+      <AnimatePresence>
+      {editingUser && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4"
+        >
+          <motion.form
+            onSubmit={handleSaveUserEdit}
+            initial={{ opacity: 0, scale: 0.96, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 6 }}
+            className="obsidian-card-glow w-full max-w-md rounded-3xl p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-display text-lg font-bold text-[#063725]">
+                  Modifier le compte
+                </h2>
+                <p className="text-xs text-[#5B7064]">
+                  {editingUser.prenom} {editingUser.nom} ({editingUser.email})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="p-2 rounded-xl text-[#5B7064] hover:bg-[#F1F6F3]"
+                aria-label="Fermer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[#3D5246] mb-1">Rôle</label>
+                <select
+                  value={editUserRole}
+                  onChange={(e) => setEditUserRole(e.target.value as UserRole)}
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                >
+                  <option value="ATHLETE">ATHLETE</option>
+                  <option value="COACH">COACH</option>
+                  <option value="ADMIN">ADMIN</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#3D5246] mb-1">Statut</label>
+                <select
+                  value={editUserStatut}
+                  onChange={(e) => setEditUserStatut(e.target.value as AthleteStatus)}
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                >
+                  <option value="ACTIF">ACTIF</option>
+                  <option value="SUIVI_ACTIF">SUIVI_ACTIF</option>
+                  <option value="EN_PAUSE">EN_PAUSE</option>
+                  <option value="CLOTURE">CLOTURE</option>
+                </select>
+              </div>
+            </div>
+
+            {editUserRole === 'ATHLETE' && (
+              <div className="space-y-3 pt-2 border-t border-[#E2EBE5]">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-[#3D5246] mb-1">Sport</label>
+                    <select
+                      value={editUserSport}
+                      onChange={(e) => setEditUserSport(e.target.value as SportCode)}
+                      className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                    >
+                      {ALL_SPORT_CODES.map((code) => (
+                        <option key={code} value={code}>
+                          {SPORTS_CONFIG[code].nom}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-[#3D5246] mb-1">Niveau</label>
+                    <select
+                      value={editUserNiveau}
+                      onChange={(e) => setEditUserNiveau(e.target.value as AthleteLevel)}
+                      className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                    >
+                      <option value="debutant">Débutant</option>
+                      <option value="intermediaire">Intermédiaire</option>
+                      <option value="avance">Avancé</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#3D5246] mb-1">Formule</label>
+                  <select
+                    value={editUserPlan}
+                    onChange={(e) =>
+                      setEditUserPlan(e.target.value as 'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE')
+                    }
+                    className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                  >
+                    <option value="ESSENTIEL">ESSENTIEL (0 FCFA)</option>
+                    <option value="COACH_PRIVE">SUIVI COACH (5 000 FCFA/mois)</option>
+                    {editingUser?.plan_tier === 'PROGRESSION' && (
+                      <option value="PROGRESSION">PROGRESSION (hérité)</option>
+                    )}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="rounded-xl border border-[#C3D6CA] bg-white px-4 py-2 text-xs font-medium text-[#3D5246]"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={savingUserEdit}
+                className="rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50"
+              >
+                {savingUserEdit ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+            </div>
+          </motion.form>
+        </motion.div>
+      )}
+      </AnimatePresence>
+
+      {/* Create Admin Modal */}
+      <AnimatePresence>
+      {adminCreateOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4"
+        >
+          <motion.form
+            onSubmit={handleCreateAdminAccount}
+            initial={{ opacity: 0, scale: 0.96, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 6 }}
+            className="obsidian-card-glow w-full max-w-md rounded-3xl p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-display text-lg font-bold text-[#063725]">
+                  Nouveau compte Administrateur
+                </h2>
+                <p className="text-xs text-[#5B7064]">
+                  Crée un compte administrateur vérifié sans passer par l’inscription publique.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdminCreateOpen(false)}
+                className="p-2 rounded-xl text-[#5B7064] hover:bg-[#F1F6F3]"
+                aria-label="Fermer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                type="text"
+                required
+                value={newAdminPrenom}
+                onChange={(e) => setNewAdminPrenom(e.target.value)}
+                placeholder="Prénom *"
+                className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+              />
+              <input
+                type="text"
+                required
+                value={newAdminNom}
+                onChange={(e) => setNewAdminNom(e.target.value)}
+                placeholder="Nom *"
+                className="rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+              />
+            </div>
+
+            <input
+              type="email"
+              required
+              value={newAdminEmail}
+              onChange={(e) => setNewAdminEmail(e.target.value)}
+              placeholder="Email professionnel *"
+              className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+            />
+
+            <input
+              type="tel"
+              required
+              value={newAdminPhone}
+              onChange={(e) => setNewAdminPhone(e.target.value)}
+              placeholder="+221770000000 *"
+              className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-xs text-[#063725] min-h-[40px]"
+            />
+
+            <input
+              type="password"
+              required
+              value={newAdminPassword}
+              onChange={(e) => setNewAdminPassword(e.target.value)}
+              placeholder="Mot de passe fort (8+ car., Maj, min, chiffre) *"
+              className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setAdminCreateOpen(false)}
+                className="rounded-xl border border-[#C3D6CA] bg-white px-4 py-2 text-xs font-medium text-[#3D5246]"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={creatingAdmin}
+                className="rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50"
+              >
+                {creatingAdmin ? 'Création...' : 'Créer le compte'}
+              </button>
+            </div>
+          </motion.form>
+        </motion.div>
+      )}
+      </AnimatePresence>
+
+      {/* Session Creator / Editor Modal */}
+      <AnimatePresence>
+      {sessionModalOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto"
+        >
+          <motion.form
+            onSubmit={handleSaveSession}
+            initial={{ opacity: 0, scale: 0.96, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 6 }}
+            className="obsidian-card-glow w-full max-w-3xl rounded-3xl my-auto p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-[#E2EBE5] pb-3">
+              <div>
+                <h2 className="font-display text-lg font-bold text-[#063725]">
+                  {editingSessionId ? 'Éditer la séance officielle' : 'Créer une séance officielle'}
+                </h2>
+                <p className="text-xs text-[#5B7064]">
+                  Définissez les paramètres, le palier d’accès et la liste des exercices guidés (FR / Wolof).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSessionModalOpen(false)}
+                className="p-2 rounded-xl text-[#5B7064] hover:bg-[#F1F6F3]"
+                aria-label="Fermer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[#3D5246] mb-1">Sport *</label>
+                <select
+                  value={sessSport}
+                  onChange={(e) => setSessSport(e.target.value as SportCode)}
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                >
+                  {ALL_SPORT_CODES.map((code) => (
+                    <option key={code} value={code}>
+                      {SPORTS_CONFIG[code].nom}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#3D5246] mb-1">Niveau *</label>
+                <select
+                  value={sessNiveau}
+                  onChange={(e) => setSessNiveau(e.target.value as AthleteLevel)}
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                >
+                  <option value="debutant">Débutant</option>
+                  <option value="intermediaire">Intermédiaire</option>
+                  <option value="avance">Avancé</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#3D5246] mb-1">Durée (min)</label>
+                <input
+                  type="number"
+                  min={10}
+                  max={120}
+                  value={sessDuree}
+                  onChange={(e) => setSessDuree(e.target.value)}
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 font-mono text-xs text-[#063725] min-h-[40px]"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-[#3D5246] mb-1">Titre de la séance *</label>
+                <input
+                  type="text"
+                  required
+                  value={sessTitre}
+                  onChange={(e) => setSessTitre(e.target.value)}
+                  placeholder="Ex: Appuis explosifs et vitesse"
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#3D5246] mb-1">Palier d’accès</label>
+                <select
+                  value={sessAccessTier}
+                  onChange={(e) => setSessAccessTier(e.target.value as 'ESSENTIEL' | 'PROGRESSION')}
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                >
+                  <option value="ESSENTIEL">ESSENTIEL (Gratuit)</option>
+                  <option value="PROGRESSION">SUIVI COACH (Payant)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[#3D5246] mb-1">Objectif *</label>
+              <input
+                type="text"
+                required
+                value={sessObjectif}
+                onChange={(e) => setSessObjectif(e.target.value)}
+                className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[#3D5246] mb-1">Statut de validation</label>
+                <select
+                  value={sessValidationStatus}
+                  onChange={(e) => setSessValidationStatus(e.target.value as ValidationStatus)}
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                >
+                  <option value="VALIDEE">VALIDEE (Publiée)</option>
+                  <option value="EN_RELECTURE">EN_RELECTURE</option>
+                  <option value="BROUILLON">BROUILLON</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#3D5246] mb-1">Relecteur / Référent</label>
+                <input
+                  type="text"
+                  value={sessReluePar}
+                  onChange={(e) => setSessReluePar(e.target.value)}
+                  className="w-full rounded-xl border border-[#C3D6CA] bg-white px-3 py-2 text-xs text-[#063725] min-h-[40px]"
+                />
+              </div>
+            </div>
+
+            {/* Exercises List */}
+            <div className="space-y-2.5 pt-2 border-t border-[#E2EBE5]">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-[#063725]">
+                  Exercices de la séance ({sessExercises.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSessExercises((prev) => [...prev, makeBlankExercise(prev.length + 1)])
+                  }
+                  className="inline-flex items-center gap-1 rounded-full border border-[#C3D6CA] bg-[#F1F6F3] px-3 py-1 text-xs font-semibold text-[#063725] hover:bg-[#E2EBE5]"
+                >
+                  <Plus className="h-3.5 w-3.5 text-[#0D6E46]" aria-hidden="true" />
+                  <span>Ajouter un exercice</span>
+                </button>
+              </div>
+
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                {sessExercises.map((ex, idx) => (
+                  <div key={ex.id} className="obsidian-inset rounded-xl p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-mono font-bold text-[#0D6E46]">
+                        Exercice {idx + 1}
+                      </span>
+                      {sessExercises.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSessExercises((prev) => prev.filter((_, i) => i !== idx))
+                          }
+                          className="text-red-700 hover:text-red-900 p-1"
+                          aria-label={`Supprimer exercice ${idx + 1}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                      <input
+                        type="text"
+                        required
+                        value={ex.nom}
+                        onChange={(e) =>
+                          setSessExercises((prev) =>
+                            prev.map((item, i) => (i === idx ? { ...item, nom: e.target.value } : item))
+                          )
+                        }
+                        placeholder="Nom de l'exercice *"
+                        className="sm:col-span-2 rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725]"
+                      />
+                      <select
+                        value={ex.mode}
+                        onChange={(e) =>
+                          setSessExercises((prev) =>
+                            prev.map((item, i) =>
+                              i === idx
+                                ? { ...item, mode: e.target.value as 'duree' | 'repetitions' }
+                                : item
+                            )
+                          )
+                        }
+                        className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725]"
+                      >
+                        <option value="duree">Durée (sec)</option>
+                        <option value="repetitions">Répétitions</option>
+                      </select>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          max={300}
+                          value={ex.mode === 'repetitions' ? ex.repetitions : ex.dureeSec}
+                          onChange={(e) => {
+                            const val = Number(e.target.value) || 0;
+                            setSessExercises((prev) =>
+                              prev.map((item, i) =>
+                                i === idx
+                                  ? ex.mode === 'repetitions'
+                                    ? { ...item, repetitions: val }
+                                    : { ...item, dureeSec: val }
+                                  : item
+                              )
+                            );
+                          }}
+                          title={ex.mode === 'repetitions' ? 'Répétitions' : 'Durée en secondes'}
+                          className="rounded-lg border border-[#C3D6CA] bg-white px-2 py-1.5 font-mono text-xs text-[#063725]"
+                        />
+                        <input
+                          type="number"
+                          min={5}
+                          max={180}
+                          value={ex.reposSec}
+                          onChange={(e) => {
+                            const val = Number(e.target.value) || 15;
+                            setSessExercises((prev) =>
+                              prev.map((item, i) => (i === idx ? { ...item, reposSec: val } : item))
+                            );
+                          }}
+                          title="Repos (sec)"
+                          className="rounded-lg border border-[#C3D6CA] bg-white px-2 py-1.5 font-mono text-xs text-[#063725]"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        required
+                        value={ex.consigneFr}
+                        onChange={(e) =>
+                          setSessExercises((prev) =>
+                            prev.map((item, i) =>
+                              i === idx ? { ...item, consigneFr: e.target.value } : item
+                            )
+                          )
+                        }
+                        placeholder="Consigne Français *"
+                        className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725]"
+                      />
+                      <input
+                        type="text"
+                        value={ex.consigneWo}
+                        onChange={(e) =>
+                          setSessExercises((prev) =>
+                            prev.map((item, i) =>
+                              i === idx ? { ...item, consigneWo: e.target.value } : item
+                            )
+                          )
+                        }
+                        placeholder="Consigne Wolof"
+                        className="rounded-lg border border-[#C3D6CA] bg-white px-2.5 py-1.5 text-xs text-[#063725]"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E2EBE5]">
+              <button
+                type="button"
+                onClick={() => setSessionModalOpen(false)}
+                className="rounded-xl border border-[#C3D6CA] bg-white px-4 py-2 text-xs font-medium text-[#3D5246]"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={savingSession}
+                className="rounded-full bg-[#0D6E46] px-5 py-2 text-xs font-bold text-white hover:bg-[#095637] disabled:opacity-50"
+              >
+                {savingSession
+                  ? 'Enregistrement...'
+                  : editingSessionId
+                    ? 'Enregistrer les modifications'
+                    : 'Créer la séance'}
+              </button>
+            </div>
+          </motion.form>
+        </motion.div>
+      )}
+      </AnimatePresence>
+
       {/* Coach Diploma Study & Inspection Modal */}
+      <AnimatePresence>
       {inspectedCoach && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="obsidian-card-glow w-full max-w-4xl rounded-3xl my-auto overflow-hidden">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.16 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#063725]/45 backdrop-blur-sm p-4 overflow-y-auto"
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 6 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="obsidian-card-glow w-full max-w-4xl rounded-3xl my-auto overflow-hidden"
+          >
             <div className="flex items-center justify-between gap-4 border-b border-[#E2EBE5] px-6 py-4">
               <div>
                 <h2 className="font-display text-lg font-bold text-[#063725]">
@@ -2132,7 +2980,7 @@ export const AdminWorkspace: React.FC<{
                 </div>
               </div>
 
-              {/* Right: Live Document Preview (keep crisp white canvas behind uploaded document) */}
+              {/* Right: Live Document Preview */}
               <div className="flex flex-col rounded-xl border border-[#D5E2DA] bg-[#F1F6F3] overflow-hidden min-h-[380px]">
                 <div className="flex items-center justify-between gap-2 border-b border-[#E2EBE5] bg-white px-4 py-2.5 text-xs">
                   <span className="font-medium text-[#063725] truncate">
@@ -2175,9 +3023,10 @@ export const AdminWorkspace: React.FC<{
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 };

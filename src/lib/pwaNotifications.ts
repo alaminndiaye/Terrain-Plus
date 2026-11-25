@@ -104,3 +104,105 @@ export function formatReminderBannerCopy(reminder: ComputedReminder, reminderTim
     body: `${leadText}${durationText}`,
   };
 }
+
+export type BrowserNotificationPermissionState = NotificationPermission | 'unsupported';
+
+const BROWSER_NOTIFIED_STORAGE_KEY = 'tp_browser_notified_keys_v1';
+
+export function isBrowserNotificationSupported(): boolean {
+  return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+export function getBrowserNotificationPermission(): BrowserNotificationPermissionState {
+  if (!isBrowserNotificationSupported()) return 'unsupported';
+  return Notification.permission;
+}
+
+export async function requestBrowserNotificationPermission(): Promise<BrowserNotificationPermissionState> {
+  if (!isBrowserNotificationSupported()) return 'unsupported';
+  try {
+    return await Notification.requestPermission();
+  } catch {
+    return Notification.permission;
+  }
+}
+
+export function hasBrowserNotifiedKey(key: string): boolean {
+  try {
+    const raw = localStorage.getItem(BROWSER_NOTIFIED_STORAGE_KEY);
+    if (!raw) return false;
+    const map = JSON.parse(raw) as Record<string, number>;
+    return Boolean(map[key]);
+  } catch {
+    return false;
+  }
+}
+
+export function markBrowserNotifiedKey(key: string): void {
+  try {
+    const raw = localStorage.getItem(BROWSER_NOTIFIED_STORAGE_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const next: Record<string, number> = {};
+    for (const [k, ts] of Object.entries(parsed)) {
+      if (typeof ts === 'number' && ts >= cutoff) next[k] = ts;
+    }
+    next[key] = Date.now();
+    localStorage.setItem(BROWSER_NOTIFIED_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+export async function showBrowserNotification(options: {
+  title: string;
+  body: string;
+  tag?: string;
+  url?: string;
+}): Promise<boolean> {
+  if (!isBrowserNotificationSupported() || Notification.permission !== 'granted') {
+    return false;
+  }
+  const targetUrl = options.url || '/';
+
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1200)),
+      ]);
+      if (reg && typeof reg.showNotification === 'function') {
+        await reg.showNotification(options.title, {
+          body: options.body,
+          tag: options.tag || 'terrain-plus-alert',
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          data: { url: targetUrl },
+        });
+        return true;
+      }
+    } catch {
+      // Fallback to direct Window Notification
+    }
+  }
+
+  try {
+    const notif = new Notification(options.title, {
+      body: options.body,
+      tag: options.tag || 'terrain-plus-alert',
+      icon: '/icon-192.png',
+    });
+    notif.onclick = () => {
+      try {
+        window.focus();
+      } catch {
+        // ignore focus error
+      }
+      notif.close();
+    };
+    return true;
+  } catch {
+    return false;
+  }
+}
+

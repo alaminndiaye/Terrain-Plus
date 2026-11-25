@@ -9,7 +9,7 @@ export interface PendingSessionCompletion {
   session_id: number | null;
   ressenti_fatigue: number;
   difficulte: number;
-  qualite_sommeil: number;
+  qualite_sommeil?: number;
   recorded_at: string;
 }
 

@@ -304,12 +304,59 @@ CREATE TABLE IF NOT EXISTS public.rate_limit_buckets (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS public.coach_messages (
+  id BIGSERIAL PRIMARY KEY,
+  athlete_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  coach_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  sender_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  sender_role TEXT NOT NULL CHECK (sender_role IN ('ATHLETE', 'COACH')),
+  body TEXT NOT NULL,
+  read_by_athlete INTEGER NOT NULL DEFAULT 0,
+  read_by_coach INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.payment_transactions (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
+  coach_user_id BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
+  category TEXT NOT NULL CHECK (category IN ('ATHLETE_PLAN', 'COACH_PRO_LICENSE', 'COACH_PRIVATE_FEE', 'AUTRE')),
+  label TEXT NOT NULL,
+  amount_fcfa INTEGER NOT NULL,
+  platform_share_fcfa INTEGER NOT NULL DEFAULT 0,
+  coach_share_fcfa INTEGER NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'WAVE' CHECK (payment_method IN ('WAVE', 'ORANGE_MONEY', 'FREE_MONEY', 'CARTE', 'ESPECES', 'MANUEL')),
+  reference TEXT,
+  status TEXT NOT NULL DEFAULT 'PAYE' CHECK (status IN ('PAYE', 'EN_ATTENTE', 'ECHOUE', 'REMBOURSE')),
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.coach_payouts (
+  id BIGSERIAL PRIMARY KEY,
+  coach_user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  period_month TEXT NOT NULL,
+  active_athletes_count INTEGER NOT NULL DEFAULT 0,
+  gross_amount_fcfa INTEGER NOT NULL,
+  commission_fcfa INTEGER NOT NULL DEFAULT 0,
+  net_payout_fcfa INTEGER NOT NULL,
+  payment_method TEXT NOT NULL DEFAULT 'WAVE' CHECK (payment_method IN ('WAVE', 'ORANGE_MONEY', 'VIREMENT', 'ESPECES')),
+  reference TEXT,
+  status TEXT NOT NULL DEFAULT 'VERSE' CHECK (status IN ('EN_ATTENTE', 'VERSE')),
+  paid_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(coach_user_id, period_month)
+);
+
 CREATE INDEX IF NOT EXISTS idx_traffic_created_at ON public.system_traffic_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_rate_limit_reset_at ON public.rate_limit_buckets(reset_at);
 CREATE INDEX IF NOT EXISTS idx_coach_docs_user ON public.coach_documents(coach_user_id);
 CREATE INDEX IF NOT EXISTS idx_coach_videos_coach ON public.coach_videos(coach_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_coach_videos_athlete ON public.coach_videos(athlete_user_id);
 CREATE INDEX IF NOT EXISTS idx_coach_videos_session ON public.coach_videos(session_id);
+CREATE INDEX IF NOT EXISTS idx_coach_messages_thread ON public.coach_messages(athlete_user_id, coach_user_id, created_at ASC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_created ON public.payment_transactions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_coach_payouts_period ON public.coach_payouts(period_month DESC, coach_user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON public.sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_scheduled_athlete ON public.scheduled_sessions(athlete_user_id);
 CREATE INDEX IF NOT EXISTS idx_assignments_coach_statut ON public.assignments(coach_user_id, statut);
@@ -637,12 +684,59 @@ export async function initSchema(): Promise<void> {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS coach_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      athlete_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      coach_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sender_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      sender_role TEXT NOT NULL CHECK(sender_role IN ('ATHLETE', 'COACH')),
+      body TEXT NOT NULL,
+      read_by_athlete INTEGER NOT NULL DEFAULT 0,
+      read_by_coach INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      coach_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      category TEXT NOT NULL CHECK(category IN ('ATHLETE_PLAN', 'COACH_PRO_LICENSE', 'COACH_PRIVATE_FEE', 'AUTRE')),
+      label TEXT NOT NULL,
+      amount_fcfa INTEGER NOT NULL,
+      platform_share_fcfa INTEGER NOT NULL DEFAULT 0,
+      coach_share_fcfa INTEGER NOT NULL DEFAULT 0,
+      payment_method TEXT NOT NULL DEFAULT 'WAVE' CHECK(payment_method IN ('WAVE', 'ORANGE_MONEY', 'FREE_MONEY', 'CARTE', 'ESPECES', 'MANUEL')),
+      reference TEXT,
+      status TEXT NOT NULL DEFAULT 'PAYE' CHECK(status IN ('PAYE', 'EN_ATTENTE', 'ECHOUE', 'REMBOURSE')),
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS coach_payouts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      coach_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      period_month TEXT NOT NULL,
+      active_athletes_count INTEGER NOT NULL DEFAULT 0,
+      gross_amount_fcfa INTEGER NOT NULL,
+      commission_fcfa INTEGER NOT NULL DEFAULT 0,
+      net_payout_fcfa INTEGER NOT NULL,
+      payment_method TEXT NOT NULL DEFAULT 'WAVE' CHECK(payment_method IN ('WAVE', 'ORANGE_MONEY', 'VIREMENT', 'ESPECES')),
+      reference TEXT,
+      status TEXT NOT NULL DEFAULT 'VERSE' CHECK(status IN ('EN_ATTENTE', 'VERSE')),
+      paid_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(coach_user_id, period_month)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_traffic_created_at ON system_traffic_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_rate_limit_reset_at ON rate_limit_buckets(reset_at);
     CREATE INDEX IF NOT EXISTS idx_coach_docs_user ON coach_documents(coach_user_id);
     CREATE INDEX IF NOT EXISTS idx_coach_videos_coach ON coach_videos(coach_user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_coach_videos_athlete ON coach_videos(athlete_user_id);
     CREATE INDEX IF NOT EXISTS idx_coach_videos_session ON coach_videos(session_id);
+    CREATE INDEX IF NOT EXISTS idx_coach_messages_thread ON coach_messages(athlete_user_id, coach_user_id, created_at ASC, id ASC);
+    CREATE INDEX IF NOT EXISTS idx_payment_transactions_created ON payment_transactions(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_coach_payouts_period ON coach_payouts(period_month DESC, coach_user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
     CREATE INDEX IF NOT EXISTS idx_scheduled_athlete ON scheduled_sessions(athlete_user_id);
     CREATE INDEX IF NOT EXISTS idx_assignments_coach_statut ON assignments(coach_user_id, statut);

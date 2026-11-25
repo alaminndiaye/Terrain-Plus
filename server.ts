@@ -1073,7 +1073,7 @@ async function buildAthleteWorkspace(athleteUserId: number, viewerUserId = athle
       ),
       dbAll<Record<string, unknown>>(
         `SELECT id, athlete_user_id, type, zone_douleur, intensite, message, date, traitee, note_traitement
-         FROM alerts WHERE athlete_user_id = ? ORDER BY traitee ASC, date DESC LIMIT 20`,
+         FROM alerts WHERE athlete_user_id = ? AND type != 'DOULEUR' ORDER BY traitee ASC, date DESC LIMIT 20`,
         athleteUserId
       ),
       dbAll<Record<string, unknown>>(
@@ -1217,6 +1217,47 @@ async function buildAthleteWorkspace(athleteUserId: number, viewerUserId = athle
 
   const coachVideos = coachVideoRows.map((v) => mapCoachVideoRow(v, viewerUserId));
 
+  const coachMessageRows = coachRow
+    ? await dbAll<{
+        id: number;
+        athlete_user_id: number;
+        coach_user_id: number;
+        sender_user_id: number;
+        sender_role: 'ATHLETE' | 'COACH';
+        sender_nom: string;
+        body: string;
+        read_by_athlete: number;
+        read_by_coach: number;
+        created_at: string;
+      }>(
+        `SELECT cm.*, (u.prenom || ' ' || u.nom) as sender_nom
+         FROM coach_messages cm
+         JOIN users u ON u.id = cm.sender_user_id
+         WHERE cm.athlete_user_id = ? AND cm.coach_user_id = ?
+         ORDER BY cm.id DESC
+         LIMIT 80`,
+        athleteUserId,
+        coachRow.id
+      )
+    : [];
+
+  const coachMessages = [...coachMessageRows].reverse().map((m) => ({
+    id: Number(m.id),
+    athlete_user_id: Number(m.athlete_user_id),
+    coach_user_id: Number(m.coach_user_id),
+    sender_user_id: Number(m.sender_user_id),
+    sender_role: m.sender_role,
+    sender_nom: String(m.sender_nom),
+    body: String(m.body),
+    read_by_athlete: Boolean(m.read_by_athlete),
+    read_by_coach: Boolean(m.read_by_coach),
+    created_at: String(m.created_at),
+  }));
+
+  const unreadCoachMessagesCount = coachMessages.filter(
+    (m) => m.sender_role === 'COACH' && !m.read_by_athlete
+  ).length;
+
   return {
     user: mapUserPublic(user),
     profile: {
@@ -1242,6 +1283,8 @@ async function buildAthleteWorkspace(athleteUserId: number, viewerUserId = athle
     schedule,
     library,
     coachVideos,
+    coachMessages,
+    unreadCoachMessagesCount,
     weights,
     evaluations,
     alerts,
@@ -1413,8 +1456,7 @@ export async function createApp(): Promise<Express> {
         const specialite = sanitizeText(body.specialite, 120);
         const qualification = sanitizeText(body.qualification, 140);
         const zone = sanitizeText(body.zone, 80);
-        const rawCoachPlan = sanitizeText(body.coach_plan, 30).toUpperCase();
-        const coachPlan = rawCoachPlan === 'COACH_PRO' ? 'COACH_PRO' : 'MARKETPLACE';
+        const coachPlan = 'MARKETPLACE' as const;
         const confirmCoachTerms = Boolean(body.confirm_coach_plan ?? body.confirm_coach_platform_fee);
 
         const diplomaTypeRaw = sanitizeText(body.diploma_type, 50).toUpperCase() as DiplomaTypeCode;
@@ -1512,9 +1554,9 @@ export async function createApp(): Promise<Express> {
           return;
         }
 
-        const monthlyFee = coachPlan === 'COACH_PRO' ? 3000 : 0;
-        const commissionPct = coachPlan === 'COACH_PRO' ? 0 : 20;
-        const athletePayout = coachPlan === 'COACH_PRO' ? 5000 : 4000;
+        const monthlyFee = 0;
+        const commissionPct = 20;
+        const athletePayout = 4000;
         const otpEnabled = isOtpDeliveryConfigured();
         const otp = otpEnabled ? generateOtpCode() : null;
         const otpHash = otp ? hashToken(otp) : null;
@@ -1613,9 +1655,7 @@ export async function createApp(): Promise<Express> {
             studyStatus: docRes.studyStatus,
             studyScore: docRes.studyScore,
             message: delivery.delivered
-              ? coachPlan === 'COACH_PRO'
-                ? 'Dossier Coach Pro déposé (3 000 FCFA / mois · 0 % commission). Validez le code envoyé ; votre compte restera ensuite en étude jusqu’à validation de votre diplôme par l’administrateur.'
-                : 'Dossier Coach Marketplace déposé (0 FCFA fixe · 4 000 F/athlète). Validez le code envoyé ; votre compte restera ensuite en étude jusqu’à validation de votre diplôme par l’administrateur.'
+              ? 'Dossier Coach Terrain+ déposé (0 FCFA fixe · 4 000 F/athlète). Validez le code envoyé ; votre compte restera ensuite en étude jusqu’à validation de votre diplôme par l’administrateur.'
               : "Dossier enregistré, mais l'envoi du code OTP a échoué. Cliquez sur « Renvoyer un code ».",
           });
           return;
@@ -1633,9 +1673,7 @@ export async function createApp(): Promise<Express> {
           studyStatus: docRes.studyStatus,
           studyScore: docRes.studyScore,
           message:
-            coachPlan === 'COACH_PRO'
-              ? 'Dossier Coach Pro déposé (3 000 FCFA / mois · 0 % commission). Votre diplôme et vos pièces sont en cours de vérification par l’administrateur Terrain+.'
-              : 'Dossier Coach Marketplace déposé (0 FCFA fixe · 4 000 F/athlète). Votre diplôme et vos pièces sont en cours de vérification par l’administrateur Terrain+.',
+            'Dossier Coach Terrain+ déposé (0 FCFA fixe · 4 000 F/athlète). Votre diplôme et vos pièces sont en cours de vérification par l’administrateur Terrain+.',
         });
         return;
       }
@@ -1652,15 +1690,10 @@ export async function createApp(): Promise<Express> {
       const parentalPhone = normalizePhone(sanitizeText(body.parental_consent_phone, 30));
       const selectedCoachId = body.selected_coach_id ? Number(body.selected_coach_id) : null;
       const requestedPlan = sanitizeText(body.plan_tier, 20).toUpperCase();
-      const billingCycle = sanitizeText(body.plan_billing_cycle, 20).toUpperCase() === 'TRIMESTRIEL' ? 'TRIMESTRIEL' : 'MENSUEL';
       const confirmPlanChoice = Boolean(body.confirm_coach_contribution || body.confirm_plan_choice);
 
-      const planTier: 'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE' =
-        requestedPlan === 'COACH_PRIVE' || selectedCoachId !== null
-          ? 'COACH_PRIVE'
-          : requestedPlan === 'PROGRESSION'
-            ? 'PROGRESSION'
-            : 'ESSENTIEL';
+      const planTier: 'ESSENTIEL' | 'COACH_PRIVE' =
+        requestedPlan === 'COACH_PRIVE' || selectedCoachId !== null ? 'COACH_PRIVE' : 'ESSENTIEL';
 
       if (!VALID_SPORT_CODES.includes(sport_code)) {
         res.status(400).json({ error: 'Sport invalide.' });
@@ -1720,21 +1753,9 @@ export async function createApp(): Promise<Express> {
           return;
         }
         validCoachId = coachExists.id;
-      } else if (planTier === 'PROGRESSION' && !confirmPlanChoice) {
-        res.status(400).json({
-          error: 'Confirmez la formule Progression+ pour finaliser votre choix.',
-        });
-        return;
       }
 
-      const planFeeFcfa =
-        planTier === 'COACH_PRIVE'
-          ? 5000
-          : planTier === 'PROGRESSION'
-            ? billingCycle === 'TRIMESTRIEL'
-              ? 4000
-              : 1500
-            : 0;
+      const planFeeFcfa = planTier === 'COACH_PRIVE' ? 5000 : 0;
 
       const otpEnabled = isOtpDeliveryConfigured();
       const otp = otpEnabled ? generateOtpCode() : null;
@@ -1773,7 +1794,7 @@ export async function createApp(): Promise<Express> {
             user_id, sport_code, niveau, taille_cm, poste, objectif,
             coach_subscription_status, coach_monthly_fee_fcfa, coach_subscribed_at,
             plan_tier, plan_fee_fcfa, plan_billing_cycle
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${validCoachId ? "datetime('now')" : 'NULL'}, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ${validCoachId ? "datetime('now')" : 'NULL'}, ?, ?, 'MENSUEL')`,
           userId,
           sport_code,
           niveau,
@@ -1783,8 +1804,7 @@ export async function createApp(): Promise<Express> {
           validCoachId ? 'ACTIF_5000' : 'GRATUIT_BASE',
           validCoachId ? 5000 : 0,
           planTier,
-          planFeeFcfa,
-          billingCycle
+          planFeeFcfa
         );
 
         await tx.run("INSERT INTO weight_logs (athlete_user_id, poids_kg, date) VALUES (?, ?, date('now'))", userId, poids_kg);
@@ -2029,39 +2049,43 @@ export async function createApp(): Promise<Express> {
 
       if (!user.verified) {
         if (!isOtpDeliveryConfigured()) {
-          res.status(503).json({
-            error:
-              "Ce compte est en attente de validation OTP, mais aucun service d'envoi Email/SMS n'est configuré. Contactez l'administration.",
+          await dbRun(
+            "UPDATE users SET verified = 1, statut = CASE WHEN statut = 'INSCRIT' THEN 'ACTIF' ELSE statut END, otp_code_hash = NULL, otp_expires_at = NULL, otp_attempts = 0 WHERE id = ?",
+            user.id
+          );
+          user.verified = 1;
+          if (user.statut === 'INSCRIT') {
+            user.statut = 'ACTIF';
+          }
+        } else {
+          const otp = generateOtpCode();
+          const otpExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+          await dbRun(
+            'UPDATE users SET otp_code_hash = ?, otp_expires_at = ?, otp_attempts = 0 WHERE id = ?',
+            hashToken(otp),
+            otpExpires,
+            user.id
+          );
+          const delivery = await deliverOtpCode({
+            email: user.email,
+            telephone: user.telephone,
+            prenom: user.prenom,
+            code: otp,
+            purpose: 'VERIFICATION',
+          });
+          if (!delivery.delivered) {
+            res.status(502).json({
+              error: delivery.error || "Impossible d'envoyer le code de validation pour le moment.",
+            });
+            return;
+          }
+          res.status(403).json({
+            error: 'Compte en attente de validation. Saisissez le code OTP envoyé à votre contact enregistré.',
+            needsVerification: true,
+            identifier: user.email,
           });
           return;
         }
-        const otp = generateOtpCode();
-        const otpExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-        await dbRun(
-          'UPDATE users SET otp_code_hash = ?, otp_expires_at = ?, otp_attempts = 0 WHERE id = ?',
-          hashToken(otp),
-          otpExpires,
-          user.id
-        );
-        const delivery = await deliverOtpCode({
-          email: user.email,
-          telephone: user.telephone,
-          prenom: user.prenom,
-          code: otp,
-          purpose: 'VERIFICATION',
-        });
-        if (!delivery.delivered) {
-          res.status(502).json({
-            error: delivery.error || "Impossible d'envoyer le code de validation pour le moment.",
-          });
-          return;
-        }
-        res.status(403).json({
-          error: 'Compte en attente de validation. Saisissez le code OTP envoyé à votre contact enregistré.',
-          needsVerification: true,
-          identifier: user.email,
-        });
-        return;
       }
 
       if (user.role === 'COACH') {
@@ -2660,7 +2684,21 @@ export async function createApp(): Promise<Express> {
     })
   );
 
-  // ---------------- PUBLIC COACHES & PARTNER ECOSYSTEM ROUTES (AGGREGATED ONLY) ----------------
+  // ---------------- HEALTHCHECK & PUBLIC COACHES ROUTES ----------------
+  app.get(
+    '/api/health',
+    asyncHandler(async (_req: Request, res: Response) => {
+      await dbGet('SELECT 1 as ok');
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        database: USE_POSTGRES ? 'supabase_postgres' : 'sqlite_local',
+        sessionSecretConfigured: Boolean((process.env.SESSION_SECRET || '').trim()),
+        supabaseStorageConfigured: Boolean(getSupabaseAdmin()),
+      });
+    })
+  );
+
   app.get(
     '/api/public/coaches',
     asyncHandler(async (_req: Request, res: Response) => {
@@ -2807,14 +2845,16 @@ export async function createApp(): Promise<Express> {
       const sessionId = body.session_id !== undefined && body.session_id !== null ? parsePositiveIntId(body.session_id) : null;
       const fatigue = Number(body.ressenti_fatigue);
       const difficulte = Number(body.difficulte);
-      const sommeil = Number(body.qualite_sommeil);
+      const rawSleep = body.qualite_sommeil;
+      const sommeil =
+        rawSleep !== undefined && rawSleep !== null && rawSleep !== '' ? Number(rawSleep) : null;
 
       if (
         !Number.isInteger(fatigue) || fatigue < 1 || fatigue > 10 ||
         !Number.isInteger(difficulte) || difficulte < 1 || difficulte > 10 ||
-        !Number.isInteger(sommeil) || sommeil < 1 || sommeil > 10
+        (sommeil !== null && (!Number.isInteger(sommeil) || sommeil < 1 || sommeil > 10))
       ) {
-        res.status(400).json({ error: 'Les notes de ressenti, difficulté et sommeil doivent être comprises entre 1 et 10.' });
+        res.status(400).json({ error: 'Les notes de ressenti et difficulté doivent être comprises entre 1 et 10.' });
         return;
       }
 
@@ -2938,34 +2978,6 @@ export async function createApp(): Promise<Express> {
 
       await dbRun("UPDATE users SET statut = 'SUIVI_ACTIF' WHERE id = ? AND statut = 'ACTIF'", userId);
       res.status(201).json({ score_global: scoreGlobal, results, type: evalType });
-    })
-  );
-
-  app.post(
-    '/api/athlete/pain-alert',
-    requireAuth,
-    requireRole('ATHLETE'),
-    asyncHandler(async (req: AuthedRequest, res: Response) => {
-      const body = req.body as Record<string, unknown>;
-      const zone = sanitizeText(body.zone_douleur, 80);
-      const intensite = Number(body.intensite);
-      const message = sanitizeText(body.message, 400);
-
-      if (!zone || !Number.isInteger(intensite) || intensite < 1 || intensite > 10 || !message) {
-        res.status(400).json({ error: 'Zone, intensité (1-10) et description requises.' });
-        return;
-      }
-
-      await dbRun(
-        `INSERT INTO alerts (athlete_user_id, type, zone_douleur, intensite, message)
-         VALUES (?, 'DOULEUR', ?, ?, ?)`,
-        req.authUser!.id,
-        zone,
-        intensite,
-        message
-      );
-
-      res.status(201).json({ ok: true });
     })
   );
 
@@ -3155,29 +3167,28 @@ export async function createApp(): Promise<Express> {
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const body = (req.body || {}) as Record<string, unknown>;
       const rawPlan = sanitizeText(body.plan_tier, 20).toUpperCase();
-      const billingCycle = sanitizeText(body.billing_cycle, 20).toUpperCase() === 'TRIMESTRIEL' ? 'TRIMESTRIEL' : 'MENSUEL';
       const coachUserId = body.coach_user_id ? Number(body.coach_user_id) : null;
       const confirmPlan = Boolean(body.confirm_plan);
 
-      if (!['ESSENTIEL', 'PROGRESSION', 'COACH_PRIVE'].includes(rawPlan)) {
-        res.status(400).json({ error: 'Formule invalide (ESSENTIEL, PROGRESSION ou COACH_PRIVE).' });
+      if (!['ESSENTIEL', 'COACH_PRIVE'].includes(rawPlan)) {
+        res.status(400).json({ error: 'Formule invalide (ESSENTIEL ou COACH_PRIVE).' });
         return;
       }
-      const planTier = rawPlan as 'ESSENTIEL' | 'PROGRESSION' | 'COACH_PRIVE';
+      const planTier = rawPlan as 'ESSENTIEL' | 'COACH_PRIVE';
 
       if (planTier !== 'ESSENTIEL' && !confirmPlan) {
         res.status(400).json({ error: 'Veuillez confirmer la formule sélectionnée.' });
         return;
       }
 
-      let validCoach: { id: number; prenom: string; nom: string } | null = null;
+      let validCoach: { id: number; prenom: string; nom: string; commission_pct: number } | null = null;
       if (planTier === 'COACH_PRIVE') {
         if (!coachUserId || !Number.isInteger(coachUserId) || coachUserId <= 0) {
           res.status(400).json({ error: 'Choisissez un coach vérifié pour activer Suivi Coach.' });
           return;
         }
-        const coachRow = await dbGet<{ id: number; prenom: string; nom: string }>(
-          `SELECT u.id, u.prenom, u.nom
+        const coachRow = await dbGet<{ id: number; prenom: string; nom: string; commission_pct: number }>(
+          `SELECT u.id, u.prenom, u.nom, COALESCE(c.commission_pct, 20) as commission_pct
            FROM users u
            JOIN coaches c ON c.user_id = u.id
            WHERE u.id = ? AND u.role = 'COACH' AND u.statut != 'CLOTURE' AND u.verified = 1 AND c.verification_status = 'VERIFIE'`,
@@ -3191,14 +3202,7 @@ export async function createApp(): Promise<Express> {
       }
 
       const athleteId = req.authUser!.id;
-      const planFee =
-        planTier === 'COACH_PRIVE'
-          ? 5000
-          : planTier === 'PROGRESSION'
-            ? billingCycle === 'TRIMESTRIEL'
-              ? 4000
-              : 1500
-            : 0;
+      const planFee = planTier === 'COACH_PRIVE' ? 5000 : 0;
 
       await dbTransaction(async (tx) => {
         if (validCoach) {
@@ -3221,21 +3225,31 @@ export async function createApp(): Promise<Express> {
             athleteId
           );
           await tx.run("UPDATE users SET statut = 'SUIVI_ACTIF' WHERE id = ? AND statut = 'ACTIF'", athleteId);
+          const commissionPct = Number(validCoach.commission_pct ?? 20);
+          const platformShare = Math.round((5000 * commissionPct) / 100);
+          const coachShare = Math.max(0, 5000 - platformShare);
+          await tx.run(
+            `INSERT INTO payment_transactions (
+              user_id, coach_user_id, category, label, amount_fcfa, platform_share_fcfa, coach_share_fcfa, payment_method, status
+            ) VALUES (?, ?, 'COACH_PRIVATE_FEE', ?, 5000, ?, ?, 'WAVE', 'PAYE')`,
+            athleteId,
+            validCoach.id,
+            `Suivi Coach (${validCoach.prenom} ${validCoach.nom})`,
+            platformShare,
+            coachShare
+          );
         } else {
           await tx.run("UPDATE assignments SET statut = 'TERMINE', date_fin = date('now') WHERE athlete_user_id = ? AND statut = 'ACTIF'", athleteId);
           await tx.run('UPDATE program_plans SET coach_user_id = NULL WHERE athlete_user_id = ?', athleteId);
           await tx.run(
             `UPDATE athlete_profiles
-             SET plan_tier = ?,
-                 plan_fee_fcfa = ?,
-                 plan_billing_cycle = ?,
+             SET plan_tier = 'ESSENTIEL',
+                 plan_fee_fcfa = 0,
+                 plan_billing_cycle = 'MENSUEL',
                  coach_subscription_status = 'GRATUIT_BASE',
                  coach_monthly_fee_fcfa = 0,
                  coach_subscribed_at = NULL
              WHERE user_id = ?`,
-            planTier,
-            planFee,
-            billingCycle,
             athleteId
           );
         }
@@ -3250,9 +3264,7 @@ export async function createApp(): Promise<Express> {
         message:
           planTier === 'COACH_PRIVE' && validCoach
             ? `Formule Suivi Coach activée avec ${validCoach.prenom} ${validCoach.nom} (5 000 FCFA / mois).`
-            : planTier === 'PROGRESSION'
-              ? `Formule Progression+ activée (${planFee.toLocaleString('fr-FR')} FCFA / ${billingCycle === 'TRIMESTRIEL' ? 'trimestre' : 'mois'}).`
-              : 'Vous êtes sur l’accès Essentiel 100 % gratuit (0 FCFA).',
+            : 'Vous êtes sur l’accès Essentiel 100 % gratuit (0 FCFA).',
       });
     })
   );
@@ -3277,8 +3289,8 @@ export async function createApp(): Promise<Express> {
         return;
       }
 
-      const coach = await dbGet<{ id: number; prenom: string; nom: string }>(
-        `SELECT u.id, u.prenom, u.nom
+      const coach = await dbGet<{ id: number; prenom: string; nom: string; commission_pct: number }>(
+        `SELECT u.id, u.prenom, u.nom, COALESCE(c.commission_pct, 20) as commission_pct
          FROM users u
          JOIN coaches c ON c.user_id = u.id
          WHERE u.id = ? AND u.role = 'COACH' AND u.statut != 'CLOTURE' AND u.verified = 1 AND c.verification_status = 'VERIFIE'`,
@@ -3291,6 +3303,10 @@ export async function createApp(): Promise<Express> {
       }
 
       const athleteId = req.authUser!.id;
+      const commissionPct = Number(coach.commission_pct ?? 20);
+      const platformShare = Math.round((5000 * commissionPct) / 100);
+      const coachShare = Math.max(0, 5000 - platformShare);
+
       await dbTransaction(async (tx) => {
         await tx.run("UPDATE assignments SET statut = 'TERMINE', date_fin = date('now') WHERE athlete_user_id = ? AND statut = 'ACTIF'", athleteId);
         await tx.run(
@@ -3311,6 +3327,16 @@ export async function createApp(): Promise<Express> {
           athleteId
         );
         await tx.run("UPDATE users SET statut = 'SUIVI_ACTIF' WHERE id = ? AND statut = 'ACTIF'", athleteId);
+        await tx.run(
+          `INSERT INTO payment_transactions (
+            user_id, coach_user_id, category, label, amount_fcfa, platform_share_fcfa, coach_share_fcfa, payment_method, status
+          ) VALUES (?, ?, 'COACH_PRIVATE_FEE', ?, 5000, ?, ?, 'WAVE', 'PAYE')`,
+          athleteId,
+          coachUserId,
+          `Suivi Coach (${coach.prenom} ${coach.nom})`,
+          platformShare,
+          coachShare
+        );
 
         const hasConsent = await tx.get("SELECT id FROM consents WHERE user_id = ? AND type = 'COACH_PRIVILEGE_5000'", athleteId);
         if (!hasConsent) {
@@ -3364,6 +3390,119 @@ export async function createApp(): Promise<Express> {
       const motif = sanitizeText((req.body as Record<string, unknown>).motif, 300) || 'Demande de réaffectation de coach';
       await dbRun(`INSERT INTO alerts (athlete_user_id, type, message) VALUES (?, 'CHANGEMENT_COACH', ?)`, req.authUser!.id, motif);
       res.status(201).json({ ok: true });
+    })
+  );
+
+  app.get(
+    '/api/athlete/messages',
+    requireAuth,
+    requireRole('ATHLETE'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const athleteId = req.authUser!.id;
+      const activeCoach = await dbGet<{ coach_user_id: number }>(
+        "SELECT coach_user_id FROM assignments WHERE athlete_user_id = ? AND statut = 'ACTIF' LIMIT 1",
+        athleteId
+      );
+      if (!activeCoach) {
+        res.json({ messages: [], unreadCount: 0 });
+        return;
+      }
+      const rows = await dbAll<Record<string, unknown>>(
+        `SELECT cm.*, (u.prenom || ' ' || u.nom) as sender_nom
+         FROM coach_messages cm
+         JOIN users u ON u.id = cm.sender_user_id
+         WHERE cm.athlete_user_id = ? AND cm.coach_user_id = ?
+         ORDER BY cm.id ASC
+         LIMIT 100`,
+        athleteId,
+        activeCoach.coach_user_id
+      );
+      const messages = rows.map((m) => ({
+        id: Number(m.id),
+        athlete_user_id: Number(m.athlete_user_id),
+        coach_user_id: Number(m.coach_user_id),
+        sender_user_id: Number(m.sender_user_id),
+        sender_role: String(m.sender_role) as 'ATHLETE' | 'COACH',
+        sender_nom: String(m.sender_nom),
+        body: String(m.body),
+        read_by_athlete: Boolean(m.read_by_athlete),
+        read_by_coach: Boolean(m.read_by_coach),
+        created_at: String(m.created_at),
+      }));
+      const unreadCount = messages.filter((m) => m.sender_role === 'COACH' && !m.read_by_athlete).length;
+      res.json({ messages, unreadCount });
+    })
+  );
+
+  app.post(
+    '/api/athlete/messages',
+    requireAuth,
+    requireRole('ATHLETE'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const athleteId = req.authUser!.id;
+      const bodyText = sanitizeText((req.body as Record<string, unknown>).body, 1000);
+      if (!bodyText) {
+        res.status(400).json({ error: 'Le message ne peut pas être vide.' });
+        return;
+      }
+      const activeCoach = await dbGet<{ coach_user_id: number }>(
+        "SELECT coach_user_id FROM assignments WHERE athlete_user_id = ? AND statut = 'ACTIF' LIMIT 1",
+        athleteId
+      );
+      if (!activeCoach) {
+        res.status(400).json({ error: 'Aucun coach actif assigné pour le moment.' });
+        return;
+      }
+      const ins = await dbRun(
+        `INSERT INTO coach_messages (
+          athlete_user_id, coach_user_id, sender_user_id, sender_role, body, read_by_athlete, read_by_coach
+        ) VALUES (?, ?, ?, 'ATHLETE', ?, 1, 0)`,
+        athleteId,
+        activeCoach.coach_user_id,
+        athleteId,
+        bodyText
+      );
+      await dbRun(
+        "UPDATE coach_messages SET read_by_athlete = 1 WHERE athlete_user_id = ? AND coach_user_id = ? AND sender_role = 'COACH' AND read_by_athlete = 0",
+        athleteId,
+        activeCoach.coach_user_id
+      );
+      const created = await dbGet<Record<string, unknown>>(
+        `SELECT cm.*, (u.prenom || ' ' || u.nom) as sender_nom
+         FROM coach_messages cm
+         JOIN users u ON u.id = cm.sender_user_id
+         WHERE cm.id = ?`,
+        ins.lastInsertRowid
+      );
+      res.status(201).json({
+        message: created
+          ? {
+              id: Number(created.id),
+              athlete_user_id: Number(created.athlete_user_id),
+              coach_user_id: Number(created.coach_user_id),
+              sender_user_id: Number(created.sender_user_id),
+              sender_role: String(created.sender_role),
+              sender_nom: String(created.sender_nom),
+              body: String(created.body),
+              read_by_athlete: Boolean(created.read_by_athlete),
+              read_by_coach: Boolean(created.read_by_coach),
+              created_at: String(created.created_at),
+            }
+          : null,
+      });
+    })
+  );
+
+  app.post(
+    '/api/athlete/messages/read',
+    requireAuth,
+    requireRole('ATHLETE'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      await dbRun(
+        "UPDATE coach_messages SET read_by_athlete = 1 WHERE athlete_user_id = ? AND sender_role = 'COACH' AND read_by_athlete = 0",
+        req.authUser!.id
+      );
+      res.json({ ok: true });
     })
   );
 
@@ -3443,7 +3582,7 @@ export async function createApp(): Promise<Express> {
     requireRole('COACH'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
       const coachId = req.authUser!.id;
-      const [athleteRows, schedStatsRows, evalScoreRows, alertsRaw, library, coachProfile] = await Promise.all([
+      const [athleteRows, schedStatsRows, evalScoreRows, alertsRaw, unreadMsgRows, library, coachProfile] = await Promise.all([
         dbAll<Record<string, unknown>>(
           `SELECT u.id, u.nom, u.prenom, u.statut, u.is_minor, ap.sport_code, ap.niveau
            FROM assignments a
@@ -3480,6 +3619,13 @@ export async function createApp(): Promise<Express> {
            ORDER BY al.traitee ASC, al.date DESC`,
           coachId
         ),
+        dbAll<{ athlete_user_id: number; unread_count: number }>(
+          `SELECT athlete_user_id, COUNT(*) as unread_count
+           FROM coach_messages
+           WHERE coach_user_id = ? AND sender_role = 'ATHLETE' AND read_by_coach = 0
+           GROUP BY athlete_user_id`,
+          coachId
+        ),
         dbAll(
           'SELECT id, sport_code, titre, niveau, duree_min, objectif, prevention_focus, relue_par, validation_status FROM sessions_library ORDER BY sport_code, id'
         ),
@@ -3508,6 +3654,11 @@ export async function createApp(): Promise<Express> {
           planned: Number(s.planned_count || 0),
           completed: Number(s.completed_count || 0),
         });
+      }
+
+      const unreadByAthlete = new Map<number, number>();
+      for (const um of unreadMsgRows) {
+        unreadByAthlete.set(Number(um.athlete_user_id), Number(um.unread_count || 0));
       }
 
       const lastEvalByAthlete = new Map<number, number>();
@@ -3548,6 +3699,7 @@ export async function createApp(): Promise<Express> {
           lastEvaluationScore: lastEvalByAthlete.has(aid) ? lastEvalByAthlete.get(aid)! : null,
           openAlertsCount: openAlerts.count,
           hasPainAlert: openAlerts.hasPain,
+          unreadMessagesCount: unreadByAthlete.get(aid) || 0,
         };
       });
 
@@ -3566,35 +3718,20 @@ export async function createApp(): Promise<Express> {
     requireAuth,
     requireRole('COACH'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
-      const rawPlan = sanitizeText((req.body as Record<string, unknown>).coach_plan, 30).toUpperCase();
-      if (!['MARKETPLACE', 'COACH_PRO'].includes(rawPlan)) {
-        res.status(400).json({ error: 'Formule coach invalide (MARKETPLACE ou COACH_PRO).' });
-        return;
-      }
-      const coachPlan = rawPlan as 'MARKETPLACE' | 'COACH_PRO';
-      const monthlyFee = coachPlan === 'COACH_PRO' ? 3000 : 0;
-      const commissionPct = coachPlan === 'COACH_PRO' ? 0 : 20;
-      const athletePayout = coachPlan === 'COACH_PRO' ? 5000 : 4000;
+      await dbTransaction(async (tx) => {
+        await tx.run(
+          `UPDATE coaches
+           SET coach_plan = 'MARKETPLACE', monthly_fee_fcfa = 0, commission_pct = 20, athlete_payout_fcfa = 4000
+           WHERE user_id = ?`,
+          req.authUser!.id
+        );
+        await logAccess(req.authUser!.id, 'COACH', null, 'COACH_PLAN_MARKETPLACE', 'fee:0', tx);
+      });
 
-      await dbRun(
-        `UPDATE coaches
-         SET coach_plan = ?, monthly_fee_fcfa = ?, commission_pct = ?, athlete_payout_fcfa = ?
-         WHERE user_id = ?`,
-        coachPlan,
-        monthlyFee,
-        commissionPct,
-        athletePayout,
-        req.authUser!.id
-      );
-
-      await logAccess(req.authUser!.id, 'COACH', null, `COACH_PLAN_${coachPlan}`, `fee:${monthlyFee}`);
       res.json({
         ok: true,
-        coach_plan: coachPlan,
-        message:
-          coachPlan === 'COACH_PRO'
-            ? 'Licence Coach Pro activée (3 000 FCFA / mois · 0 % commission sur vos athlètes).'
-            : 'Option Marketplace activée (0 FCFA fixe · 4 000 FCFA reversés par athlète suivi).',
+        coach_plan: 'MARKETPLACE',
+        message: 'Modèle Coach Terrain+ actif (0 FCFA fixe · 4 000 FCFA reversés par athlète suivi).',
       });
     })
   );
@@ -3628,6 +3765,138 @@ export async function createApp(): Promise<Express> {
         return;
       }
       res.json(workspace);
+    })
+  );
+
+  app.get(
+    '/api/coach/athletes/:athleteId/messages',
+    requireAuth,
+    requireRole('COACH'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const coachId = req.authUser!.id;
+      const athleteId = parsePositiveIntId(req.params.athleteId);
+      if (!athleteId) {
+        res.status(400).json({ error: 'Identifiant athlète invalide.' });
+        return;
+      }
+      const assigned = await dbGet(
+        "SELECT id FROM assignments WHERE coach_user_id = ? AND athlete_user_id = ? AND statut = 'ACTIF'",
+        coachId,
+        athleteId
+      );
+      if (!assigned) {
+        res.status(403).json({ error: 'Cet athlète ne vous est pas affecté.' });
+        return;
+      }
+      const rows = await dbAll<Record<string, unknown>>(
+        `SELECT cm.*, (u.prenom || ' ' || u.nom) as sender_nom
+         FROM coach_messages cm
+         JOIN users u ON u.id = cm.sender_user_id
+         WHERE cm.athlete_user_id = ? AND cm.coach_user_id = ?
+         ORDER BY cm.id ASC
+         LIMIT 100`,
+        athleteId,
+        coachId
+      );
+      const messages = rows.map((m) => ({
+        id: Number(m.id),
+        athlete_user_id: Number(m.athlete_user_id),
+        coach_user_id: Number(m.coach_user_id),
+        sender_user_id: Number(m.sender_user_id),
+        sender_role: String(m.sender_role) as 'ATHLETE' | 'COACH',
+        sender_nom: String(m.sender_nom),
+        body: String(m.body),
+        read_by_athlete: Boolean(m.read_by_athlete),
+        read_by_coach: Boolean(m.read_by_coach),
+        created_at: String(m.created_at),
+      }));
+      res.json({ messages });
+    })
+  );
+
+  app.post(
+    '/api/coach/athletes/:athleteId/messages',
+    requireAuth,
+    requireRole('COACH'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const coachId = req.authUser!.id;
+      const athleteId = parsePositiveIntId(req.params.athleteId);
+      if (!athleteId) {
+        res.status(400).json({ error: 'Identifiant athlète invalide.' });
+        return;
+      }
+      const bodyText = sanitizeText((req.body as Record<string, unknown>).body, 1000);
+      if (!bodyText) {
+        res.status(400).json({ error: 'Le message ne peut pas être vide.' });
+        return;
+      }
+      const assigned = await dbGet(
+        "SELECT id FROM assignments WHERE coach_user_id = ? AND athlete_user_id = ? AND statut = 'ACTIF'",
+        coachId,
+        athleteId
+      );
+      if (!assigned) {
+        res.status(403).json({ error: 'Cet athlète ne vous est pas affecté.' });
+        return;
+      }
+      const ins = await dbRun(
+        `INSERT INTO coach_messages (
+          athlete_user_id, coach_user_id, sender_user_id, sender_role, body, read_by_athlete, read_by_coach
+        ) VALUES (?, ?, ?, 'COACH', ?, 0, 1)`,
+        athleteId,
+        coachId,
+        coachId,
+        bodyText
+      );
+      await dbRun(
+        "UPDATE coach_messages SET read_by_coach = 1 WHERE athlete_user_id = ? AND coach_user_id = ? AND sender_role = 'ATHLETE' AND read_by_coach = 0",
+        athleteId,
+        coachId
+      );
+      await logAccess(coachId, 'COACH', athleteId, 'MESSAGE_DIRECT_ATHLETE', 'coach_messages');
+      const created = await dbGet<Record<string, unknown>>(
+        `SELECT cm.*, (u.prenom || ' ' || u.nom) as sender_nom
+         FROM coach_messages cm
+         JOIN users u ON u.id = cm.sender_user_id
+         WHERE cm.id = ?`,
+        ins.lastInsertRowid
+      );
+      res.status(201).json({
+        message: created
+          ? {
+              id: Number(created.id),
+              athlete_user_id: Number(created.athlete_user_id),
+              coach_user_id: Number(created.coach_user_id),
+              sender_user_id: Number(created.sender_user_id),
+              sender_role: String(created.sender_role),
+              sender_nom: String(created.sender_nom),
+              body: String(created.body),
+              read_by_athlete: Boolean(created.read_by_athlete),
+              read_by_coach: Boolean(created.read_by_coach),
+              created_at: String(created.created_at),
+            }
+          : null,
+      });
+    })
+  );
+
+  app.post(
+    '/api/coach/athletes/:athleteId/messages/read',
+    requireAuth,
+    requireRole('COACH'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const coachId = req.authUser!.id;
+      const athleteId = parsePositiveIntId(req.params.athleteId);
+      if (!athleteId) {
+        res.status(400).json({ error: 'Identifiant athlète invalide.' });
+        return;
+      }
+      await dbRun(
+        "UPDATE coach_messages SET read_by_coach = 1 WHERE athlete_user_id = ? AND coach_user_id = ? AND sender_role = 'ATHLETE' AND read_by_coach = 0",
+        athleteId,
+        coachId
+      );
+      res.json({ ok: true });
     })
   );
 
@@ -4380,7 +4649,7 @@ export async function createApp(): Promise<Express> {
         await Promise.all([
           dbAll(
             `SELECT u.id, u.nom, u.prenom, u.email, u.telephone, u.role, u.statut, u.is_minor, u.verified, u.created_at,
-                    ap.sport_code, ap.niveau,
+                    ap.sport_code, ap.niveau, ap.plan_tier, ap.plan_fee_fcfa,
                     act_asg.coach_user_id as assigned_coach_id
              FROM users u
              LEFT JOIN athlete_profiles ap ON ap.user_id = u.id
@@ -4438,7 +4707,7 @@ export async function createApp(): Promise<Express> {
              FROM access_audit_logs al
              LEFT JOIN users ua ON ua.id = al.actor_user_id
              LEFT JOIN users ut ON ut.id = al.athlete_user_id
-             ORDER BY al.id DESC LIMIT 60`
+             ORDER BY al.id DESC LIMIT 250`
           ),
           dbAll(
             `SELECT p.*,
@@ -4855,404 +5124,646 @@ export async function createApp(): Promise<Express> {
     })
   );
 
-  // ---------------- MINISTERIAL / INSTITUTIONAL OBSERVATORY ROUTE ----------------
-  app.get(
-    '/api/minister/overview',
+  // Admin: Direct Creation & Editing of Official Library Sessions
+  app.post(
+    '/api/admin/sessions',
     requireAuth,
-    requireRole('MINISTRE', 'ADMIN'),
+    requireRole('ADMIN'),
     asyncHandler(async (req: AuthedRequest, res: Response) => {
-      const [
-        athleteCountsRaw,
-        coachCountRow,
-        sessionsCountsRaw,
-        evalStats,
-        schedStats,
-        partnerCountsRaw,
-        athletesBySportRows,
-        libBySportRows,
-        evalBySportRows,
-        doneBySportRows,
-        groupsBySportRows,
-        partnerRows,
-        challengeRows,
-        painStatsRaw,
-        minorConsentsRow,
-        nonMedicalConsentsRow,
-        auditEventsRow,
-        coachCommentsRow,
-        reqRowsRaw,
-      ] = await Promise.all([
-        dbGet<Record<string, number | null>>(
-          `SELECT
-             COUNT(*) as "totalAthletes",
-             SUM(CASE WHEN statut = 'SUIVI_ACTIF' THEN 1 ELSE 0 END) as "activeFollowUpAthletes",
-             SUM(CASE WHEN verified = 1 THEN 1 ELSE 0 END) as "verifiedAthletes",
-             SUM(CASE WHEN is_minor = 1 THEN 1 ELSE 0 END) as "minorProtectedCount"
-           FROM users
-           WHERE role = 'ATHLETE' AND statut != 'CLOTURE'`
+      const body = (req.body || {}) as Record<string, unknown>;
+      const sport_code = sanitizeText(body.sport_code, 20) as SportCode;
+      const titre = sanitizeText(body.titre, 140);
+      const niveau = sanitizeText(body.niveau, 20) as AthleteLevel;
+      const duree_min = Number(body.duree_min);
+      const objectif = sanitizeText(body.objectif, 200);
+      const prevention_focus = sanitizeText(body.prevention_focus, 140) || 'Général';
+      const access_tier = sanitizeText(body.access_tier, 20).toUpperCase() === 'PROGRESSION' ? 'PROGRESSION' : 'ESSENTIEL';
+      const validation_status = ['VALIDEE', 'EN_RELECTURE', 'BROUILLON'].includes(String(body.validation_status || ''))
+        ? String(body.validation_status)
+        : 'VALIDEE';
+      const relue_par = sanitizeText(body.relue_par, 140) || 'Direction Technique Terrain+';
+      const rawExercises = Array.isArray(body.exercises) ? body.exercises : [];
+
+      if (!VALID_SPORT_CODES.includes(sport_code) || !titre || !['debutant', 'intermediaire', 'avance'].includes(niveau) || !objectif) {
+        res.status(400).json({ error: 'Sport, titre, niveau et objectif sont requis.' });
+        return;
+      }
+
+      const exercises = rawExercises
+        .map((ex, idx) => {
+          const item = (ex || {}) as Record<string, unknown>;
+          const nom = sanitizeText(item.nom, 120);
+          const consigneFr = sanitizeText(item.consigneFr, 400);
+          if (!nom || !consigneFr) return null;
+          return {
+            id: sanitizeText(item.id, 60) || `adm-${Date.now()}-${idx + 1}`,
+            nom,
+            consigneFr,
+            consigneWo: sanitizeText(item.consigneWo, 400) || 'Toppal ndigal yi ci ndànk.',
+            varianteFacile: sanitizeText(item.varianteFacile, 200) || 'Rythme progressif et amplitude modérée',
+            varianteDifficile: sanitizeText(item.varianteDifficile, 200) || 'Cadence soutenue',
+            mode: item.mode === 'repetitions' ? 'repetitions' : 'duree',
+            dureeSec: Math.min(300, Math.max(10, Number(item.dureeSec || 40))),
+            repetitions: item.mode === 'repetitions' ? Math.min(100, Math.max(1, Number(item.repetitions || 12))) : undefined,
+            reposSec: Math.min(180, Math.max(5, Number(item.reposSec || 20))),
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      if (exercises.length === 0) {
+        res.status(400).json({ error: 'Ajoutez au moins un exercice avec un nom et une consigne.' });
+        return;
+      }
+
+      const ins = await dbRun(
+        `INSERT INTO sessions_library (
+          sport_code, titre, niveau, duree_min, objectif, prevention_focus,
+          relue_par, validation_status, access_tier, proposee_par_user_id, exercises_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sport_code,
+        titre,
+        niveau,
+        Number.isFinite(duree_min) ? Math.min(120, Math.max(10, Math.round(duree_min))) : 35,
+        objectif,
+        prevention_focus,
+        validation_status === 'VALIDEE' ? relue_par : null,
+        validation_status,
+        access_tier,
+        req.authUser!.id,
+        JSON.stringify(exercises)
+      );
+
+      await logAccess(req.authUser!.id, 'ADMIN', null, 'CREATION_SEANCE_OFFICIELLE', `session:${ins.lastInsertRowid}`);
+      res.status(201).json({ id: Number(ins.lastInsertRowid), ok: true });
+    })
+  );
+
+  app.put(
+    '/api/admin/sessions/:sessionId',
+    requireAuth,
+    requireRole('ADMIN'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const sessionId = parsePositiveIntId(req.params.sessionId);
+      if (!sessionId) {
+        res.status(400).json({ error: 'Identifiant de séance invalide.' });
+        return;
+      }
+      const existing = await dbGet<{ id: number; exercises_json: string }>('SELECT id, exercises_json FROM sessions_library WHERE id = ?', sessionId);
+      if (!existing) {
+        res.status(404).json({ error: 'Séance introuvable.' });
+        return;
+      }
+
+      const body = (req.body || {}) as Record<string, unknown>;
+      const sport_code = sanitizeText(body.sport_code, 20) as SportCode;
+      const titre = sanitizeText(body.titre, 140);
+      const niveau = sanitizeText(body.niveau, 20) as AthleteLevel;
+      const duree_min = Number(body.duree_min);
+      const objectif = sanitizeText(body.objectif, 200);
+      const prevention_focus = sanitizeText(body.prevention_focus, 140) || 'Général';
+      const access_tier = sanitizeText(body.access_tier, 20).toUpperCase() === 'PROGRESSION' ? 'PROGRESSION' : 'ESSENTIEL';
+      const validation_status = ['VALIDEE', 'EN_RELECTURE', 'BROUILLON'].includes(String(body.validation_status || ''))
+        ? String(body.validation_status)
+        : 'VALIDEE';
+      const relue_par = sanitizeText(body.relue_par, 140) || 'Direction Technique Terrain+';
+
+      if (!VALID_SPORT_CODES.includes(sport_code) || !titre || !['debutant', 'intermediaire', 'avance'].includes(niveau) || !objectif) {
+        res.status(400).json({ error: 'Sport, titre, niveau et objectif sont requis.' });
+        return;
+      }
+
+      let exercisesJson = existing.exercises_json;
+      if (Array.isArray(body.exercises)) {
+        const exercises = body.exercises
+          .map((ex, idx) => {
+            const item = (ex || {}) as Record<string, unknown>;
+            const nom = sanitizeText(item.nom, 120);
+            const consigneFr = sanitizeText(item.consigneFr, 400);
+            if (!nom || !consigneFr) return null;
+            return {
+              id: sanitizeText(item.id, 60) || `adm-${Date.now()}-${idx + 1}`,
+              nom,
+              consigneFr,
+              consigneWo: sanitizeText(item.consigneWo, 400) || 'Toppal ndigal yi ci ndànk.',
+              varianteFacile: sanitizeText(item.varianteFacile, 200) || 'Rythme progressif et amplitude modérée',
+              varianteDifficile: sanitizeText(item.varianteDifficile, 200) || 'Cadence soutenue',
+              mode: item.mode === 'repetitions' ? 'repetitions' : 'duree',
+              dureeSec: Math.min(300, Math.max(10, Number(item.dureeSec || 40))),
+              repetitions: item.mode === 'repetitions' ? Math.min(100, Math.max(1, Number(item.repetitions || 12))) : undefined,
+              reposSec: Math.min(180, Math.max(5, Number(item.reposSec || 20))),
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null);
+        if (exercises.length === 0) {
+          res.status(400).json({ error: 'La séance doit contenir au moins un exercice valide.' });
+          return;
+        }
+        exercisesJson = JSON.stringify(exercises);
+      }
+
+      await dbRun(
+        `UPDATE sessions_library
+         SET sport_code = ?, titre = ?, niveau = ?, duree_min = ?, objectif = ?, prevention_focus = ?,
+             access_tier = ?, validation_status = ?, relue_par = ?, exercises_json = ?
+         WHERE id = ?`,
+        sport_code,
+        titre,
+        niveau,
+        Number.isFinite(duree_min) ? Math.min(120, Math.max(10, Math.round(duree_min))) : 35,
+        objectif,
+        prevention_focus,
+        access_tier,
+        validation_status,
+        validation_status === 'VALIDEE' ? relue_par : null,
+        exercisesJson,
+        sessionId
+      );
+
+      await logAccess(req.authUser!.id, 'ADMIN', null, 'MODIFICATION_SEANCE_OFFICIELLE', `session:${sessionId}`);
+      res.json({ ok: true });
+    })
+  );
+
+  // Admin: Edit User Profile / Role / Tier Safely
+  app.patch(
+    '/api/admin/users/:userId/profile',
+    requireAuth,
+    requireRole('ADMIN'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const userId = parsePositiveIntId(req.params.userId);
+      if (!userId) {
+        res.status(400).json({ error: 'Identifiant utilisateur invalide.' });
+        return;
+      }
+      const target = await dbGet<{ id: number; role: UserRole; statut: string }>('SELECT id, role, statut FROM users WHERE id = ?', userId);
+      if (!target) {
+        res.status(404).json({ error: 'Utilisateur introuvable.' });
+        return;
+      }
+
+      const body = (req.body || {}) as Record<string, unknown>;
+      const nextRole = sanitizeText(body.role || target.role, 20).toUpperCase() as UserRole;
+      const nextStatut = sanitizeText(body.statut || target.statut, 20).toUpperCase();
+      const sportCode = body.sport_code ? (sanitizeText(body.sport_code, 20) as SportCode) : null;
+      const niveau = body.niveau ? (sanitizeText(body.niveau, 20) as AthleteLevel) : null;
+      const planTier = body.plan_tier ? sanitizeText(body.plan_tier, 20).toUpperCase() : null;
+
+      if (!['ATHLETE', 'COACH', 'ADMIN'].includes(nextRole)) {
+        res.status(400).json({ error: 'Rôle invalide.' });
+        return;
+      }
+      if (!['INSCRIT', 'ACTIF', 'SUIVI_ACTIF', 'EN_PAUSE', 'CLOTURE'].includes(nextStatut)) {
+        res.status(400).json({ error: 'Statut invalide.' });
+        return;
+      }
+
+      if (userId === req.authUser!.id && (nextRole !== 'ADMIN' || nextStatut === 'CLOTURE')) {
+        res.status(400).json({ error: 'Vous ne pouvez pas retirer vos propres droits administrateur.' });
+        return;
+      }
+
+      if (target.role === 'ADMIN' && (nextRole !== 'ADMIN' || nextStatut === 'CLOTURE')) {
+        const activeAdmins = await dbGet<{ c: number }>(
+          "SELECT COUNT(*) as c FROM users WHERE role = 'ADMIN' AND statut != 'CLOTURE' AND id != ?",
+          userId
+        );
+        if (Number(activeAdmins?.c || 0) === 0) {
+          res.status(400).json({ error: 'Action refusée : au moins un compte Administrateur actif doit rester sur la plateforme.' });
+          return;
+        }
+      }
+
+      await dbTransaction(async (tx) => {
+        await tx.run('UPDATE users SET role = ?, statut = ? WHERE id = ?', nextRole, nextStatut, userId);
+        if (nextStatut === 'CLOTURE') {
+          await tx.run('DELETE FROM sessions WHERE user_id = ?', userId);
+        }
+
+        if (nextRole === 'ATHLETE') {
+          const existingProfile = await tx.get<{ sport_code: SportCode; niveau: AthleteLevel; plan_tier: string; plan_fee_fcfa: number }>(
+            'SELECT sport_code, niveau, plan_tier, plan_fee_fcfa FROM athlete_profiles WHERE user_id = ?',
+            userId
+          );
+          const safeSport = sportCode && VALID_SPORT_CODES.includes(sportCode) ? sportCode : existingProfile?.sport_code || 'football';
+          const safeNiveau = niveau && ['debutant', 'intermediaire', 'avance'].includes(niveau) ? niveau : existingProfile?.niveau || 'debutant';
+          const safePlan = planTier && ['ESSENTIEL', 'PROGRESSION', 'COACH_PRIVE'].includes(planTier)
+            ? planTier
+            : existingProfile?.plan_tier || 'ESSENTIEL';
+          const safeFee = safePlan === 'COACH_PRIVE' ? 5000 : safePlan === 'PROGRESSION' ? 1500 : 0;
+
+          if (existingProfile) {
+            await tx.run(
+              `UPDATE athlete_profiles
+               SET sport_code = ?, niveau = ?, plan_tier = ?, plan_fee_fcfa = ?,
+                   coach_subscription_status = ?
+               WHERE user_id = ?`,
+              safeSport,
+              safeNiveau,
+              safePlan,
+              safeFee,
+              safePlan === 'COACH_PRIVE' ? 'ACTIF_5000' : 'GRATUIT_BASE',
+              userId
+            );
+          } else {
+            await tx.run(
+              `INSERT INTO athlete_profiles (user_id, sport_code, niveau, plan_tier, plan_fee_fcfa, coach_subscription_status)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+              userId,
+              safeSport,
+              safeNiveau,
+              safePlan,
+              safeFee,
+              safePlan === 'COACH_PRIVE' ? 'ACTIF_5000' : 'GRATUIT_BASE'
+            );
+          }
+        }
+
+        await logAccess(req.authUser!.id, 'ADMIN', userId, 'EDITION_PROFIL_ADMIN', `role:${nextRole}:statut:${nextStatut}`, tx);
+      });
+
+      res.json({ ok: true });
+    })
+  );
+
+  // Admin: Create Multi-Admin Account
+  app.post(
+    '/api/admin/admins',
+    requireAuth,
+    requireRole('ADMIN'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const body = (req.body || {}) as Record<string, unknown>;
+      const nom = sanitizeText(body.nom, 80);
+      const prenom = sanitizeText(body.prenom, 80);
+      const email = sanitizeText(body.email, 140).toLowerCase();
+      const telephone = normalizePhone(sanitizeText(body.telephone, 30));
+      const password = typeof body.password === 'string' ? body.password : '';
+      const role = 'ADMIN';
+
+      if (!nom || !prenom || !isValidEmail(email) || !isValidSenegalPhone(telephone)) {
+        res.status(400).json({ error: 'Nom, prénom, email valide et numéro sénégalais (+221...) requis.' });
+        return;
+      }
+      if (!isStrongPassword(password)) {
+        res.status(400).json({ error: 'Mot de passe requis (8 caractères min, majuscule, minuscule et chiffre).' });
+        return;
+      }
+      const existing = await dbGet('SELECT id FROM users WHERE LOWER(email) = LOWER(?) OR telephone = ?', email, telephone);
+      if (existing) {
+        res.status(409).json({ error: 'Un compte existe déjà avec cet email ou téléphone.' });
+        return;
+      }
+
+      const pwHash = hashPassword(password);
+      const ins = await dbRun(
+        `INSERT INTO users (
+          nom, prenom, telephone, email, password_hash, role, date_naissance, langue, statut, is_minor, verified
+        ) VALUES (?, ?, ?, ?, ?, ?, '1990-01-01', 'fr', 'ACTIF', 0, 1)`,
+        nom,
+        prenom,
+        telephone,
+        email,
+        pwHash,
+        role
+      );
+
+      await logAccess(req.authUser!.id, 'ADMIN', Number(ins.lastInsertRowid), 'CREATION_COMPTE_ADMIN', `role:${role}`);
+      res.status(201).json({ id: Number(ins.lastInsertRowid), ok: true });
+    })
+  );
+
+  // Admin: Finances, Transactions & Coach Payouts
+  app.get(
+    '/api/admin/finances',
+    requireAuth,
+    requireRole('ADMIN'),
+    asyncHandler(async (_req: AuthedRequest, res: Response) => {
+      const now = new Date();
+      const currentPeriodMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+
+      const [txRows, payoutRows, coachEstimateRows] = await Promise.all([
+        dbAll<Record<string, unknown>>(
+          `SELECT pt.*,
+                  (u.prenom || ' ' || u.nom) as user_nom,
+                  u.email as user_email,
+                  (uc.prenom || ' ' || uc.nom) as coach_nom
+           FROM payment_transactions pt
+           LEFT JOIN users u ON u.id = pt.user_id
+           LEFT JOIN users uc ON uc.id = pt.coach_user_id
+           ORDER BY pt.id DESC
+           LIMIT 200`
         ),
-        dbGet<{ c: number }>("SELECT COUNT(*) as c FROM users WHERE role = 'COACH' AND statut != 'CLOTURE'"),
-        dbGet<Record<string, number | null>>(
-          `SELECT
-             SUM(CASE WHEN validation_status = 'VALIDEE' THEN 1 ELSE 0 END) as "validatedSessionsCount",
-             SUM(CASE WHEN validation_status = 'EN_RELECTURE' THEN 1 ELSE 0 END) as "pendingReviewSessionsCount",
-             SUM(CASE WHEN validation_status = 'VALIDEE' AND relue_par IS NOT NULL AND TRIM(relue_par) != '' THEN 1 ELSE 0 END) as "reviewedCount",
-             COUNT(*) as "totalLibraryCount"
-           FROM sessions_library`
-        ),
-        dbGet<{ avgScore: number | null }>('SELECT AVG(score_global) as "avgScore" FROM evaluations'),
-        dbGet<{ completedTotal: number | null; plannedTotal: number | null }>(
-          `SELECT
-             SUM(CASE WHEN is_rest_day = 0 AND completed = 1 THEN 1 ELSE 0 END) as "completedTotal",
-             SUM(CASE WHEN is_rest_day = 0 THEN 1 ELSE 0 END) as "plannedTotal"
-           FROM scheduled_sessions`
-        ),
-        dbGet<Record<string, number>>(
-          `SELECT
-             (SELECT COUNT(*) FROM partners) as "totalPartners",
-             (SELECT COUNT(*) FROM groups) as "totalGroups",
-             (SELECT COUNT(*) FROM group_memberships) as "totalGroupMemberships",
-             (SELECT COUNT(*) FROM challenges) as "totalChallenges",
-             (SELECT COUNT(*) FROM partner_requests WHERE statut != 'VALIDEE') as "pendingPartnerRequests"`
-        ),
-        dbAll<{ sport_code: SportCode; c: number }>(
-          `SELECT ap.sport_code, COUNT(*) as c
-           FROM athlete_profiles ap
-           JOIN users u ON u.id = ap.user_id
-           WHERE u.role = 'ATHLETE' AND u.statut != 'CLOTURE'
-           GROUP BY ap.sport_code`
-        ),
-        dbAll<{ sport_code: SportCode; c: number }>(
-          `SELECT sport_code, COUNT(*) as c
-           FROM sessions_library
-           WHERE validation_status = 'VALIDEE'
-           GROUP BY sport_code`
-        ),
-        dbAll<{ sport_code: SportCode; c: number; avgScore: number | null }>(
-          `SELECT sport_code, COUNT(*) as c, AVG(score_global) as "avgScore"
-           FROM evaluations
-           GROUP BY sport_code`
-        ),
-        dbAll<{ sport_code: SportCode; c: number }>(
-          `SELECT pp.sport_code, COUNT(*) as c
-           FROM scheduled_sessions ss
-           JOIN program_plans pp ON pp.id = ss.program_id
-           WHERE ss.is_rest_day = 0 AND ss.completed = 1
-           GROUP BY pp.sport_code`
-        ),
-        dbAll<{ sport_code: SportCode; c: number }>(
-          'SELECT sport_code, COUNT(*) as c FROM groups GROUP BY sport_code'
+        dbAll<Record<string, unknown>>(
+          `SELECT cp.*,
+                  (u.prenom || ' ' || u.nom) as coach_nom,
+                  u.email as coach_email,
+                  c.coach_plan
+           FROM coach_payouts cp
+           JOIN users u ON u.id = cp.coach_user_id
+           JOIN coaches c ON c.user_id = cp.coach_user_id
+           ORDER BY cp.period_month DESC, cp.id DESC
+           LIMIT 120`
         ),
         dbAll<{
-          id: number;
-          nom: string;
-          type: 'ASC' | 'CAMPUS' | 'LIGUE';
-          zone: string;
-          groups_count: number;
-          members_count: number;
+          coach_user_id: number;
+          coach_nom: string;
+          coach_email: string;
+          coach_telephone: string;
+          coach_plan: 'MARKETPLACE' | 'COACH_PRO';
+          commission_pct: number;
+          active_athletes_count: number;
         }>(
-          `SELECT p.id, p.nom, p.type, p.zone,
-                  COALESCE(gc.groups_count, 0) as groups_count,
-                  COALESCE(mc.members_count, 0) as members_count
-           FROM partners p
-           LEFT JOIN (
-             SELECT partner_id, COUNT(*) as groups_count
-             FROM groups
-             GROUP BY partner_id
-           ) gc ON gc.partner_id = p.id
-           LEFT JOIN (
-             SELECT g.partner_id, COUNT(*) as members_count
-             FROM group_memberships gm
-             JOIN groups g ON g.id = gm.group_id
-             GROUP BY g.partner_id
-           ) mc ON mc.partner_id = p.id
-           ORDER BY p.zone ASC, p.id ASC`
-        ),
-        dbAll<{
-          id: number;
-          titre: string;
-          partner_nom: string;
-          partner_type: 'ASC' | 'CAMPUS' | 'LIGUE';
-          zone: string;
-          periode: string;
-          indicateur: string;
-          target_sessions: number;
-          current_sessions: number;
-        }>(
-          `SELECT c.id, c.titre, p.nom as partner_nom, p.type as partner_type, p.zone,
-                  c.periode, c.indicateur, c.target_sessions, c.current_sessions
-           FROM challenges c
-           JOIN partners p ON p.id = c.partner_id
-           ORDER BY c.id ASC`
-        ),
-        dbGet<Record<string, number | null>>(
-          `SELECT
-             SUM(CASE WHEN type = 'DOULEUR' AND traitee = 0 THEN 1 ELSE 0 END) as "openPainAlerts",
-             SUM(CASE WHEN type = 'DOULEUR' AND traitee = 1 THEN 1 ELSE 0 END) as "resolvedPainAlerts",
-             SUM(CASE WHEN type = 'DOULEUR' THEN 1 ELSE 0 END) as "totalPainAlerts"
-           FROM alerts`
-        ),
-        dbGet<{ c: number }>("SELECT COUNT(DISTINCT user_id) as c FROM consents WHERE type = 'ACCORD_PARENTAL'"),
-        dbGet<{ c: number }>("SELECT COUNT(DISTINCT user_id) as c FROM consents WHERE type = 'NON_MEDICAL'"),
-        dbGet<{ c: number }>('SELECT COUNT(*) as c FROM access_audit_logs'),
-        dbGet<{ c: number }>('SELECT COUNT(*) as c FROM coach_comments'),
-        dbGet<Record<string, number | null>>(
-          `SELECT
-             COUNT(*) as total,
-             SUM(CASE WHEN statut = 'NOUVELLE' THEN 1 ELSE 0 END) as nouvelle,
-             SUM(CASE WHEN statut = 'EN_ETUDE' THEN 1 ELSE 0 END) as "enEtude",
-             SUM(CASE WHEN statut = 'VALIDEE' THEN 1 ELSE 0 END) as validee
-           FROM partner_requests`
+          `SELECT u.id as coach_user_id,
+                  (u.prenom || ' ' || u.nom) as coach_nom,
+                  u.email as coach_email,
+                  u.telephone as coach_telephone,
+                  c.coach_plan,
+                  COALESCE(c.commission_pct, 20) as commission_pct,
+                  COUNT(a.id) as active_athletes_count
+           FROM users u
+           JOIN coaches c ON c.user_id = u.id
+           LEFT JOIN assignments a ON a.coach_user_id = u.id AND a.statut = 'ACTIF'
+           WHERE u.role = 'COACH' AND u.statut != 'CLOTURE' AND c.verification_status = 'VERIFIE'
+           GROUP BY u.id, u.prenom, u.nom, u.email, u.telephone, c.coach_plan, c.commission_pct
+           ORDER BY active_athletes_count DESC, u.nom ASC`
         ),
       ]);
 
-      const athBySport = new Map(athletesBySportRows.map((r) => [r.sport_code, Number(r.c || 0)]));
-      const libBySport = new Map(libBySportRows.map((r) => [r.sport_code, Number(r.c || 0)]));
-      const evalBySport = new Map(evalBySportRows.map((r) => [r.sport_code, r]));
-      const doneBySport = new Map(doneBySportRows.map((r) => [r.sport_code, Number(r.c || 0)]));
-      const grpBySport = new Map(groupsBySportRows.map((r) => [r.sport_code, Number(r.c || 0)]));
+      const transactions = txRows.map((r) => ({
+        id: Number(r.id),
+        user_id: r.user_id ? Number(r.user_id) : null,
+        user_nom: r.user_nom ? String(r.user_nom) : null,
+        user_email: r.user_email ? String(r.user_email) : null,
+        coach_user_id: r.coach_user_id ? Number(r.coach_user_id) : null,
+        coach_nom: r.coach_nom ? String(r.coach_nom) : null,
+        category: String(r.category),
+        label: String(r.label),
+        amount_fcfa: Number(r.amount_fcfa || 0),
+        platform_share_fcfa: Number(r.platform_share_fcfa || 0),
+        coach_share_fcfa: Number(r.coach_share_fcfa || 0),
+        payment_method: String(r.payment_method),
+        reference: r.reference ? String(r.reference) : null,
+        status: String(r.status),
+        notes: r.notes ? String(r.notes) : null,
+        created_at: String(r.created_at),
+      }));
 
-      const bySport = VALID_SPORT_CODES.map((sportCode) => {
-        const ev = evalBySport.get(sportCode);
+      const payouts = payoutRows.map((p) => ({
+        id: Number(p.id),
+        coach_user_id: Number(p.coach_user_id),
+        coach_nom: String(p.coach_nom),
+        coach_email: String(p.coach_email),
+        coach_plan: String(p.coach_plan),
+        period_month: String(p.period_month),
+        active_athletes_count: Number(p.active_athletes_count || 0),
+        gross_amount_fcfa: Number(p.gross_amount_fcfa || 0),
+        commission_fcfa: Number(p.commission_fcfa || 0),
+        net_payout_fcfa: Number(p.net_payout_fcfa || 0),
+        payment_method: String(p.payment_method),
+        reference: p.reference ? String(p.reference) : null,
+        status: String(p.status),
+        paid_at: p.paid_at ? String(p.paid_at) : null,
+        created_at: String(p.created_at),
+      }));
+
+      const currentPayoutByCoach = new Map<number, (typeof payouts)[number]>();
+      for (const p of payouts) {
+        if (p.period_month === currentPeriodMonth) {
+          currentPayoutByCoach.set(p.coach_user_id, p);
+        }
+      }
+
+      const monthlyCoachEstimates = coachEstimateRows.map((c) => {
+        const activeCount = Number(c.active_athletes_count || 0);
+        const gross = activeCount * 5000;
+        const pct = c.coach_plan === 'COACH_PRO' ? 0 : Number(c.commission_pct ?? 20);
+        const commission = Math.round((gross * pct) / 100);
+        const net = Math.max(0, gross - commission);
         return {
-          sport_code: sportCode,
-          athletesCount: athBySport.get(sportCode) || 0,
-          validatedSessionsCount: libBySport.get(sportCode) || 0,
-          evaluationsCount: Number(ev?.c || 0),
-          avgEvalScore: ev?.avgScore !== null && ev?.avgScore !== undefined ? Math.round(Number(ev.avgScore)) : null,
-          completedSessionsCount: doneBySport.get(sportCode) || 0,
-          groupsCount: grpBySport.get(sportCode) || 0,
+          coach_user_id: Number(c.coach_user_id),
+          coach_nom: String(c.coach_nom),
+          coach_email: String(c.coach_email),
+          coach_telephone: String(c.coach_telephone),
+          coach_plan: c.coach_plan,
+          active_athletes_count: activeCount,
+          gross_amount_fcfa: gross,
+          commission_fcfa: commission,
+          net_payout_fcfa: net,
+          existing_payout: currentPayoutByCoach.get(Number(c.coach_user_id)) || null,
         };
       });
 
-      const athleteCounts = athleteCountsRaw || {};
-      const sessionsCounts = sessionsCountsRaw || {};
-      const partnerCounts = partnerCountsRaw || {};
-      const painStats = painStatsRaw || {};
-      const reqRows = reqRowsRaw || {};
-
-      const totalAthletes = Number(athleteCounts.totalAthletes || 0);
-      const totalCoaches = Number(coachCountRow?.c || 0);
-      const ratioNum = totalCoaches > 0 ? Math.max(1, Math.round(totalAthletes / totalCoaches)) : totalAthletes;
-      const completedSessionsTotal = Number(schedStats?.completedTotal || 0);
-      const plannedTrainingSessionsTotal = Number(schedStats?.plannedTotal || 0);
-      const avgWeeklyCompletionPct =
-        plannedTrainingSessionsTotal > 0
-          ? Math.min(100, Math.round((completedSessionsTotal / plannedTrainingSessionsTotal) * 100))
-          : 0;
-
-      const zoneMap = new Map<
-        string,
-        {
-          zone: string;
-          partnersCount: number;
-          partnerTypes: Set<'ASC' | 'CAMPUS' | 'LIGUE'>;
-          groupsCount: number;
-          membersCount: number;
-          challengesCount: number;
-          targetSum: number;
-          currentSum: number;
-        }
-      >();
-
-      for (const p of partnerRows) {
-        const entry = zoneMap.get(p.zone) || {
-          zone: p.zone,
-          partnersCount: 0,
-          partnerTypes: new Set<'ASC' | 'CAMPUS' | 'LIGUE'>(),
-          groupsCount: 0,
-          membersCount: 0,
-          challengesCount: 0,
-          targetSum: 0,
-          currentSum: 0,
-        };
-        entry.partnersCount += 1;
-        entry.partnerTypes.add(p.type);
-        entry.groupsCount += Number(p.groups_count || 0);
-        entry.membersCount += Number(p.members_count || 0);
-        zoneMap.set(p.zone, entry);
-      }
-
-      for (const c of challengeRows) {
-        const entry = zoneMap.get(c.zone);
-        if (entry) {
-          entry.challengesCount += 1;
-          entry.targetSum += Number(c.target_sessions || 0);
-          entry.currentSum += Number(c.current_sessions || 0);
-        }
-      }
-
-      const byZone = Array.from(zoneMap.values()).map((z) => ({
-        zone: z.zone,
-        partnersCount: z.partnersCount,
-        partnerTypes: Array.from(z.partnerTypes),
-        groupsCount: z.groupsCount,
-        membersCount: z.membersCount,
-        challengesCount: z.challengesCount,
-        challengeCompletionPct:
-          z.targetSum > 0 ? Math.min(100, Math.round((z.currentSum / z.targetSum) * 100)) : 0,
-      }));
-
-      const openPainAlerts = Number(painStats.openPainAlerts || 0);
-      const resolvedPainAlerts = Number(painStats.resolvedPainAlerts || 0);
-      const totalPainAlerts = Number(painStats.totalPainAlerts || 0);
-      const painResolutionRatePct =
-        totalPainAlerts > 0 ? Math.round((resolvedPainAlerts / totalPainAlerts) * 100) : 100;
-
-      const minorProtectedCount = Number(athleteCounts.minorProtectedCount || 0);
-      const totalLibraryCount = Number(sessionsCounts.totalLibraryCount || 0);
-      const reviewedCount = Number(sessionsCounts.reviewedCount || 0);
-      const reviewCompliancePct =
-        totalLibraryCount > 0 ? Math.round((reviewedCount / totalLibraryCount) * 100) : 100;
-
-      const minorConsentCount = Number(minorConsentsRow?.c || 0);
-      const parentalConsentCompliancePct =
-        minorProtectedCount > 0
-          ? Math.min(100, Math.round((minorConsentCount / minorProtectedCount) * 100))
-          : 100;
-
-      const validatedSessionsCount = Number(sessionsCounts.validatedSessionsCount || 0);
-      const phase1Progress = Math.min(
-        100,
-        Math.round(
-          ((Math.min(validatedSessionsCount, 8) / 8) * 50) +
-            ((Math.min(byZone.length, 3) / 3) * 50)
-        )
-      );
-      const readinessScorePct = Math.round((reviewCompliancePct + parentalConsentCompliancePct + phase1Progress) / 3);
-
-      await logAccess(
-        req.authUser!.id,
-        req.authUser!.role,
-        null,
-        'CONSULTATION_OBSERVATOIRE',
-        'indicateurs_agreges_sans_pii'
-      );
+      const collectedTotalFcfa = transactions
+        .filter((t) => t.status === 'PAYE')
+        .reduce((acc, t) => acc + t.amount_fcfa, 0);
+      const collectedPlatformFcfa = transactions
+        .filter((t) => t.status === 'PAYE')
+        .reduce((acc, t) => acc + t.platform_share_fcfa, 0);
+      const pendingTotalFcfa = transactions
+        .filter((t) => t.status === 'EN_ATTENTE')
+        .reduce((acc, t) => acc + t.amount_fcfa, 0);
+      const failedCount = transactions.filter((t) => t.status === 'ECHOUE').length;
+      const estimatedMonthlyCoachPayoutFcfa = monthlyCoachEstimates.reduce((acc, e) => acc + e.net_payout_fcfa, 0);
+      const paidOutCurrentMonthFcfa = payouts
+        .filter((p) => p.period_month === currentPeriodMonth && p.status === 'VERSE')
+        .reduce((acc, p) => acc + p.net_payout_fcfa, 0);
 
       res.json({
-        generatedAt: new Date().toISOString(),
-        kpis: {
-          totalAthletes,
-          activeFollowUpAthletes: Number(athleteCounts.activeFollowUpAthletes || 0),
-          verifiedAthletes: Number(athleteCounts.verifiedAthletes || 0),
-          minorProtectedCount,
-          totalCoaches,
-          coachAthleteRatio: `1 : ${ratioNum}`,
-          validatedSessionsCount,
-          pendingReviewSessionsCount: Number(sessionsCounts.pendingReviewSessionsCount || 0),
-          avgGlobalEvalScore:
-            evalStats?.avgScore !== null && evalStats?.avgScore !== undefined
-              ? Math.round(Number(evalStats.avgScore))
-              : null,
-          completedSessionsTotal,
-          plannedTrainingSessionsTotal,
-          avgWeeklyCompletionPct,
-          totalPartners: Number(partnerCounts.totalPartners || 0),
-          totalGroups: Number(partnerCounts.totalGroups || 0),
-          totalGroupMemberships: Number(partnerCounts.totalGroupMemberships || 0),
-          totalChallenges: Number(partnerCounts.totalChallenges || 0),
-          pendingPartnerRequests: Number(partnerCounts.pendingPartnerRequests || 0),
+        currentPeriodMonth,
+        summary: {
+          collectedTotalFcfa,
+          collectedPlatformFcfa,
+          pendingTotalFcfa,
+          failedCount,
+          estimatedMonthlyCoachPayoutFcfa,
+          paidOutCurrentMonthFcfa,
         },
-        bySport,
-        byZone,
-        preventionAndSafety: {
-          openPainAlerts,
-          resolvedPainAlerts,
-          totalPainAlerts,
-          painResolutionRatePct,
-          minorParentalConsentCount: minorConsentCount,
-          parentalConsentCompliancePct,
-          nonMedicalConsentCount: Number(nonMedicalConsentsRow?.c || 0),
-          reviewCompliancePct,
-          auditEventsCount: Number(auditEventsRow?.c || 0),
-          coachCommentsCount: Number(coachCommentsRow?.c || 0),
-        },
-        challenges: challengeRows.map((c) => ({
-          ...c,
-          pct: c.target_sessions > 0 ? Math.min(100, Math.round((Number(c.current_sessions) / Number(c.target_sessions)) * 100)) : 0,
-        })),
-        partnerRequestsSummary: {
-          total: Number(reqRows.total || 0),
-          nouvelle: Number(reqRows.nouvelle || 0),
-          enEtude: Number(reqRows.enEtude || 0),
-          validee: Number(reqRows.validee || 0),
-        },
-        perspectives: {
-          readinessScorePct,
-          phases: [
-            {
-              code: 'Phase 1',
-              horizon: 'T1 – T2 2026',
-              titre: 'Socle initial Campus & ASC vérifié',
-              statut: 'EN_COURS',
-              progressionPct: phase1Progress,
-              resume:
-                'Déploiement sur les pôles universitaires (Thiès, Saint-Louis) et ASC de Dakar avec protocole non médical validé par la revue technique Terrain+.',
-              livrables: [
-                `${validatedSessionsCount} séances validées sans matériel obligatoire`,
-                `${byZone.length} zones territoriales actives (${Number(partnerCounts.totalPartners || 0)} structures)`,
-                'Guidage bilingue Français / Wolof et cache hors-ligne opérationnel',
-              ],
-            },
-            {
-              code: 'Phase 2',
-              horizon: 'T3 – T4 2026',
-              titre: 'Extension aux Ligues Régionales & Navétanes',
-              statut: 'PLANIFIEE',
-              progressionPct: Math.min(100, Math.round((Number(reqRows.validee || 0) + Number(partnerCounts.totalPartners || 0)) * 12)),
-              resume:
-                'Ouverture des collectifs aux ligues régionales (Kaolack, Ziguinchor, Diourbel, Tambacounda) et formation des Capitaines Prépa.',
-              livrables: [
-                'Relais de proximité dans les zones à faible densité d’encadrement',
-                'Protocoles de reprise pré-compétition et prévention des chevilles/genoux',
-                'Tableau territorial consolidé sans exposition de données individuelles',
-              ],
-            },
-            {
-              code: 'Phase 3',
-              horizon: '2027',
-              titre: 'Observatoire National Sport-Santé & Jeunesse',
-              statut: 'CIBLE',
-              progressionPct: Math.min(100, Math.round((byZone.length / 14) * 100)),
-              resume:
-                'Suivi longitudinal agrégé des progrès physiques amateurs à l’échelle des 14 régions avec protection stricte des mineurs.',
-              livrables: [
-                'Indicateurs de régularité inter-régions anonymisés pour les politiques publiques',
-                'Orientation systématique vers les centres médico-sportifs sur alerte douleur',
-                'Interopérabilité fédérale pour licences amateurs et sport scolaire',
-              ],
-            },
-          ],
-          axes: [
-            {
-              id: 'acces',
-              titre: 'Équité territoriale & bas débit',
-              indicateurActuel: '100 % des séances téléchargeables hors ligne',
-              orientation: 'Réduire l’écart d’encadrement hors Dakar grâce aux parcours sans matériel et à l’éco-données.',
-            },
-            {
-              id: 'langue',
-              titre: 'Inclusion linguistique FR / Wolof',
-              indicateurActuel: `${validatedSessionsCount} séances bilingues actives`,
-              orientation: 'Étendre les consignes audio et visuelles aux langues locales pour lever les barrières de compréhension.',
-            },
-            {
-              id: 'prevention',
-              titre: 'Prévention & protection des mineurs',
-              indicateurActuel: `${parentalConsentCompliancePct}% conformité parentale`,
-              orientation: 'Maintenir la séparation stricte entre préparation générale et acte médical, avec traçabilité d’accès.',
-            },
-            {
-              id: 'ethique',
-              titre: 'Éthique sportive sans classement public',
-              indicateurActuel: `${Number(partnerCounts.totalChallenges || 0)} défis collectifs solidaires`,
-              orientation: 'Valoriser la régularité de groupe (ASC, Campus, Ligues) plutôt que la comparaison individuelle publique.',
-            },
-          ],
-        },
+        transactions,
+        payouts,
+        monthlyCoachEstimates,
       });
     })
   );
+
+  app.post(
+    '/api/admin/transactions',
+    requireAuth,
+    requireRole('ADMIN'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const body = (req.body || {}) as Record<string, unknown>;
+      const userId = body.user_id ? parsePositiveIntId(body.user_id) : null;
+      const coachUserId = body.coach_user_id ? parsePositiveIntId(body.coach_user_id) : null;
+      const category = sanitizeText(body.category || 'AUTRE', 30).toUpperCase();
+      const label = sanitizeText(body.label, 140);
+      const amount = Math.round(Number(body.amount_fcfa || 0));
+      const paymentMethod = sanitizeText(body.payment_method || 'WAVE', 20).toUpperCase();
+      const reference = sanitizeText(body.reference, 80) || null;
+      const status = sanitizeText(body.status || 'PAYE', 20).toUpperCase();
+      const notes = sanitizeText(body.notes, 240) || null;
+
+      if (
+        !label ||
+        !Number.isFinite(amount) ||
+        amount <= 0 ||
+        !['ATHLETE_PLAN', 'COACH_PRO_LICENSE', 'COACH_PRIVATE_FEE', 'AUTRE'].includes(category) ||
+        !['WAVE', 'ORANGE_MONEY', 'FREE_MONEY', 'CARTE', 'ESPECES', 'MANUEL'].includes(paymentMethod) ||
+        !['PAYE', 'EN_ATTENTE', 'ECHOUE', 'REMBOURSE'].includes(status)
+      ) {
+        res.status(400).json({ error: 'Libellé, montant positif, catégorie et méthode de paiement valides requis.' });
+        return;
+      }
+
+      let platformShare = amount;
+      let coachShare = 0;
+      if (category === 'COACH_PRIVATE_FEE' && coachUserId) {
+        const cRow = await dbGet<{ commission_pct: number }>('SELECT commission_pct FROM coaches WHERE user_id = ?', coachUserId);
+        const pct = Number(cRow?.commission_pct ?? 20);
+        platformShare = Math.round((amount * pct) / 100);
+        coachShare = Math.max(0, amount - platformShare);
+      }
+
+      const ins = await dbRun(
+        `INSERT INTO payment_transactions (
+          user_id, coach_user_id, category, label, amount_fcfa, platform_share_fcfa, coach_share_fcfa,
+          payment_method, reference, status, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        userId,
+        coachUserId,
+        category,
+        label,
+        amount,
+        platformShare,
+        coachShare,
+        paymentMethod,
+        reference,
+        status,
+        notes
+      );
+
+      await logAccess(req.authUser!.id, 'ADMIN', userId, 'ENREGISTREMENT_TRANSACTION', `tx:${ins.lastInsertRowid}:${amount}`);
+      res.status(201).json({ id: Number(ins.lastInsertRowid), ok: true });
+    })
+  );
+
+  app.patch(
+    '/api/admin/transactions/:id',
+    requireAuth,
+    requireRole('ADMIN'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const txId = parsePositiveIntId(req.params.id);
+      const status = sanitizeText((req.body as Record<string, unknown>).status, 20).toUpperCase();
+      if (!txId || !['PAYE', 'EN_ATTENTE', 'ECHOUE', 'REMBOURSE'].includes(status)) {
+        res.status(400).json({ error: 'Transaction ou statut invalide.' });
+        return;
+      }
+      const upd = await dbRun('UPDATE payment_transactions SET status = ? WHERE id = ?', status, txId);
+      if (upd.changes === 0) {
+        res.status(404).json({ error: 'Transaction introuvable.' });
+        return;
+      }
+      await logAccess(req.authUser!.id, 'ADMIN', null, 'STATUT_TRANSACTION', `tx:${txId}:${status}`);
+      res.json({ ok: true });
+    })
+  );
+
+  app.post(
+    '/api/admin/coach-payouts',
+    requireAuth,
+    requireRole('ADMIN'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const body = (req.body || {}) as Record<string, unknown>;
+      const coachUserId = parsePositiveIntId(body.coach_user_id);
+      const periodMonth = sanitizeText(body.period_month, 7);
+      const paymentMethod = sanitizeText(body.payment_method || 'WAVE', 20).toUpperCase();
+      const reference = sanitizeText(body.reference, 80) || null;
+      const status = sanitizeText(body.status || 'VERSE', 20).toUpperCase() === 'EN_ATTENTE' ? 'EN_ATTENTE' : 'VERSE';
+
+      if (
+        !coachUserId ||
+        !/^\d{4}-\d{2}$/.test(periodMonth) ||
+        !['WAVE', 'ORANGE_MONEY', 'VIREMENT', 'ESPECES'].includes(paymentMethod)
+      ) {
+        res.status(400).json({ error: 'Coach, période (YYYY-MM) et moyen de versement requis.' });
+        return;
+      }
+
+      const coachInfo = await dbGet<{ coach_plan: string; commission_pct: number; active_count: number }>(
+        `SELECT c.coach_plan, COALESCE(c.commission_pct, 20) as commission_pct,
+                (SELECT COUNT(*) FROM assignments a WHERE a.coach_user_id = c.user_id AND a.statut = 'ACTIF') as active_count
+         FROM coaches c
+         WHERE c.user_id = ?`,
+        coachUserId
+      );
+      if (!coachInfo) {
+        res.status(404).json({ error: 'Coach introuvable.' });
+        return;
+      }
+
+      const activeCount = Number(coachInfo.active_count || 0);
+      const grossAmount = activeCount * 5000;
+      const pct = coachInfo.coach_plan === 'COACH_PRO' ? 0 : Number(coachInfo.commission_pct ?? 20);
+      const commission = Math.round((grossAmount * pct) / 100);
+      const netPayout = Math.max(0, grossAmount - commission);
+
+      await dbRun(
+        `INSERT INTO coach_payouts (
+          coach_user_id, period_month, active_athletes_count, gross_amount_fcfa, commission_fcfa, net_payout_fcfa,
+          payment_method, reference, status, paid_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(coach_user_id, period_month) DO UPDATE SET
+          active_athletes_count = excluded.active_athletes_count,
+          gross_amount_fcfa = excluded.gross_amount_fcfa,
+          commission_fcfa = excluded.commission_fcfa,
+          net_payout_fcfa = excluded.net_payout_fcfa,
+          payment_method = excluded.payment_method,
+          reference = COALESCE(excluded.reference, coach_payouts.reference),
+          status = excluded.status,
+          paid_at = CASE WHEN excluded.status = 'VERSE' THEN datetime('now') ELSE NULL END`,
+        coachUserId,
+        periodMonth,
+        activeCount,
+        grossAmount,
+        commission,
+        netPayout,
+        paymentMethod,
+        reference,
+        status,
+        status === 'VERSE' ? new Date().toISOString() : null
+      );
+
+      await logAccess(req.authUser!.id, 'ADMIN', coachUserId, 'REVERSEMENT_COACH', `${periodMonth}:${netPayout}:${status}`);
+      res.status(201).json({ ok: true });
+    })
+  );
+
+  app.patch(
+    '/api/admin/coach-payouts/:id',
+    requireAuth,
+    requireRole('ADMIN'),
+    asyncHandler(async (req: AuthedRequest, res: Response) => {
+      const payoutId = parsePositiveIntId(req.params.id);
+      const body = (req.body || {}) as Record<string, unknown>;
+      const status = sanitizeText(body.status, 20).toUpperCase();
+      if (!payoutId || !['EN_ATTENTE', 'VERSE'].includes(status)) {
+        res.status(400).json({ error: 'Reversement ou statut invalide.' });
+        return;
+      }
+      const upd = await dbRun(
+        `UPDATE coach_payouts
+         SET status = ?, paid_at = CASE WHEN ? = 'VERSE' THEN datetime('now') ELSE NULL END
+         WHERE id = ?`,
+        status,
+        status,
+        payoutId
+      );
+      if (upd.changes === 0) {
+        res.status(404).json({ error: 'Reversement introuvable.' });
+        return;
+      }
+      await logAccess(req.authUser!.id, 'ADMIN', null, 'STATUT_REVERSEMENT', `payout:${payoutId}:${status}`);
+      res.json({ ok: true });
+    })
+  );
+
 
   // ---------------- SERVER-SIDE GEMINI TTS CUE GENERATION ----------------
   const ttsCueCache = new Map<string, Buffer>();

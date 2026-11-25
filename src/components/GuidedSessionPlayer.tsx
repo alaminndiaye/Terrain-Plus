@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  AlertTriangle,
   CheckCircle2,
   ChevronRight,
   Pause,
@@ -11,6 +10,7 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { apiRequest } from '../lib/api';
 import { prefetchCue, speakCue, stopSpeech } from '../lib/audioCues';
 import { queueOfflineCompletion } from '../lib/offlineCache';
@@ -28,7 +28,6 @@ interface GuidedSessionPlayerProps {
   coachVideos?: CoachVideoItem[];
   onClose: () => void;
   onCompleted: () => void;
-  onReportPain: () => void;
 }
 
 type VariantMode = 'standard' | 'facile' | 'difficile';
@@ -41,7 +40,6 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
   coachVideos = [],
   onClose,
   onCompleted,
-  onReportPain,
 }) => {
   const [stepIdx, setStepIdx] = useState(0);
   const [phase, setPhase] = useState<'work' | 'rest' | 'feedback'>('work');
@@ -55,7 +53,6 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
 
   const [fatigue, setFatigue] = useState(5);
   const [difficulte, setDifficulte] = useState(5);
-  const [sommeil, setSommeil] = useState(7);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
@@ -92,7 +89,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
     if (currentEx) {
       prefetchCue(formatExerciseCue(currentEx), cueLang);
       if (stepIdx < totalSteps - 1 && (currentEx.reposSec || 20) > 0) {
-        prefetchCue(`Repos pendant ${currentEx.reposSec || 20} secondes.`, 'fr');
+        prefetchCue(`Pause pendant ${currentEx.reposSec || 20} secondes.`, 'fr');
       }
     }
     const nextEx = session.exercises[stepIdx + 1];
@@ -113,7 +110,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
         if (phase === 'work') {
           const restSec = currentEx?.reposSec || 20;
           if (stepIdx < totalSteps - 1 && restSec > 0) {
-            void speakCue(`Repos pendant ${restSec} secondes.`, audioEnabled, 'fr', (msg) => setVoiceNotice(msg));
+            void speakCue(`Pause pendant ${restSec} secondes.`, audioEnabled, 'fr', (msg) => setVoiceNotice(msg));
             setPhase('rest');
             return restSec;
           }
@@ -186,7 +183,6 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
       session_id: session.id,
       ressenti_fatigue: fatigue,
       difficulte,
-      qualite_sommeil: sommeil,
     };
 
     try {
@@ -211,7 +207,13 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col obsidian-ambient text-[#063725] overflow-y-auto">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      className="fixed inset-0 z-50 flex flex-col obsidian-ambient text-[#063725] overflow-y-auto"
+    >
       <header className="flex items-center justify-between gap-4 border-b border-[#D5E2DA] bg-white/95 backdrop-blur-md px-4 py-3 md:px-8">
         <div className="min-w-0">
           <div className="text-xs text-[#5B7064]">
@@ -244,8 +246,17 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
       </header>
 
       <main className="flex-1 flex flex-col justify-between max-w-2xl w-full mx-auto px-4 py-6 md:py-8 gap-6">
+        <AnimatePresence mode="wait">
         {phase === 'feedback' ? (
-          <form onSubmit={handleSubmitFeedback} className="rounded-3xl obsidian-card-glow p-6 space-y-5 my-auto">
+          <motion.form
+            key="feedback-form"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            onSubmit={handleSubmitFeedback}
+            className="rounded-3xl obsidian-card-glow p-6 space-y-5 my-auto"
+          >
             <div className="flex items-center gap-3">
               <CheckCircle2 className="h-6 w-6 text-[#0D6E46] shrink-0" aria-hidden="true" />
               <div>
@@ -292,22 +303,6 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   className="w-full accent-[#0D6E46]"
                 />
               </div>
-
-              <div>
-                <div className="flex justify-between text-sm mb-1.5">
-                  <label htmlFor="rpe-sleep" className="text-[#3D5246] font-medium">Qualité du sommeil la nuit dernière (1 à 10)</label>
-                  <span className="font-mono tabular-nums font-bold text-[#0D6E46]">{sommeil}/10</span>
-                </div>
-                <input
-                  id="rpe-sleep"
-                  type="range"
-                  min={1}
-                  max={10}
-                  value={sommeil}
-                  onChange={(e) => setSommeil(Number(e.target.value))}
-                  className="w-full accent-[#0D6E46]"
-                />
-              </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
@@ -318,25 +313,21 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
               >
                 {saving ? 'Enregistrement...' : 'Enregistrer et terminer'}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  stopSpeech();
-                  onReportPain();
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800 hover:bg-red-100 min-h-[48px]"
-              >
-                <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                <span>Signaler une douleur</span>
-              </button>
             </div>
-          </form>
+          </motion.form>
         ) : (
-          <>
+          <motion.div
+            key="session-active"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="flex-1 flex flex-col justify-between gap-6"
+          >
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs text-[#475E52]">
                 <span>
-                  Exercice <span className="font-mono tabular-nums text-[#063725] font-bold">{stepIdx + 1}/{totalSteps}</span> · Prévention {session.prevention_focus}
+                  Exercice <span className="font-mono tabular-nums text-[#063725] font-bold">{stepIdx + 1}/{totalSteps}</span> · {sportTheme.nom}
                 </span>
                 <div className="flex items-center gap-1 rounded-full bg-white p-1 border border-[#D5E2DA]">
                   <button
@@ -361,19 +352,28 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
               </div>
 
               <div className="w-full h-1.5 rounded-full bg-[#D5E2DA] overflow-hidden">
-                <div
-                  className="h-full bg-[#0D6E46] transition-all"
-                  style={{ width: `${((stepIdx + (phase === 'rest' ? 0.5 : 0.2)) / totalSteps) * 100}%` }}
+                <motion.div
+                  className="h-full bg-[#0D6E46]"
+                  animate={{ width: `${((stepIdx + (phase === 'rest' ? 0.5 : 0.2)) / totalSteps) * 100}%` }}
+                  transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
                 />
               </div>
             </div>
 
-            <div className="space-y-4 my-auto">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`${phase}-${stepIdx}`}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                className="space-y-4 my-auto"
+              >
               {/* Visual / Video Viewport */}
               {phase === 'rest' ? (
                 <div className="space-y-3 text-center">
                   <div className="space-y-1">
-                    <p className="text-lg font-bold text-[#0D6E46]">Respirez et relâchez les appuis</p>
+                    <p className="text-lg font-bold text-[#0D6E46]">Préparez l’exercice suivant</p>
                     <p className="text-sm text-[#475E52]">
                       À suivre : {session.exercises[stepIdx + 1]?.nom}
                     </p>
@@ -512,7 +512,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
               <div className="rounded-3xl obsidian-card p-5 space-y-4">
                 <div className="text-center border-b border-[#E2EBE5] pb-4">
                   <div className="text-[11px] font-medium tracking-wider text-[#5B7064] uppercase">
-                    {phase === 'rest' ? 'Temps de récupération' : 'Durée restante'}
+                    {phase === 'rest' ? 'Temps de pause' : 'Durée restante'}
                   </div>
                   <div className="mt-1 font-mono text-5xl sm:text-6xl font-bold tabular-nums tracking-tight text-[#063725]">
                     {String(Math.floor(secondsLeft / 60)).padStart(2, '0')}:
@@ -524,7 +524,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   <>
                     <div className="grid grid-cols-3 gap-2.5 text-center">
                       <div className="rounded-2xl obsidian-inset p-2.5">
-                        <div className="text-[10px] text-[#5B7064]">Repos prévu</div>
+                        <div className="text-[10px] text-[#5B7064]">Pause prévue</div>
                         <div className="mt-0.5 font-mono text-sm font-bold tabular-nums text-[#063725]">
                           {currentEx?.reposSec || 20}s
                         </div>
@@ -591,7 +591,8 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                   </>
                 )}
               </div>
-            </div>
+            </motion.div>
+            </AnimatePresence>
 
             <div className="space-y-3">
               <div className="flex items-center justify-center gap-4">
@@ -606,14 +607,25 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                 >
                   <RotateCcw className="h-5 w-5" />
                 </button>
-                <button
-                  type="button"
-                  onClick={handleTogglePlay}
-                  aria-label={running ? 'Pause' : 'Démarrer le chrono'}
-                  className="h-16 w-16 inline-flex items-center justify-center rounded-full bg-[#0D6E46] text-white hover:bg-[#095637] shadow-lg shadow-[#0D6E46]/25 transition-transform active:scale-95"
-                >
-                  {running ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
-                </button>
+                <div className="relative flex items-center justify-center">
+                  {running && (
+                    <motion.span
+                      aria-hidden="true"
+                      animate={{ scale: [1, 1.24, 1], opacity: [0.35, 0, 0.35] }}
+                      transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}
+                      className="absolute inset-0 rounded-full bg-[#0D6E46]"
+                    />
+                  )}
+                  <motion.button
+                    type="button"
+                    whileTap={{ scale: 0.92 }}
+                    onClick={handleTogglePlay}
+                    aria-label={running ? 'Pause' : 'Démarrer le chrono'}
+                    className="relative z-10 h-16 w-16 inline-flex items-center justify-center rounded-full bg-[#0D6E46] text-white hover:bg-[#095637] shadow-lg shadow-[#0D6E46]/25"
+                  >
+                    {running ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
+                  </motion.button>
+                </div>
                 <button
                   type="button"
                   onClick={handleSkip}
@@ -624,20 +636,7 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                 </button>
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-[#D5E2DA]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    stopSpeech();
-                    setRunning(false);
-                    onReportPain();
-                  }}
-                  className="inline-flex items-center gap-2 text-xs font-semibold text-red-700 hover:text-red-800 min-h-[44px]"
-                >
-                  <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                  <span>Douleur ? Arrêter et alerter</span>
-                </button>
-
+              <div className="flex items-center justify-end pt-2 border-t border-[#D5E2DA]">
                 <button
                   type="button"
                   onClick={() => {
@@ -652,9 +651,10 @@ export const GuidedSessionPlayer: React.FC<GuidedSessionPlayerProps> = ({
                 </button>
               </div>
             </div>
-          </>
+          </motion.div>
         )}
+        </AnimatePresence>
       </main>
-    </div>
+    </motion.div>
   );
 };
