@@ -1,24 +1,24 @@
 import type { Metadata, Viewport } from 'next';
-import { DM_Sans, JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 
-const plusJakarta = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  weight: ['500', '600', '700', '800'],
+const plusJakarta = localFont({
+  src: '../fonts/plus-jakarta-sans-latin.woff2',
+  weight: '200 800',
   variable: '--font-jakarta',
   display: 'swap',
 });
 
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const dmSans = localFont({
+  src: '../fonts/dm-sans-latin.woff2',
+  weight: '100 1000',
   variable: '--font-dm-sans',
   display: 'swap',
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+const jetbrainsMono = localFont({
+  src: '../fonts/jetbrains-mono-latin.woff2',
+  weight: '100 800',
   variable: '--font-jetbrains',
   display: 'swap',
 });
