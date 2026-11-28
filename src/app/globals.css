@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+:root {
+  --forest: #0d3320;
+  --forest-hover: #14452c;
+  --lime: #c8f62d;
+  --gold: #b45309;
+  --cream: #f4f5f0;
+  --surface: #ffffff;
+  --border: #dcdfd6;
+  --ink: #112118;
+  --muted: #526057;
+}
+
+body {
+  background-color: var(--cream);
+  color: var(--ink);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.panel-forest {
+  background-color: var(--forest);
+  border: 1px solid #092617;
+}
+
+.surface-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+}
