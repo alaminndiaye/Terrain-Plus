@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0d3320',
+  themeColor: '#063725',
   width: 'device-width',
   initialScale: 1,
 };
@@ -32,7 +32,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fr">
-      <body className={`${plusJakarta.className} min-h-screen antialiased bg-[#f4f5f0] text-[#112118]`}>
+      <body className={`${plusJakarta.className} min-h-screen antialiased bg-[#f6f8f5] text-[#063725]`}>
         {children}
       </body>
     </html>

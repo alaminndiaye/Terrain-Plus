@@ -1,15 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --forest: #0d3320;
-  --forest-hover: #14452c;
-  --lime: #c8f62d;
-  --gold: #b45309;
-  --cream: #f4f5f0;
+  --forest: #063725;
+  --forest-accent: #0d6e46;
+  --forest-hover: #095637;
+  --gold: #fbbf24;
+  --cream: #f6f8f5;
   --surface: #ffffff;
-  --border: #dcdfd6;
-  --ink: #112118;
-  --muted: #526057;
+  --inset: #f1f6f3;
+  --border: #d5e2da;
+  --ink: #063725;
+  --muted: #475e52;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
@@ -18,12 +23,36 @@ body {
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.obsidian-card {
+  background-color: #ffffff;
+  border: 1px solid #d5e2da;
+  box-shadow: 0 2px 10px rgba(6, 55, 37, 0.04);
+}
+
+.obsidian-inset {
+  background-color: #f1f6f3;
+  border: 1px solid rgba(6, 55, 37, 0.09);
+}
+
 .panel-forest {
-  background-color: var(--forest);
-  border: 1px solid #092617;
+  background-color: #063725;
+  border: 1px solid #042519;
 }
 
 .surface-card {
-  background-color: var(--surface);
-  border: 1px solid var(--border);
+  background-color: #ffffff;
+  border: 1px solid #d5e2da;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

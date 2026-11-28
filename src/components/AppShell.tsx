@@ -53,9 +53,11 @@ interface NotificationItem {
 export function AppShell({
   children,
   requireAuthRole,
+  fullBleedMain = false,
 }: {
   children: React.ReactNode;
   requireAuthRole?: UserRole;
+  fullBleedMain?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -149,23 +151,20 @@ export function AppShell({
   return (
     <div className="min-h-screen flex flex-col pb-20 md:pb-0">
       {session?.demoMode && (
-        <div className="bg-[#081f13] text-[#d9f99d] text-xs px-4 py-1.5 flex items-center justify-between border-b border-[#184a31]">
+        <div className="bg-[#063725] text-[#FBBF24] text-xs px-4 py-1.5 flex items-center justify-between border-b border-[#0d6e46]/40">
           <span>Terrain+ · Mode démonstration (paiements 10 000 FCFA et OTP SMS sandbox) · 18+ uniquement</span>
-          <span className="hidden sm:inline font-semibold">Sénégal</span>
+          <span className="hidden sm:inline font-semibold text-white">Sénégal</span>
         </div>
       )}
 
-      <header className="sticky top-0 z-30 bg-[#0d3320] text-white border-b border-[#184a31]">
+      <header className="sticky top-0 z-30 bg-white text-[#063725] border-b border-[#D5E2DA]">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
-          <Link href="/" className="flex items-center gap-2.5 shrink-0">
+          <Link href="/" className="flex items-center gap-2.5 shrink-0" aria-label="Terrain+ Accueil">
             <img
-              src="/brand/terrain-mark-light.png"
+              src="/brand/terrain-logo.png"
               alt="Terrain+"
-              className="h-9 w-9 rounded-lg object-contain bg-[#14452c] border border-[#23543a] p-1"
+              className="h-8 sm:h-9 w-auto object-contain"
             />
-            <span className="font-bold text-lg tracking-tight">
-              Terrain<span className="text-[#c8f62d]">+</span>
-            </span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-1">
@@ -176,8 +175,10 @@ export function AppShell({
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                    active ? 'bg-[#184a31] text-[#c8f62d]' : 'text-stone-200 hover:bg-[#14452c]'
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-sm font-medium transition ${
+                    active
+                      ? 'bg-[#ECF7F1] text-[#0D6E46] font-semibold'
+                      : 'text-[#3D5246] hover:bg-[#F1F6F3] hover:text-[#063725]'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -195,12 +196,12 @@ export function AppShell({
                     type="button"
                     onClick={openNotifications}
                     aria-label="Notifications"
-                    className="p-2 rounded-lg bg-[#14452c] hover:bg-[#1b5739] border border-[#23543a] transition"
+                    className="p-2 rounded-full bg-[#F1F6F3] hover:bg-[#E2EBE5] border border-[#D5E2DA] text-[#063725] transition"
                   >
                     <Bell className="w-4 h-4" />
                   </button>
                   {notifOpen && (
-                    <div className="absolute right-0 mt-2 w-80 bg-white text-[#112118] rounded-xl shadow-sm border border-[#dcdfd6] p-3 z-50">
+                    <div className="absolute right-0 mt-2 w-80 bg-white text-[#063725] rounded-xl shadow-sm border border-[#D5E2DA] p-3 z-50">
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-semibold text-sm">Notifications (neutres)</span>
                         <button
@@ -228,13 +229,13 @@ export function AppShell({
                   )}
                 </div>
 
-                <span className="hidden sm:inline text-xs text-emerald-100 bg-white/10 px-2.5 py-1 rounded-full">
+                <span className="hidden sm:inline text-xs font-semibold text-[#063725] bg-[#F1F6F3] border border-[#D5E2DA] px-2.5 py-1 rounded-full">
                   {user.firstName}
                 </span>
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="flex items-center gap-1 text-xs font-semibold bg-[#c8f62d] text-[#0a2e1c] px-3 py-1.5 rounded-lg hover:brightness-95"
+                  className="flex items-center gap-1 text-xs font-bold bg-[#0D6E46] text-white px-3.5 py-1.5 rounded-full hover:bg-[#095637] transition"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Déconnexion</span>
@@ -244,13 +245,13 @@ export function AppShell({
               <div className="flex items-center gap-2">
                 <Link
                   href="/auth?tab=login"
-                  className="text-sm font-medium text-white px-3 py-1.5 rounded-lg hover:bg-white/10"
+                  className="text-xs sm:text-sm font-semibold text-[#063725] border border-[#C3D6CA] bg-white px-4 py-2 rounded-full hover:bg-[#F1F6F3] transition"
                 >
                   Se connecter
                 </Link>
                 <Link
                   href="/auth?tab=register"
-                  className="text-sm font-semibold bg-[#c8f62d] text-[#0a2e1c] px-3.5 py-1.5 rounded-lg hover:brightness-95"
+                  className="text-xs sm:text-sm font-bold bg-[#0D6E46] text-white px-4 py-2 rounded-full hover:bg-[#095637] transition"
                 >
                   S’inscrire
                 </Link>
@@ -260,7 +261,9 @@ export function AppShell({
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">{children}</main>
+      <main className={fullBleedMain ? 'flex-1 w-full' : 'flex-1 max-w-6xl w-full mx-auto px-4 py-6'}>
+        {children}
+      </main>
 
       <footer className="hidden md:block bg-white border-t border-slate-200 py-5 text-xs text-slate-600">
         <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-between gap-2">
