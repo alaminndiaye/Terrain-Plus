@@ -149,26 +149,26 @@ export default function AthleteSuiviPreventionPage() {
   return (
     <AppShell requireAuthRole="athlete">
       <div className="space-y-6">
-        <section className="surface-card rounded-xl p-6 border-l-4 border-l-[#0d3320]">
+        <section className="obsidian-card rounded-2xl p-6 border-l-4 border-l-[#0D6E46]">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold bg-[#f4f5f0] border border-[#dcdfd6] px-2.5 py-0.5 rounded-md text-[#0d3320]">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-[#ECF7F1] border border-[#C3D6CA] px-2.5 py-0.5 rounded-full text-[#0D6E46]">
                 <Lock className="w-3.5 h-3.5" /> Données strictement privées (vous choisissez quoi partager)
               </span>
-              <h1 className="text-2xl sm:text-3xl font-bold text-[#112118] mt-2">Suivi &amp; prévention</h1>
-              <p className="text-sm text-[#526057] mt-1">
+              <h1 className="font-display text-2xl sm:text-3xl font-bold text-[#063725] mt-2">Suivi &amp; prévention</h1>
+              <p className="text-sm text-[#475E52] mt-1">
                 Journal d’entraînement, signaux de vigilance non diagnostiques, reprise après blessure et dossier médical.
               </p>
             </div>
             <Link
               href="/medecins"
-              className="px-4 py-2.5 rounded-lg bg-[#0d3320] hover:bg-[#14452c] text-white font-bold text-sm tabular-nums transition"
+              className="px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white font-semibold text-sm font-mono tabular-nums transition"
             >
               Demander un avis médical (10 000 FCFA)
             </Link>
           </div>
 
-          <div className="flex flex-wrap gap-2 mt-5 pt-4 border-t border-[#dcdfd6]">
+          <div className="flex flex-wrap gap-2 mt-5 pt-4 border-t border-[#E2EBE5]">
             {[
               ['journal', 'Journal d’entraînement'],
               ['trends', `Tendances & signaux (${signals.length})`],
@@ -180,10 +180,10 @@ export default function AthleteSuiviPreventionPage() {
                 key={k}
                 type="button"
                 onClick={() => setActiveTab(k as typeof activeTab)}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition ${
+                className={`px-4 py-1.5 rounded-full text-xs font-semibold border transition ${
                   activeTab === k
-                    ? 'bg-[#0d3320] text-white border-[#0d3320]'
-                    : 'bg-[#f4f5f0] text-[#112118] border-[#dcdfd6] hover:border-[#0d3320]'
+                    ? 'bg-[#0D6E46] text-white border-[#0D6E46]'
+                    : 'bg-[#F1F6F3] text-[#063725] border-[#D5E2DA] hover:border-[#0D6E46]'
                 }`}
               >
                 {lbl}
@@ -208,19 +208,19 @@ export default function AthleteSuiviPreventionPage() {
                     {sig.title}
                   </div>
                 </div>
-                <p className="text-sm text-slate-800">{sig.message}</p>
-                <p className="text-[11px] text-slate-600 italic">{sig.disclaimer}</p>
+                <p className="text-sm text-[#063725]">{sig.message}</p>
+                <p className="text-[11px] text-[#5B7064] italic">{sig.disclaimer}</p>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => setActiveTab('library')}
-                    className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-semibold"
+                    className="px-3.5 py-1.5 rounded-full bg-white border border-[#D5E2DA] text-[#063725] hover:bg-[#F1F6F3] text-xs font-semibold transition"
                   >
                     Lire les conseils de prévention
                   </button>
                   <Link
                     href="/medecins"
-                    className="px-3 py-1.5 rounded-lg bg-[#0a2e1c] text-white text-xs font-bold"
+                    className="px-3.5 py-1.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-xs font-semibold transition"
                   >
                     Demander un avis à un médecin / kiné
                   </Link>
@@ -234,34 +234,34 @@ export default function AthleteSuiviPreventionPage() {
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
             <form
               onSubmit={handleAddLog}
-              className="lg:col-span-2 bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3.5 h-fit"
+              className="lg:col-span-2 obsidian-card rounded-2xl p-5 space-y-3.5 h-fit"
             >
-              <h2 className="font-bold text-lg flex items-center gap-2">
-                <ClipboardList className="w-5 h-5 text-[#0a2e1c]" />
+              <h2 className="font-display font-bold text-lg text-[#063725] flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-[#0D6E46]" />
                 Saisir une séance / un match
               </h2>
               {msg && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-2.5 text-xs font-medium">
+                <div className="bg-[#ECF7F1] border border-[#C3D6CA] text-[#063725] rounded-xl p-2.5 text-xs font-medium">
                   {msg}
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Date</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Date</label>
                   <input
                     type="date"
                     value={sessionDate}
                     onChange={(e) => setSessionDate(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Sport</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Sport</label>
                   <select
                     value={sport}
                     onChange={(e) => setSport(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm bg-white"
                   >
                     {SUPPORTED_SPORTS.map((s) => (
                       <option key={s.code} value={s.code}>
@@ -274,11 +274,11 @@ export default function AthleteSuiviPreventionPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Type de séance</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Type de séance</label>
                   <select
                     value={sessionType}
                     onChange={(e) => setSessionType(e.target.value as typeof sessionType)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm bg-white"
                   >
                     <option value="training">Entraînement</option>
                     <option value="match">Match</option>
@@ -288,21 +288,21 @@ export default function AthleteSuiviPreventionPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Durée (min)</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Durée (min)</label>
                   <input
                     type="number"
                     min={1}
                     max={600}
                     value={durationMinutes}
                     onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm font-mono tabular-nums"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold mb-1">
-                  Intensité ressentie (RPE 1 à 10) : <strong>{rpeIntensity}/10</strong>
+                <label className="block text-xs font-semibold text-[#063725] mb-1">
+                  Intensité ressentie (RPE 1 à 10) : <strong className="font-mono tabular-nums text-[#0D6E46]">{rpeIntensity}/10</strong>
                 </label>
                 <input
                   type="range"
@@ -310,42 +310,42 @@ export default function AthleteSuiviPreventionPage() {
                   max={10}
                   value={rpeIntensity}
                   onChange={(e) => setRpeIntensity(Number(e.target.value))}
-                  className="w-full"
+                  className="w-full accent-[#0D6E46]"
                 />
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-[11px] font-semibold mb-1">Fatigue (1-5)</label>
+                  <label className="block text-[11px] font-semibold text-[#063725] mb-1">Fatigue (1-5)</label>
                   <input
                     type="number"
                     min={1}
                     max={5}
                     value={fatigueScore}
                     onChange={(e) => setFatigueScore(Number(e.target.value))}
-                    className="w-full rounded-xl border border-slate-300 px-2.5 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-2.5 py-1.5 text-sm font-mono tabular-nums"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold mb-1">Sommeil (1-5)</label>
+                  <label className="block text-[11px] font-semibold text-[#063725] mb-1">Sommeil (1-5)</label>
                   <input
                     type="number"
                     min={1}
                     max={5}
                     value={sleepScore}
                     onChange={(e) => setSleepScore(Number(e.target.value))}
-                    className="w-full rounded-xl border border-slate-300 px-2.5 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-2.5 py-1.5 text-sm font-mono tabular-nums"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold mb-1">Récup. (1-5)</label>
+                  <label className="block text-[11px] font-semibold text-[#063725] mb-1">Récup. (1-5)</label>
                   <input
                     type="number"
                     min={1}
                     max={5}
                     value={recoveryScore}
                     onChange={(e) => setRecoveryScore(Number(e.target.value))}
-                    className="w-full rounded-xl border border-slate-300 px-2.5 py-1.5 text-sm"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-2.5 py-1.5 text-sm font-mono tabular-nums"
                   />
                 </div>
               </div>
@@ -366,7 +366,7 @@ export default function AthleteSuiviPreventionPage() {
                     <select
                       value={bodyPart}
                       onChange={(e) => setBodyPart(e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 px-2.5 py-1.5 text-sm bg-white"
+                      className="w-full rounded-xl border border-[#D5E2DA] px-2.5 py-1.5 text-sm bg-white"
                     >
                       {BODY_PART_OPTIONS.map((b) => (
                         <option key={b.code} value={b.code}>
@@ -396,7 +396,7 @@ export default function AthleteSuiviPreventionPage() {
                   placeholder="Ex. 28"
                   value={minutesPlayed}
                   onChange={(e) => setMinutesPlayed(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm font-mono tabular-nums"
                 />
               </div>
 
@@ -407,37 +407,37 @@ export default function AthleteSuiviPreventionPage() {
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Sensations, exercice réalisé..."
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={saving}
-                className="w-full py-2.5 rounded-xl bg-[#0a2e1c] text-white font-bold text-sm hover:bg-[#13472d]"
+                className="w-full py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white font-semibold text-sm transition disabled:opacity-50"
               >
                 {saving ? 'Enregistrement...' : 'Enregistrer la séance'}
               </button>
             </form>
 
             <div className="lg:col-span-3 space-y-3">
-              <h2 className="font-bold text-lg">Historique des séances ({logs.length})</h2>
+              <h2 className="font-display font-bold text-lg text-[#063725]">Historique des séances ({logs.length})</h2>
               {logs.length === 0 ? (
-                <div className="bg-white rounded-2xl p-6 border border-slate-200 text-sm text-slate-500">
+                <div className="obsidian-card rounded-2xl p-6 text-sm text-[#5B7064]">
                   Aucune séance enregistrée. Saisissez votre premier entraînement pour suivre vos tendances.
                 </div>
               ) : (
                 logs.map((l) => (
-                  <div key={l.id} className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-1.5">
+                  <div key={l.id} className="obsidian-card rounded-2xl p-4 space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <strong className="text-sm">
+                      <strong className="text-sm text-[#063725]">
                         {formatDateFr(l.session_date)} · {l.sport} ({l.session_type})
                       </strong>
-                      <span className="text-xs font-bold bg-emerald-50 text-[#0a2e1c] px-2.5 py-0.5 rounded-full">
+                      <span className="text-xs font-semibold bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46] px-2.5 py-0.5 rounded-full font-mono tabular-nums">
                         {l.duration_minutes} min · RPE {l.rpe_intensity}/10
                       </span>
                     </div>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-[#475E52]">
                       Fatigue {l.fatigue_score}/5 · Sommeil {l.sleep_score}/5 · Récupération {l.recovery_score}/5
                     </p>
                     {l.has_discomfort && (
@@ -445,7 +445,7 @@ export default function AthleteSuiviPreventionPage() {
                         Gêne signalée : {l.body_part?.replace(/_/g, ' ')} ({l.discomfort_level}/10)
                       </p>
                     )}
-                    {l.notes && <p className="text-xs text-slate-500">{l.notes}</p>}
+                    {l.notes && <p className="text-xs text-[#5B7064]">{l.notes}</p>}
                   </div>
                 ))
               )}
@@ -454,13 +454,13 @@ export default function AthleteSuiviPreventionPage() {
         )}
 
         {activeTab === 'trends' && (
-          <section className="surface-card rounded-xl p-6 space-y-4">
-            <h2 className="font-bold text-lg flex items-center gap-2 text-[#112118]">
-              <Activity className="w-5 h-5 text-[#0d3320]" />
+          <section className="obsidian-card rounded-2xl p-6 space-y-4">
+            <h2 className="font-display font-bold text-lg flex items-center gap-2 text-[#063725]">
+              <Activity className="w-5 h-5 text-[#0D6E46]" />
               Évolution de la charge, fatigue et récupération
             </h2>
             {chartData.length < 2 ? (
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-[#5B7064]">
                 Ajoutez au moins 2 séances dans le journal pour afficher vos courbes de tendance.
               </p>
             ) : (
@@ -476,7 +476,7 @@ export default function AthleteSuiviPreventionPage() {
                       type="monotone"
                       dataKey="charge"
                       name="Charge (RPE×min/10)"
-                      stroke="#0d3320"
+                      stroke="#0D6E46"
                       strokeWidth={2.5}
                       dot={{ r: 3 }}
                     />
@@ -500,7 +500,7 @@ export default function AthleteSuiviPreventionPage() {
                 </ResponsiveContainer>
               </div>
             )}
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-[#5B7064]">
               Rappel : ces tendances sont indicatives et restent strictement privées tant que vous ne les partagez pas
               explicitement lors d’une consultation médicale.
             </p>
@@ -509,24 +509,24 @@ export default function AthleteSuiviPreventionPage() {
 
         {activeTab === 'reprise' && (
           <section className="space-y-4">
-            <h2 className="font-bold text-lg">Parcours de retour après blessure</h2>
+            <h2 className="font-display font-bold text-lg text-[#063725]">Parcours de retour après blessure</h2>
             {!followup?.returnToSportPlans?.length ? (
-              <div className="bg-white rounded-2xl p-6 border border-slate-200 text-sm text-slate-600">
+              <div className="obsidian-card rounded-2xl p-6 text-sm text-[#475E52]">
                 Aucun plan de retour après blessure actif. Lors d’une consultation, votre médecin ou kinésithérapeute
                 peut créer vos étapes progressives ici.
               </div>
             ) : (
               followup.returnToSportPlans.map((plan) => (
-                <div key={plan.id} className="bg-white rounded-2xl p-5 border border-slate-200 space-y-3">
+                <div key={plan.id} className="obsidian-card rounded-2xl p-5 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h3 className="font-bold text-base">{plan.title}</h3>
-                      <p className="text-xs text-slate-500">Prescrit et supervisé par {plan.doctorName}</p>
+                      <h3 className="font-display font-bold text-base text-[#063725]">{plan.title}</h3>
+                      <p className="text-xs text-[#5B7064]">Prescrit et supervisé par {plan.doctorName}</p>
                     </div>
                     <span
-                      className={`text-xs font-bold px-3 py-1 rounded-full ${
+                      className={`text-xs font-semibold px-3 py-1 rounded-full ${
                         plan.status === 'medical_clearance_granted'
-                          ? 'bg-emerald-100 text-emerald-900'
+                          ? 'bg-[#ECF7F1] text-[#0D6E46] border border-[#C3D6CA]'
                           : 'bg-amber-100 text-amber-900'
                       }`}
                     >
@@ -535,20 +535,20 @@ export default function AthleteSuiviPreventionPage() {
                         : 'Progression en cours'}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg">{plan.disclaimer}</p>
+                  <p className="text-xs text-[#475E52] obsidian-inset p-2.5 rounded-xl">{plan.disclaimer}</p>
                   <div className="space-y-2">
                     {plan.steps.map((s) => (
-                      <div key={s.id} className="flex items-start justify-between gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50/50">
+                      <div key={s.id} className="flex items-start justify-between gap-3 p-3 rounded-xl obsidian-inset">
                         <div>
-                          <p className="text-sm font-semibold">
+                          <p className="text-sm font-semibold text-[#063725]">
                             Étape {s.stepOrder} · {s.label}
                           </p>
-                          {s.criteria && <p className="text-xs text-slate-600">{s.criteria}</p>}
+                          {s.criteria && <p className="text-xs text-[#475E52]">{s.criteria}</p>}
                           <div className="flex gap-3 mt-1 text-[11px]">
-                            <span className={s.athleteDoneAt ? 'text-emerald-700 font-semibold' : 'text-slate-400'}>
+                            <span className={s.athleteDoneAt ? 'text-[#0D6E46] font-semibold' : 'text-[#5B7064]'}>
                               {s.athleteDoneAt ? '✓ Effectuée par vous' : 'Non cochée'}
                             </span>
-                            <span className={s.doctorValidatedAt ? 'text-[#0a2e1c] font-bold' : 'text-amber-700'}>
+                            <span className={s.doctorValidatedAt ? 'text-[#063725] font-bold' : 'text-[#B45309]'}>
                               {s.doctorValidatedAt ? '✓ Validée par le médecin' : 'En attente validation praticien'}
                             </span>
                           </div>
@@ -556,10 +556,10 @@ export default function AthleteSuiviPreventionPage() {
                         <button
                           type="button"
                           onClick={() => toggleStep(s.id, !s.athleteDoneAt)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition ${
                             s.athleteDoneAt
-                              ? 'bg-emerald-100 text-emerald-900'
-                              : 'bg-white border border-slate-300 text-slate-700'
+                              ? 'bg-[#ECF7F1] text-[#0D6E46] border border-[#C3D6CA]'
+                              : 'bg-white border border-[#D5E2DA] text-[#063725] hover:bg-[#F1F6F3]'
                           }`}
                         >
                           {s.athleteDoneAt ? 'Validé' : 'Marquer fait'}
@@ -575,14 +575,14 @@ export default function AthleteSuiviPreventionPage() {
 
         {activeTab === 'dossier' && (
           <section className="space-y-4">
-            <h2 className="font-bold text-lg">Dossier médical sportif longitudinal</h2>
+            <h2 className="font-display font-bold text-lg text-[#063725]">Dossier médical sportif longitudinal</h2>
             {followup?.medicalRecord ? (
-              <div className="bg-white rounded-2xl p-5 border border-slate-200 space-y-2">
-                <p className="text-xs text-slate-500">
+              <div className="obsidian-card rounded-2xl p-5 space-y-2">
+                <p className="text-xs text-[#5B7064]">
                   Dernière mise à jour par {followup.medicalRecord.lastUpdatedByDoctorName} ·{' '}
                   {formatDateFr(followup.medicalRecord.updatedAt)}
                 </p>
-                <p className="text-sm">
+                <p className="text-sm text-[#063725]">
                   <strong>Synthèse clinique :</strong> {followup.medicalRecord.clinicalSummary}
                 </p>
                 {followup.medicalRecord.contraindications && (
@@ -591,28 +591,28 @@ export default function AthleteSuiviPreventionPage() {
                   </p>
                 )}
                 {followup.medicalRecord.fitnessGuidance && (
-                  <p className="text-sm">
+                  <p className="text-sm text-[#063725]">
                     <strong>Orientation pratique :</strong> {followup.medicalRecord.fitnessGuidance}
                   </p>
                 )}
               </div>
             ) : (
-              <div className="bg-white rounded-2xl p-5 border border-slate-200 text-sm text-slate-500">
+              <div className="obsidian-card rounded-2xl p-5 text-sm text-[#5B7064]">
                 Votre dossier médical longitudinal sera enrichi par les médecins à la clôture de chaque consultation.
               </div>
             )}
 
             <div className="space-y-3">
               {followup?.entries?.map((entry) => (
-                <div key={entry.id} className="bg-white rounded-2xl p-4 border border-slate-200 space-y-1">
-                  <div className="flex justify-between text-xs text-slate-500">
-                    <span className="font-bold text-[#0a2e1c]">{entry.doctorName}</span>
+                <div key={entry.id} className="obsidian-card rounded-2xl p-4 space-y-1">
+                  <div className="flex justify-between text-xs text-[#5B7064]">
+                    <span className="font-bold text-[#063725]">{entry.doctorName}</span>
                     <span>{formatDateFr(entry.createdAt)}</span>
                   </div>
-                  <p className="text-sm">
+                  <p className="text-sm text-[#063725]">
                     <strong>Compte-rendu :</strong> {entry.summary}
                   </p>
-                  <p className="text-sm text-slate-700">
+                  <p className="text-sm text-[#475E52]">
                     <strong>Recommandations :</strong> {entry.recommendations}
                   </p>
                 </div>
@@ -624,16 +624,16 @@ export default function AthleteSuiviPreventionPage() {
         {activeTab === 'library' && (
           <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {articles.map((art) => (
-              <article key={art.id} className="bg-white rounded-2xl p-5 border border-slate-200 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-[#0a2e1c]">
+              <article key={art.id} className="obsidian-card rounded-2xl p-5 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[#0D6E46]">
                   <BookOpen className="w-4 h-4" />
                   <span>{art.category}</span>
                 </div>
-                <h3 className="font-bold text-base">{art.title}</h3>
-                <p className="text-xs font-medium text-slate-700">{art.summary}</p>
-                <p className="text-xs text-slate-600 leading-relaxed">{art.content}</p>
-                <p className="text-[11px] text-slate-400 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> {art.reviewer_name}
+                <h3 className="font-display font-bold text-base text-[#063725]">{art.title}</h3>
+                <p className="text-xs font-medium text-[#063725]">{art.summary}</p>
+                <p className="text-xs text-[#475E52] leading-relaxed">{art.content}</p>
+                <p className="text-[11px] text-[#5B7064] flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#0D6E46]" /> {art.reviewer_name}
                 </p>
               </article>
             ))}

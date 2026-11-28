@@ -43,9 +43,9 @@ export default function EmergencySafetyPage() {
                   <strong>{c.label} :</strong> {c.value}
                 </p>
               ))}
-              <p className="text-xs text-slate-600 pt-2">{data.disclaimer}</p>
+              <p className="text-xs text-[#475E52] pt-2">{data.disclaimer}</p>
             </div>
-            <Link href="/" className="inline-block px-4 py-2 rounded-xl bg-white border border-slate-300 text-sm font-semibold">
+            <Link href="/" className="inline-block px-5 py-2.5 rounded-full bg-white border border-[#D5E2DA] hover:bg-[#F1F6F3] text-[#063725] text-sm font-semibold transition">
               Retour à l’accueil
             </Link>
           </section>

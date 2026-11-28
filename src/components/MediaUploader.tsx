@@ -84,7 +84,7 @@ export function MediaUploader({ caseId, disabled, onUploaded, onError }: MediaUp
         disabled={disabled || uploading}
         onClick={() => inputRef.current?.click()}
         title="Partager une image, vidéo ou PDF (stockage privé sécurisé)"
-        className="px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 text-sm font-medium flex items-center gap-1.5 disabled:opacity-50"
+        className="px-3.5 py-2.5 rounded-xl border border-[#D5E2DA] bg-[#F1F6F3] hover:bg-[#ECF7F1] text-[#063725] text-sm font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
       >
         {uploading ? <Upload className="w-4 h-4 animate-pulse" /> : <Paperclip className="w-4 h-4" />}
         <span className="hidden sm:inline">{uploading ? 'Envoi...' : 'Image / Vidéo'}</span>

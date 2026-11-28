@@ -179,31 +179,31 @@ export function VideoCallRoom({ caseId, userId, peerName, onClose }: VideoCallRo
   }
 
   return (
-    <div className="bg-[#092416] text-white rounded-xl p-4 border border-[#23543a] space-y-3">
-      <div className="flex items-center justify-between">
+    <div className="bg-[#063725] text-white rounded-2xl p-4 border border-[#18523A] space-y-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm">
-          <Wifi className="w-4 h-4 text-[#c8f62d]" />
+          <Wifi className="w-4 h-4 text-[#FBBF24]" />
           <span className="font-semibold">{statusText}</span>
         </div>
-        <span className="text-[11px] bg-[#14452c] border border-[#23543a] px-2.5 py-0.5 rounded-full">
+        <span className="text-[11px] bg-[#0D6E46]/40 border border-[#18523A] text-[#ECF7F1] px-2.5 py-0.5 rounded-full">
           WebRTC P2P sécurisé (non enregistré)
         </span>
       </div>
 
       {errorMsg && (
-        <div className="bg-red-950 border border-red-700 text-red-100 rounded-lg p-3 text-sm">
+        <div className="bg-red-950 border border-red-700 text-red-100 rounded-xl p-3 text-sm">
           {errorMsg}
         </div>
       )}
 
-      <div className="relative bg-black rounded-lg overflow-hidden aspect-video max-h-[380px]">
+      <div className="relative bg-[#042418] rounded-xl overflow-hidden aspect-video max-h-[380px] border border-[#18523A]">
         <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
         <video
           ref={localVideoRef}
           autoPlay
           playsInline
           muted
-          className="absolute bottom-3 right-3 w-32 sm:w-44 aspect-video rounded-lg object-cover border-2 border-[#c8f62d] bg-slate-900"
+          className="absolute bottom-3 right-3 w-32 sm:w-44 aspect-video rounded-xl object-cover border-2 border-[#FBBF24] bg-[#063725]"
         />
       </div>
 
@@ -211,7 +211,7 @@ export function VideoCallRoom({ caseId, userId, peerName, onClose }: VideoCallRo
         <button
           type="button"
           onClick={toggleMic}
-          className={`p-3 rounded-full transition ${micOn ? 'bg-white/15 hover:bg-white/25' : 'bg-amber-600'}`}
+          className={`p-3 rounded-full transition ${micOn ? 'bg-white/15 hover:bg-white/25' : 'bg-[#D97706]'}`}
           aria-label="Basculer microphone"
         >
           {micOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
@@ -219,7 +219,7 @@ export function VideoCallRoom({ caseId, userId, peerName, onClose }: VideoCallRo
         <button
           type="button"
           onClick={toggleCam}
-          className={`p-3 rounded-full transition ${camOn ? 'bg-white/15 hover:bg-white/25' : 'bg-amber-600'}`}
+          className={`p-3 rounded-full transition ${camOn ? 'bg-white/15 hover:bg-white/25' : 'bg-[#D97706]'}`}
           aria-label="Basculer caméra"
         >
           {camOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
@@ -227,7 +227,7 @@ export function VideoCallRoom({ caseId, userId, peerName, onClose }: VideoCallRo
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-700 font-semibold text-sm flex items-center gap-2"
+          className="px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-700 font-semibold text-sm flex items-center gap-2 transition"
         >
           <PhoneOff className="w-4 h-4" />
           Quitter la visio

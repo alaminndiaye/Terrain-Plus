@@ -86,60 +86,60 @@ export default function DoctorAgendaPage() {
     <AppShell requireAuthRole="doctor">
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Agenda & Créneaux de consultation</h1>
-          <p className="text-sm text-slate-600">
+          <h1 className="font-display text-2xl font-bold text-[#063725]">Agenda &amp; Créneaux de consultation</h1>
+          <p className="text-sm text-[#475E52]">
             Publiez vos plages disponibles pour guider les demandes des sportifs (Visio et/ou Cabinet).
           </p>
         </div>
 
         {notice && (
-          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-sm text-emerald-900">{notice}</div>
+          <div className="p-3.5 rounded-xl border border-[#C3D6CA] bg-[#ECF7F1] text-sm text-[#063725]">{notice}</div>
         )}
         {error && (
-          <div className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-sm text-rose-800">{error}</div>
+          <div className="p-3.5 rounded-xl border border-red-200 bg-red-50 text-sm text-red-900">{error}</div>
         )}
 
-        <form onSubmit={handlePublishSlots} className="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
-          <h2 className="font-bold text-slate-900 flex items-center gap-2">
-            <Plus className="w-4 h-4 text-emerald-700" /> Générer des créneaux sur une plage horaire
+        <form onSubmit={handlePublishSlots} className="p-5 rounded-2xl obsidian-card space-y-4">
+          <h2 className="font-display font-bold text-[#063725] flex items-center gap-2">
+            <Plus className="w-4 h-4 text-[#0D6E46]" /> Générer des créneaux sur une plage horaire
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Date</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Date</label>
               <input
                 type="date"
                 required
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Début</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Début</label>
               <input
                 type="time"
                 required
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm font-mono tabular-nums"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Fin</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Fin</label>
               <input
                 type="time"
                 required
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm font-mono tabular-nums"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Durée</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Durée</label>
               <select
                 value={durationMinutes}
                 onChange={(e) => setDurationMinutes(Number(e.target.value) as 30 | 45 | 60)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm bg-white"
               >
                 <option value={30}>30 min</option>
                 <option value={45}>45 min</option>
@@ -147,11 +147,11 @@ export default function DoctorAgendaPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Format</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Format</label>
               <select
                 value={slotMode}
                 onChange={(e) => setSlotMode(e.target.value as 'video' | 'physical' | 'both')}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm bg-white"
               >
                 <option value="both">Visio ou Cabinet</option>
                 <option value="video">Visio uniquement</option>
@@ -159,50 +159,50 @@ export default function DoctorAgendaPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Lieu (optionnel)</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Lieu (optionnel)</label>
               <input
                 value={locationLabel}
                 onChange={(e) => setLocationLabel(e.target.value)}
                 placeholder="Cabinet / Visio"
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
               />
             </div>
           </div>
           <button
             type="submit"
             disabled={submitting}
-            className="px-5 py-2.5 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 disabled:opacity-50"
+            className="px-6 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition disabled:opacity-50"
           >
             {submitting ? 'Publication...' : 'Publier les créneaux'}
           </button>
         </form>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-            <h2 className="font-bold text-slate-900 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-emerald-700" /> Créneaux publiés ({slots.length})
+          <div className="p-5 rounded-2xl obsidian-card space-y-3">
+            <h2 className="font-display font-bold text-[#063725] flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-[#0D6E46]" /> Créneaux publiés ({slots.length})
             </h2>
             {slots.length === 0 ? (
-              <p className="text-sm text-slate-500">Aucun créneau publié.</p>
+              <p className="text-sm text-[#5B7064]">Aucun créneau publié.</p>
             ) : (
               <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
                 {slots.map((s) => (
                   <div
                     key={s.id}
-                    className="p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-2 text-xs"
+                    className="p-3 rounded-xl obsidian-inset flex items-center justify-between gap-2 text-xs"
                   >
                     <div>
-                      <p className="font-semibold text-slate-900">{formatDateTimeFr(s.starts_at)}</p>
-                      <p className="text-slate-600">
+                      <p className="font-semibold text-[#063725]">{formatDateTimeFr(s.starts_at)}</p>
+                      <p className="text-[#475E52]">
                         Format : {s.slot_mode === 'both' ? 'Visio & Cabinet' : s.slot_mode} · {s.location_label || 'Selon dossier'}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <span
-                        className={`px-2 py-0.5 rounded-full font-medium ${
+                        className={`px-2.5 py-0.5 rounded-full font-semibold ${
                           s.status === 'available'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-slate-200 text-slate-700'
+                            ? 'bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46]'
+                            : 'bg-white border border-[#D5E2DA] text-[#475E52]'
                         }`}
                       >
                         {s.status}
@@ -212,7 +212,7 @@ export default function DoctorAgendaPage() {
                           type="button"
                           onClick={() => handleDeleteSlot(s.id)}
                           title="Supprimer ce créneau"
-                          className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50"
+                          className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 transition"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -224,24 +224,24 @@ export default function DoctorAgendaPage() {
             )}
           </div>
 
-          <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-            <h2 className="font-bold text-slate-900">Rendez-vous associés aux dossiers ({appointments.length})</h2>
+          <div className="p-5 rounded-2xl obsidian-card space-y-3">
+            <h2 className="font-display font-bold text-[#063725]">Rendez-vous associés aux dossiers ({appointments.length})</h2>
             {appointments.length === 0 ? (
-              <p className="text-sm text-slate-500">Aucun rendez-vous proposé ou confirmé.</p>
+              <p className="text-sm text-[#5B7064]">Aucun rendez-vous proposé ou confirmé.</p>
             ) : (
               <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
                 {appointments.map((a) => (
                   <Link
                     key={a.id}
                     href={`/medecin/dossiers/${a.case_id}`}
-                    className="block p-3 rounded-xl border border-slate-200 hover:border-emerald-300 text-xs space-y-1"
+                    className="block p-3 rounded-xl obsidian-inset hover:border-[#0D6E46]/40 text-xs space-y-1 transition"
                   >
-                    <div className="flex items-center justify-between font-semibold text-slate-900">
+                    <div className="flex items-center justify-between font-semibold text-[#063725]">
                       <span>{a.appointment_type === 'video' ? 'Téléconsultation Visio' : 'Consultation Cabinet'}</span>
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100">{a.proposal_status}</span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-white border border-[#D5E2DA] text-[#063725]">{a.proposal_status}</span>
                     </div>
-                    <p className="text-slate-600">{formatDateTimeFr(a.starts_at)}</p>
-                    <p className="text-slate-500">{a.location_label}</p>
+                    <p className="text-[#475E52]">{formatDateTimeFr(a.starts_at)}</p>
+                    <p className="text-[#5B7064]">{a.location_label}</p>
                   </Link>
                 ))}
               </div>

@@ -1,10 +1,25 @@
 import type { Metadata, Viewport } from 'next';
-import { Plus_Jakarta_Sans } from 'next/font/google';
+import { DM_Sans, JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
+  weight: ['500', '600', '700', '800'],
+  variable: '--font-jakarta',
+  display: 'swap',
+});
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-dm-sans',
+  display: 'swap',
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-jetbrains',
   display: 'swap',
 });
 
@@ -31,8 +46,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr">
-      <body className={`${plusJakarta.className} min-h-screen antialiased bg-[#f6f8f5] text-[#063725]`}>
+    <html lang="fr" className={`${plusJakarta.variable} ${dmSans.variable} ${jetbrainsMono.variable}`}>
+      <body className={`${dmSans.className} min-h-screen antialiased bg-[#f6f8f5] text-[#063725]`}>
         {children}
       </body>
     </html>

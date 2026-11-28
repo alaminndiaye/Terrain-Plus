@@ -51,36 +51,36 @@ export default function AthleteProfilePage() {
   return (
     <AppShell requireAuthRole="athlete">
       <div className="max-w-3xl mx-auto space-y-6">
-        <h1 className="text-2xl font-bold">Mon profil &amp; confidentialité</h1>
-        {msg && <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl p-3 text-sm">{msg}</div>}
+        <h1 className="font-display text-2xl font-bold text-[#063725]">Mon profil &amp; confidentialité</h1>
+        {msg && <div className="bg-[#ECF7F1] border border-[#C3D6CA] text-[#063725] rounded-xl p-3 text-sm">{msg}</div>}
 
-        <form onSubmit={saveProfile} className="bg-white rounded-2xl p-6 border border-slate-200 space-y-4">
-          <h2 className="font-bold text-lg">Coordonnées personnelles</h2>
-          <p className="text-xs text-slate-600">
+        <form onSubmit={saveProfile} className="obsidian-card rounded-2xl p-6 space-y-4">
+          <h2 className="font-display font-bold text-lg text-[#063725]">Coordonnées personnelles</h2>
+          <p className="text-xs text-[#475E52] font-mono tabular-nums">
             {account.firstName} {account.lastName} · {account.phone}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold mb-1">Adresse</label>
-              <input value={address} onChange={(e) => setAddress(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Adresse</label>
+              <input value={address} onChange={(e) => setAddress(e.target.value)} className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="block text-xs font-semibold mb-1">Ville</label>
-              <input value={city} onChange={(e) => setCity(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Ville</label>
+              <input value={city} onChange={(e) => setCity(e.target.value)} className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm" />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-semibold mb-1">Fréquence d’entraînement</label>
-            <input value={weeklyFrequency} onChange={(e) => setWeeklyFrequency(e.target.value)} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+            <label className="block text-xs font-semibold text-[#063725] mb-1">Fréquence d’entraînement</label>
+            <input value={weeklyFrequency} onChange={(e) => setWeeklyFrequency(e.target.value)} className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm" />
           </div>
-          <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#0a2e1c] text-white text-sm font-bold">
+          <button type="submit" className="px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition">
             Enregistrer
           </button>
         </form>
 
-        <section className="bg-white rounded-2xl p-6 border border-slate-200 space-y-4">
-          <h2 className="font-bold text-lg">Consentements enregistrés ({consents.length})</h2>
-          <ul className="space-y-1 text-xs text-slate-600">
+        <section className="obsidian-card rounded-2xl p-6 space-y-4">
+          <h2 className="font-display font-bold text-lg text-[#063725]">Consentements enregistrés ({consents.length})</h2>
+          <ul className="space-y-1 text-xs text-[#475E52]">
             {consents.slice(0, 8).map((c) => (
               <li key={c.id}>
                 • {c.consent_type} : <strong>{c.decision}</strong> ({formatDateTimeFr(c.created_at)})
@@ -88,12 +88,12 @@ export default function AthleteProfilePage() {
             ))}
           </ul>
 
-          <form onSubmit={sendDataRequest} className="pt-4 border-t border-slate-100 space-y-3">
-            <h3 className="font-bold text-sm">Exercer mes droits (Accès, Correction, Suppression)</h3>
+          <form onSubmit={sendDataRequest} className="pt-4 border-t border-[#E2EBE5] space-y-3">
+            <h3 className="font-display font-bold text-sm text-[#063725]">Exercer mes droits (Accès, Correction, Suppression)</h3>
             <select
               value={reqType}
               onChange={(e) => setReqType(e.target.value as typeof reqType)}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white"
+              className="rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm bg-white"
             >
               <option value="access">Accès à mes données</option>
               <option value="correction">Correction</option>
@@ -105,9 +105,9 @@ export default function AthleteProfilePage() {
               value={reqNote}
               onChange={(e) => setReqNote(e.target.value)}
               placeholder="Précisez votre demande..."
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm"
             />
-            <button type="submit" className="px-4 py-2 rounded-xl bg-slate-800 text-white text-xs font-bold">
+            <button type="submit" className="px-4 py-2 rounded-full bg-[#063725] hover:bg-[#0D6E46] text-white text-xs font-semibold transition">
               Envoyer ma demande
             </button>
           </form>

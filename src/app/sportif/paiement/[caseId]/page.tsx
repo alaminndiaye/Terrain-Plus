@@ -96,20 +96,20 @@ export default function AthletePaymentPage() {
         )}
 
         {receipt ? (
-          <div className="surface-card rounded-xl border-t-4 border-t-[#0d3320] overflow-hidden">
-            <div className="p-6 border-b border-[#dcdfd6] bg-white">
-              <span className="inline-flex items-center gap-1 text-xs font-bold bg-[#f4f5f0] border border-[#0d3320] text-[#0d3320] px-2.5 py-0.5 rounded-md">
+          <div className="obsidian-card rounded-2xl border-t-4 border-t-[#0D6E46] overflow-hidden">
+            <div className="p-6 border-b border-[#E2EBE5] bg-white">
+              <span className="inline-flex items-center gap-1 text-xs font-semibold bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46] px-2.5 py-0.5 rounded-full">
                 <CheckCircle2 className="w-3.5 h-3.5" /> {receipt.demoLabel}
               </span>
-              <h1 className="text-2xl font-bold text-[#112118] mt-2 tabular-nums">
+              <h1 className="font-display text-2xl font-bold text-[#063725] mt-2 font-mono tabular-nums">
                 Paiement confirmé · {receipt.reference}
               </h1>
-              <p className="text-sm text-[#526057] mt-1">
+              <p className="text-sm text-[#475E52] mt-1">
                 Votre consultation avec {receipt.doctorName} est déverrouillée.
               </p>
             </div>
             <div className="p-6 space-y-4">
-              <div className="bg-[#f4f5f0] border border-[#dcdfd6] rounded-xl p-4 text-sm space-y-2">
+              <div className="obsidian-inset rounded-xl p-4 text-sm space-y-2">
                 <div className="flex justify-between">
                   <span>Dossier</span>
                   <strong>{receipt.caseReference}</strong>
@@ -118,15 +118,15 @@ export default function AthletePaymentPage() {
                   <span>Forfait consultation unique</span>
                   <strong className="tabular-nums">{formatFcfa(receipt.grossAmountFcfa)}</strong>
                 </div>
-                <div className="flex justify-between text-xs text-slate-500">
+                <div className="flex justify-between text-xs text-[#5B7064]">
                   <span>Dont commission plateforme (10 %)</span>
-                  <span className="tabular-nums">{formatFcfa(receipt.platformCommissionFcfa)}</span>
+                  <span className="font-mono tabular-nums">{formatFcfa(receipt.platformCommissionFcfa)}</span>
                 </div>
-                <div className="flex justify-between text-xs text-slate-500">
+                <div className="flex justify-between text-xs text-[#5B7064]">
                   <span>Part nette médecin (versée après clôture)</span>
-                  <span className="tabular-nums">{formatFcfa(receipt.doctorNetFcfa)}</span>
+                  <span className="font-mono tabular-nums">{formatFcfa(receipt.doctorNetFcfa)}</span>
                 </div>
-                <div className="flex justify-between text-xs text-slate-500 pt-1 border-t border-[#dcdfd6]">
+                <div className="flex justify-between text-xs text-[#5B7064] pt-1.5 border-t border-[#E2EBE5]">
                   <span>Date confirmation</span>
                   <span>{formatDateTimeFr(receipt.paidAt)}</span>
                 </div>
@@ -134,35 +134,35 @@ export default function AthletePaymentPage() {
 
               <Link
                 href={`/sportif/dossiers/${caseId}`}
-                className="block w-full py-3.5 rounded-lg bg-[#0d3320] text-white text-center font-bold text-sm hover:bg-[#14452c]"
+                className="block w-full py-3.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-center font-semibold text-sm transition"
               >
                 Ouvrir la discussion &amp; fixer le RDV →
               </Link>
             </div>
           </div>
         ) : (
-          <div className="surface-card rounded-xl border-t-4 border-t-[#0d3320] overflow-hidden">
-            <div className="p-6 border-b border-[#dcdfd6] bg-white">
-              <span className="inline-flex items-center gap-1 text-xs font-bold bg-[#f4f5f0] border border-[#dcdfd6] px-2.5 py-0.5 rounded-md text-[#0d3320]">
+          <div className="obsidian-card rounded-2xl border-t-4 border-t-[#0D6E46] overflow-hidden">
+            <div className="p-6 border-b border-[#E2EBE5] bg-white">
+              <span className="inline-flex items-center gap-1 text-xs font-semibold bg-[#ECF7F1] border border-[#C3D6CA] px-2.5 py-0.5 rounded-full text-[#0D6E46]">
                 <ShieldCheck className="w-3.5 h-3.5" /> Tarif unique · 1 seule consultation
               </span>
-              <h1 className="text-2xl font-bold text-[#112118] mt-2 tabular-nums">
+              <h1 className="font-display text-2xl font-bold text-[#063725] mt-2 font-mono tabular-nums">
                 Régler la consultation — 10 000 FCFA
               </h1>
               {caseInfo && (
-                <p className="text-sm text-[#526057] mt-1">
+                <p className="text-sm text-[#475E52] mt-1">
                   {caseInfo.doctor.publicName} · Dossier {caseInfo.reference}
                 </p>
               )}
             </div>
 
             <div className="p-6 space-y-5">
-              <div className="bg-slate-50 rounded-2xl p-4 text-sm space-y-1.5 border border-slate-200">
-                <div className="flex justify-between font-bold text-base">
+              <div className="obsidian-inset rounded-2xl p-4 text-sm space-y-1.5">
+                <div className="flex justify-between font-bold text-base text-[#063725]">
                   <span>Total TTC à régler</span>
-                  <span className="text-[#0a2e1c]">{formatFcfa(10000)}</span>
+                  <span className="text-[#0D6E46] font-mono tabular-nums">{formatFcfa(10000)}</span>
                 </div>
-                <p className="text-xs text-slate-600">
+                <p className="text-xs text-[#475E52]">
                   Inclut : chat temps réel, partage d’images/vidéos/documents et rendez-vous Visio ou Cabinet avec ce
                   médecin pour cet épisode de consultation.
                 </p>
@@ -179,8 +179,10 @@ export default function AthletePaymentPage() {
                     type="button"
                     disabled={Boolean(pendingPay)}
                     onClick={() => setChannel(k as typeof channel)}
-                    className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 ${
-                      channel === k ? 'border-[#0a2e1c] bg-emerald-50 text-[#0a2e1c]' : 'border-slate-200'
+                    className={`p-3 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition ${
+                      channel === k
+                        ? 'border-[#0D6E46] bg-[#ECF7F1] text-[#0D6E46]'
+                        : 'border-[#D5E2DA] bg-white text-[#475E52] hover:border-[#0D6E46]'
                     }`}
                   >
                     <CreditCard className="w-4 h-4" />
@@ -193,27 +195,27 @@ export default function AthletePaymentPage() {
                 <button
                   type="button"
                   onClick={initCheckout}
-                  className="w-full py-3.5 rounded-xl bg-[#0a2e1c] text-white font-bold text-sm hover:bg-[#13472d]"
+                  className="w-full py-3.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white font-semibold text-sm transition"
                 >
                   Procéder au paiement (10 000 FCFA)
                 </button>
               ) : (
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
-                  <p className="text-xs font-bold text-amber-950">
+                  <p className="text-xs font-bold text-amber-950 font-mono tabular-nums">
                     Transaction {pendingPay.reference} initiée (Sandbox PSP) :
                   </p>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => simulateOutcome('succeeded')}
-                      className="flex-1 py-2.5 rounded-xl bg-[#0a2e1c] text-white text-xs font-bold"
+                      className="flex-1 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-xs font-semibold transition"
                     >
                       Confirmer le paiement (Webhook)
                     </button>
                     <button
                       type="button"
                       onClick={() => simulateOutcome('failed')}
-                      className="px-3 py-2.5 rounded-xl bg-red-600 text-white text-xs font-bold"
+                      className="px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-semibold transition"
                     >
                       Simuler échec
                     </button>

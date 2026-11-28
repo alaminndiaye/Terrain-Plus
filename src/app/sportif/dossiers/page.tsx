@@ -30,20 +30,20 @@ export default function AthleteCasesListPage() {
       <div className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold">Mes consultations</h1>
-            <p className="text-sm text-slate-600">
+            <h1 className="font-display text-2xl font-bold text-[#063725]">Mes consultations</h1>
+            <p className="text-sm text-[#475E52]">
               Discussions, partage images/vidéos, rendez-vous Visio/Cabinet et avis médecins.
             </p>
           </div>
-          <Link href="/medecins" className="px-4 py-2.5 rounded-xl bg-[#0a2e1c] text-white text-sm font-bold">
+          <Link href="/medecins" className="px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition">
             + Nouvelle consultation (10 000 FCFA)
           </Link>
         </div>
 
         {cases.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 space-y-3">
-            <p className="text-sm text-slate-600">Aucune consultation pour le moment.</p>
-            <Link href="/medecins" className="inline-block px-5 py-2.5 rounded-xl bg-[#0a2e1c] text-white text-sm font-bold">
+          <div className="obsidian-card rounded-2xl p-8 text-center space-y-3">
+            <p className="text-sm text-[#475E52]">Aucune consultation pour le moment.</p>
+            <Link href="/medecins" className="inline-block px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition">
               Choisir une spécialité
             </Link>
           </div>
@@ -52,14 +52,16 @@ export default function AthleteCasesListPage() {
             {cases.map((c) => (
               <div
                 key={c.id}
-                className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3"
+                className="obsidian-card rounded-2xl p-5 flex flex-wrap items-center justify-between gap-3"
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <strong className="text-base">{c.doctorName}</strong>
-                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 font-semibold">{c.status}</span>
+                    <strong className="font-display text-base text-[#063725]">{c.doctorName}</strong>
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46] font-semibold">
+                      {c.status}
+                    </span>
                   </div>
-                  <p className="text-xs text-slate-600 mt-1">
+                  <p className="text-xs text-[#475E52] mt-1 font-mono tabular-nums">
                     {c.doctorSpecialty} · {c.reference} · {formatDateTimeFr(c.createdAt)}
                   </p>
                 </div>
@@ -67,14 +69,14 @@ export default function AthleteCasesListPage() {
                   {!c.paymentUnlocked && (
                     <Link
                       href={`/sportif/paiement/${c.id}`}
-                      className="px-4 py-2 rounded-xl bg-[#c8f62d] text-[#0a2e1c] text-xs font-bold"
+                      className="px-4 py-2 rounded-full bg-[#FEF3C7] border border-[#F59E0B]/40 text-[#92400E] hover:bg-[#FDE68A] text-xs font-bold transition"
                     >
                       Payer 10 000 FCFA
                     </Link>
                   )}
                   <Link
                     href={`/sportif/dossiers/${c.id}`}
-                    className="px-4 py-2 rounded-xl bg-[#0a2e1c] text-white text-xs font-bold"
+                    className="px-4 py-2 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-xs font-semibold transition"
                   >
                     Ouvrir
                   </Link>

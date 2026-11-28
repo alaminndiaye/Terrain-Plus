@@ -165,27 +165,27 @@ export default function DoctorVerificationPage() {
     <AppShell requireAuthRole="doctor">
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Profil praticien & Vérification professionnelle</h1>
-          <p className="text-sm text-slate-600 mt-1">
+          <h1 className="font-display text-2xl font-bold text-[#063725]">Profil praticien &amp; Vérification professionnelle</h1>
+          <p className="text-sm text-[#475E52] mt-1">
             Pour protéger les sportifs, aucun médecin n’est publié ni autorisé à recevoir de paiement sans validation manuelle (objectif 72h ouvrées).
           </p>
         </div>
 
         {data && (
-          <div className="p-4 rounded-2xl border border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3">
+          <div className="p-4 rounded-2xl obsidian-card flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <ShieldCheck className="w-5 h-5 text-emerald-700" />
+              <ShieldCheck className="w-5 h-5 text-[#0D6E46]" />
               <div>
-                <p className="text-sm font-semibold text-slate-900">
-                  Statut actuel : <span className="uppercase text-emerald-800">{data.verification.status}</span>
+                <p className="text-sm font-semibold text-[#063725]">
+                  Statut actuel : <span className="uppercase text-[#0D6E46]">{data.verification.status}</span>
                 </p>
                 {data.verification.slaDueAt && data.verification.status === 'pending' && (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-[#5B7064]">
                     Échéance cible (72h) : {formatDateTimeFr(data.verification.slaDueAt)}
                   </p>
                 )}
                 {data.verification.verifiedAt && (
-                  <p className="text-xs text-emerald-700">
+                  <p className="text-xs text-[#0D6E46]">
                     Vérifié le {formatDateTimeFr(data.verification.verifiedAt)}
                   </p>
                 )}
@@ -195,7 +195,7 @@ export default function DoctorVerificationPage() {
               </div>
             </div>
             {data.verification.status === 'verified' && (
-              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold flex items-center gap-1">
+              <span className="px-3 py-1 rounded-full bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46] text-xs font-semibold flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Visible dans l’annuaire
               </span>
             )}
@@ -203,22 +203,22 @@ export default function DoctorVerificationPage() {
         )}
 
         {notice && (
-          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-sm text-emerald-900">{notice}</div>
+          <div className="p-3.5 rounded-xl border border-[#C3D6CA] bg-[#ECF7F1] text-sm text-[#063725]">{notice}</div>
         )}
         {error && (
-          <div className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-sm text-rose-800">{error}</div>
+          <div className="p-3.5 rounded-xl border border-red-200 bg-red-50 text-sm text-red-900">{error}</div>
         )}
 
         {/* Evidence upload */}
-        <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
-          <h2 className="font-bold text-slate-900">1. Pièces justificatives confidentielles (PDF, JPG, PNG, WebP · 5 Mo max)</h2>
+        <div className="p-5 rounded-2xl obsidian-card space-y-4">
+          <h2 className="font-display font-bold text-[#063725]">1. Pièces justificatives confidentielles (PDF, JPG, PNG, WebP · 5 Mo max)</h2>
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
             <div className="flex-1 w-full">
-              <label className="block text-xs font-medium text-slate-700 mb-1">Type de document</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Type de document</label>
               <select
                 value={docType}
                 onChange={(e) => setDocType(e.target.value as typeof docType)}
-                className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                className="w-full px-3 py-2.5 rounded-xl border border-[#D5E2DA] text-sm bg-white"
               >
                 <option value="professional_card">{DOC_TYPE_LABELS.professional_card}</option>
                 <option value="facility_proof">{DOC_TYPE_LABELS.facility_proof}</option>
@@ -226,7 +226,7 @@ export default function DoctorVerificationPage() {
                 <option value="complement">{DOC_TYPE_LABELS.complement}</option>
               </select>
             </div>
-            <label className="px-4 py-2.5 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 cursor-pointer flex items-center gap-2 shrink-0">
+            <label className="px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold cursor-pointer flex items-center gap-2 shrink-0 transition">
               <Upload className="w-4 h-4" />
               <span>{uploading ? 'Chiffrement & envoi...' : 'Déposer une pièce'}</span>
               <input
@@ -241,25 +241,27 @@ export default function DoctorVerificationPage() {
 
           <div className="space-y-2">
             {(data?.verification.evidence || []).length === 0 ? (
-              <p className="text-xs text-slate-500">Aucun justificatif déposé pour l’instant.</p>
+              <p className="text-xs text-[#5B7064]">Aucun justificatif déposé pour l’instant.</p>
             ) : (
               (data?.verification.evidence || []).map((ev) => (
                 <div
                   key={ev.id}
-                  className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between text-xs"
+                  className="p-3 rounded-xl obsidian-inset flex items-center justify-between text-xs"
                 >
                   <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-emerald-700" />
+                    <FileText className="w-4 h-4 text-[#0D6E46]" />
                     <div>
-                      <p className="font-semibold text-slate-900">
+                      <p className="font-semibold text-[#063725]">
                         {DOC_TYPE_LABELS[ev.doc_type] || ev.doc_type} · {ev.original_name_safe}
                       </p>
-                      <p className="text-slate-500">
+                      <p className="text-[#5B7064]">
                         {Math.round(ev.byte_size / 1024)} Ko · Déposé le {formatDateTimeFr(ev.uploaded_at)}
                       </p>
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">Stockage privé</span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46] font-semibold">
+                    Stockage privé
+                  </span>
                 </div>
               ))
             )}
@@ -267,26 +269,26 @@ export default function DoctorVerificationPage() {
         </div>
 
         {/* Profile Form */}
-        <form onSubmit={handleSaveProfile} className="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
-          <h2 className="font-bold text-slate-900">2. Fiche publique & coordonnées cabinet</h2>
+        <form onSubmit={handleSaveProfile} className="p-5 rounded-2xl obsidian-card space-y-4">
+          <h2 className="font-display font-bold text-[#063725]">2. Fiche publique &amp; coordonnées cabinet</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Nom affiché (avec titre)</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Nom affiché (avec titre)</label>
               <input
                 required
                 value={publicName}
                 onChange={(e) => setPublicName(e.target.value)}
                 placeholder="Dr Moussa Diop"
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Spécialité principale</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Spécialité principale</label>
               <select
                 required
                 value={specialtyId}
                 onChange={(e) => setSpecialtyId(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm bg-white"
               >
                 <option value="">Sélectionner...</option>
                 {(data?.specialties || []).map((s) => (
@@ -297,68 +299,68 @@ export default function DoctorVerificationPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">N° d’inscription / Ordre</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">N° d’inscription / Ordre</label>
               <input
                 required
                 value={orderNumber}
                 onChange={(e) => setOrderNumber(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Ville</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Ville</label>
               <input
                 required
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Clinique / Cabinet</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Clinique / Cabinet</label>
               <input
                 required
                 value={facilityName}
                 onChange={(e) => setFacilityName(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Adresse complète (visible après paiement)</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Adresse complète (visible après paiement)</label>
               <input
                 required
                 value={facilityAddress}
                 onChange={(e) => setFacilityAddress(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-700 mb-1">Langues parlées (séparées par virgule)</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Langues parlées (séparées par virgule)</label>
               <input
                 value={languagesText}
                 onChange={(e) => setLanguagesText(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
               />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-xs font-medium text-slate-700 mb-1">Présentation clinique & expérience sportive</label>
+              <label className="block text-xs font-semibold text-[#063725] mb-1">Présentation clinique &amp; expérience sportive</label>
               <textarea
                 required
                 rows={4}
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
               />
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-6 text-sm text-slate-700 pt-1">
+          <div className="flex flex-wrap gap-6 text-sm text-[#475E52] pt-1">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={supportsVideo}
                 onChange={(e) => setSupportsVideo(e.target.checked)}
-                className="rounded border-slate-300"
+                className="rounded border-[#D5E2DA] accent-[#0D6E46]"
               />
               Téléconsultation Visio (WebRTC)
             </label>
@@ -367,7 +369,7 @@ export default function DoctorVerificationPage() {
                 type="checkbox"
                 checked={supportsPhysical}
                 onChange={(e) => setSupportsPhysical(e.target.checked)}
-                className="rounded border-slate-300"
+                className="rounded border-[#D5E2DA] accent-[#0D6E46]"
               />
               Consultation au cabinet (présentiel)
             </label>
@@ -376,7 +378,7 @@ export default function DoctorVerificationPage() {
           <button
             type="submit"
             disabled={saving}
-            className="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50"
+            className="px-6 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition disabled:opacity-50"
           >
             {saving ? 'Enregistrement...' : 'Enregistrer ma fiche praticien'}
           </button>

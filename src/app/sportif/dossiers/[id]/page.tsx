@@ -168,16 +168,16 @@ export default function AthleteCaseDetailPage() {
   return (
     <AppShell requireAuthRole="athlete">
       {!c ? (
-        <p className="text-sm text-slate-500">{error || 'Chargement de la consultation...'}</p>
+        <p className="text-sm text-[#475E52]">{error || 'Chargement de la consultation...'}</p>
       ) : (
         <div className="max-w-4xl mx-auto space-y-5">
-          <section className="surface-card rounded-xl p-6 border-l-4 border-l-[#0d3320] flex flex-wrap items-center justify-between gap-4">
+          <section className="obsidian-card rounded-2xl p-6 border-l-4 border-l-[#0D6E46] flex flex-wrap items-center justify-between gap-4">
             <div>
-              <span className="text-xs font-bold bg-[#f4f5f0] border border-[#dcdfd6] text-[#0d3320] px-2.5 py-0.5 rounded-md">
+              <span className="text-xs font-semibold bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46] px-2.5 py-0.5 rounded-full">
                 {c.status}
               </span>
-              <h1 className="text-2xl font-bold text-[#112118] mt-2">{c.doctor.publicName}</h1>
-              <p className="text-sm text-[#526057]">
+              <h1 className="font-display text-2xl font-bold text-[#063725] mt-2">{c.doctor.publicName}</h1>
+              <p className="text-sm text-[#475E52]">
                 {c.doctor.specialtyName} · Dossier {c.reference}
               </p>
             </div>
@@ -185,9 +185,9 @@ export default function AthleteCaseDetailPage() {
               <button
                 type="button"
                 onClick={() => setShowVideo((v) => !v)}
-                className="px-4 py-2.5 rounded-lg bg-[#0d3320] hover:bg-[#14452c] text-white font-bold text-sm flex items-center gap-2 transition"
+                className="px-4 py-2.5 rounded-full bg-[#063725] hover:bg-[#0D6E46] text-white font-semibold text-sm flex items-center gap-2 transition"
               >
-                <Video className="w-4 h-4 text-[#c8f62d]" />
+                <Video className="w-4 h-4 text-[#FBBF24]" />
                 {showVideo ? 'Masquer la visio' : 'Démarrer / Rejoindre Visio'}
               </button>
             )}
@@ -205,7 +205,7 @@ export default function AthleteCaseDetailPage() {
                   Réglez les 10 000 FCFA pour discuter, partager images/vidéos et fixer votre RDV.
                 </p>
               </div>
-              <Link href={`/sportif/paiement/${c.id}`} className="px-4 py-2.5 rounded-xl bg-[#0a2e1c] text-white text-xs font-bold">
+              <Link href={`/sportif/paiement/${c.id}`} className="px-4 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-xs font-semibold transition">
                 Payer 10 000 FCFA
               </Link>
             </div>
@@ -221,17 +221,17 @@ export default function AthleteCaseDetailPage() {
           )}
 
           {/* Consentement partage tendances */}
-          <section className="bg-white rounded-2xl p-4 border border-slate-200 flex flex-wrap items-center justify-between gap-3">
-            <div className="text-xs">
+          <section className="obsidian-card rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-[#063725]">
               <strong>Partage de vos tendances d’entraînement (Suivi &amp; Prévention) :</strong>{' '}
-              <span className="text-slate-600">
+              <span className="text-[#475E52]">
                 {c.shareTrainingTrends ? 'Autorisé pour ce médecin' : 'Masqué (privé)'}
               </span>
             </div>
             <button
               type="button"
               onClick={toggleTrendsShare}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold hover:bg-slate-50"
+              className="px-3.5 py-1.5 rounded-full border border-[#D5E2DA] hover:bg-[#F1F6F3] text-[#063725] text-xs font-semibold transition"
             >
               {c.shareTrainingTrends ? 'Révoquer l’accès' : 'Autoriser le partage'}
             </button>
@@ -240,19 +240,19 @@ export default function AthleteCaseDetailPage() {
           {/* Transfert ou orientation proposée */}
           {pendingRef && (
             <section className="bg-amber-50 border border-amber-300 rounded-2xl p-5 space-y-3">
-              <h2 className="font-bold text-base">
+              <h2 className="font-display font-bold text-base text-[#063725]">
                 {pendingRef.referralType === 'handoff_transfer'
                   ? 'Transfert proposé vers un confrère (sans frais supplémentaires)'
                   : 'Orientation complémentaire proposée'}
               </h2>
-              <p className="text-sm">
+              <p className="text-sm text-[#063725]">
                 <strong>Médecin destinataire :</strong> {pendingRef.toDoctorName} ({pendingRef.toDoctorSpecialty})
               </p>
-              <p className="text-sm">
+              <p className="text-sm text-[#063725]">
                 <strong>Motif :</strong> {pendingRef.reason}
               </p>
               {pendingRef.referralType === 'handoff_transfer' && (
-                <p className="text-xs font-semibold text-emerald-900 bg-emerald-100 p-2.5 rounded-lg">
+                <p className="text-xs font-semibold text-[#063725] bg-[#ECF7F1] border border-[#C3D6CA] p-3 rounded-xl">
                   Le médecin initial n’a pas effectué la consultation : si vous acceptez, vos 10 000 FCFA déjà payés
                   sont automatiquement transférés au médecin destinataire sans rien repayer.
                 </p>
@@ -261,14 +261,14 @@ export default function AthleteCaseDetailPage() {
                 <button
                   type="button"
                   onClick={() => respondReferral(pendingRef.id, 'accepted')}
-                  className="px-4 py-2 rounded-xl bg-[#0a2e1c] text-white text-xs font-bold"
+                  className="px-4 py-2 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-xs font-semibold transition"
                 >
                   Accepter le transfert
                 </button>
                 <button
                   type="button"
                   onClick={() => respondReferral(pendingRef.id, 'refused')}
-                  className="px-4 py-2 rounded-xl bg-white border border-slate-300 text-xs font-semibold"
+                  className="px-4 py-2 rounded-full bg-white border border-[#D5E2DA] hover:bg-[#F1F6F3] text-[#063725] text-xs font-semibold transition"
                 >
                   Refuser
                 </button>
@@ -278,16 +278,16 @@ export default function AthleteCaseDetailPage() {
 
           {/* Rendez-vous proposés / confirmés */}
           {data.appointments.length > 0 && (
-            <section className="bg-white rounded-2xl p-5 border border-slate-200 space-y-3">
-              <h2 className="font-bold text-base flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-[#0a2e1c]" /> Rendez-vous du dossier
+            <section className="obsidian-card rounded-2xl p-5 space-y-3">
+              <h2 className="font-display font-bold text-base text-[#063725] flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-[#0D6E46]" /> Rendez-vous du dossier
               </h2>
               {data.appointments.map((a) => (
-                <div key={a.id} className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm">
+                <div key={a.id} className="obsidian-inset rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm text-[#063725]">
                     <strong>{a.appointment_type === 'video' ? 'Visio' : 'Cabinet'}</strong> ·{' '}
-                    {formatDateTimeFr(a.starts_at)} · <span className="text-slate-600">{a.location_label}</span>
-                    <span className="ml-2 text-xs font-bold px-2 py-0.5 rounded-full bg-white border">
+                    {formatDateTimeFr(a.starts_at)} · <span className="text-[#475E52]">{a.location_label}</span>
+                    <span className="ml-2 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-white border border-[#D5E2DA] text-[#063725]">
                       {a.proposal_status}
                     </span>
                   </div>
@@ -296,14 +296,14 @@ export default function AthleteCaseDetailPage() {
                       <button
                         type="button"
                         onClick={() => respondAppointment(a.id, 'confirmed')}
-                        className="px-3 py-1.5 rounded-lg bg-[#0a2e1c] text-white text-xs font-bold"
+                        className="px-3.5 py-1.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-xs font-semibold transition"
                       >
                         Confirmer ce RDV
                       </button>
                       <button
                         type="button"
                         onClick={() => respondAppointment(a.id, 'declined')}
-                        className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs"
+                        className="px-3.5 py-1.5 rounded-full bg-white border border-[#D5E2DA] hover:bg-[#F1F6F3] text-[#063725] text-xs font-semibold transition"
                       >
                         Décliner
                       </button>
@@ -315,11 +315,11 @@ export default function AthleteCaseDetailPage() {
           )}
 
           {/* Messagerie privée + Images & Vidéos */}
-          <section className="bg-white rounded-2xl p-5 border border-slate-200 space-y-4">
-            <h2 className="font-bold text-base">Messagerie privée (texte, images, vidéos)</h2>
-            <div className="space-y-3 max-h-[420px] overflow-y-auto bg-slate-50 p-3.5 rounded-xl border border-slate-100">
+          <section className="obsidian-card rounded-2xl p-5 space-y-4">
+            <h2 className="font-display font-bold text-base text-[#063725]">Messagerie privée (texte, images, vidéos)</h2>
+            <div className="space-y-3 max-h-[420px] overflow-y-auto obsidian-inset p-3.5 rounded-xl">
               {data.messages.length === 0 ? (
-                <p className="text-xs text-slate-500">Aucun message. Commencez l’échange avec votre médecin.</p>
+                <p className="text-xs text-[#5B7064]">Aucun message. Commencez l’échange avec votre médecin.</p>
               ) : (
                 data.messages.map((m) => {
                   const mine = m.senderId === c.athlete.id;
@@ -327,10 +327,10 @@ export default function AthleteCaseDetailPage() {
                     <div key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
                       <div
                         className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm space-y-2 ${
-                          mine ? 'bg-[#0a2e1c] text-white' : 'bg-white border border-slate-200 text-slate-900'
+                          mine ? 'bg-[#063725] text-white' : 'bg-white border border-[#D5E2DA] text-[#063725]'
                         }`}
                       >
-                        <div className="text-[11px] opacity-75">
+                        <div className="text-[11px] opacity-80">
                           {mine ? 'Vous' : c.doctor.publicName} · {formatDateTimeFr(m.createdAt)}
                         </div>
                         <p className="whitespace-pre-wrap">{m.body}</p>
@@ -342,7 +342,7 @@ export default function AthleteCaseDetailPage() {
                                 <button
                                   type="button"
                                   onClick={() => openAttachment(att)}
-                                  className={`text-xs font-bold underline ${mine ? 'text-[#c8f62d]' : 'text-[#0a2e1c]'}`}
+                                  className={`text-xs font-bold underline ${mine ? 'text-[#FBBF24]' : 'text-[#0D6E46]'}`}
                                 >
                                   Afficher {att.originalName} ({att.mediaKind})
                                 </button>
@@ -380,22 +380,22 @@ export default function AthleteCaseDetailPage() {
                   value={msgText}
                   onChange={(e) => setMsgText(e.target.value)}
                   placeholder="Écrire au médecin..."
-                  className="flex-1 rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm"
+                  className="flex-1 rounded-xl border border-[#D5E2DA] px-3.5 py-2.5 text-sm"
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2.5 rounded-xl bg-[#0a2e1c] text-white font-bold text-sm flex items-center gap-1.5"
+                  className="px-4 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white font-semibold text-sm flex items-center gap-1.5 transition"
                 >
                   <Send className="w-4 h-4" />
                 </button>
               </form>
             ) : (
-              <div className="bg-slate-100 rounded-xl p-3 text-xs text-slate-700 flex flex-wrap items-center justify-between gap-2">
+              <div className="obsidian-inset rounded-xl p-3 text-xs text-[#475E52] flex flex-wrap items-center justify-between gap-2">
                 <span>
                   Cette consultation est clôturée (lecture seule). Pour un nouveau besoin ou suivi, démarrez une
                   nouvelle consultation (10 000 FCFA).
                 </span>
-                <Link href={`/medecins/${c.doctor.id}`} className="font-bold text-[#0a2e1c] underline">
+                <Link href={`/medecins/${c.doctor.id}`} className="font-bold text-[#0D6E46] hover:underline">
                   Nouvelle consultation →
                 </Link>
               </div>
@@ -404,18 +404,18 @@ export default function AthleteCaseDetailPage() {
 
           {/* Notation & avis après clôture */}
           {c.canReview && (
-            <section className="bg-white rounded-2xl p-5 border-2 border-[#c8f62d] space-y-3">
-              <h2 className="font-bold text-lg flex items-center gap-2">
-                <Star className="w-5 h-5 text-amber-500 fill-amber-400" />
+            <section className="obsidian-card-glow rounded-2xl p-5 space-y-3">
+              <h2 className="font-display font-bold text-lg text-[#063725] flex items-center gap-2">
+                <Star className="w-5 h-5 text-[#D97706] fill-[#FBBF24]" />
                 Noter votre consultation avec {c.doctor.publicName}
               </h2>
               <form onSubmit={submitReview} className="space-y-3">
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Note</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Note</label>
                   <select
                     value={rating}
                     onChange={(e) => setRating(Number(e.target.value))}
-                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white"
+                    className="rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm bg-white"
                   >
                     {[5, 4, 3, 2, 1].map((n) => (
                       <option key={n} value={n}>
@@ -425,7 +425,7 @@ export default function AthleteCaseDetailPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">
                     Votre avis public (évitez les détails médicaux personnels)
                   </label>
                   <textarea
@@ -433,10 +433,10 @@ export default function AthleteCaseDetailPage() {
                     minLength={5}
                     value={reviewComment}
                     onChange={(e) => setReviewComment(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm"
                   />
                 </div>
-                <button type="submit" className="px-5 py-2.5 rounded-xl bg-[#0a2e1c] text-white text-sm font-bold">
+                <button type="submit" className="px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition">
                   Publier ma note
                 </button>
               </form>
@@ -444,7 +444,7 @@ export default function AthleteCaseDetailPage() {
           )}
 
           {data.review && (
-            <section className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-sm">
+            <section className="bg-[#ECF7F1] border border-[#C3D6CA] rounded-2xl p-4 text-sm text-[#063725]">
               <strong>Votre avis publié ({data.review.rating}/5 ★) :</strong> {data.review.comment}
             </section>
           )}

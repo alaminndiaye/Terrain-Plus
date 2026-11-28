@@ -352,11 +352,11 @@ export default function AdminPortalPage() {
     <AppShell requireAuthRole="admin">
       <div className="space-y-6">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
-            <Shield className="w-3.5 h-3.5" /> Gouvernance & Sécurité Terrain+
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#0D6E46] flex items-center gap-1">
+            <Shield className="w-3.5 h-3.5" /> Gouvernance &amp; Sécurité Terrain+
           </p>
-          <h1 className="text-2xl font-bold text-slate-900">Portail Administrateur</h1>
-          <p className="text-xs text-slate-600 mt-1">
+          <h1 className="font-display text-2xl font-bold text-[#063725]">Portail Administrateur</h1>
+          <p className="text-xs text-[#475E52] mt-1">
             Accès strictement cloisonné aux données administratives, vérifications praticiens (SLA 72h), finances (10 %) et modération.
           </p>
         </div>
@@ -364,53 +364,53 @@ export default function AdminPortalPage() {
         {/* KPIs */}
         {metrics && (
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <div className="p-4 rounded-2xl border border-slate-200 bg-white">
-              <p className="text-xs text-slate-500">Médecins à vérifier</p>
-              <p className="text-2xl font-bold text-slate-900">{metrics.pendingVerifications}</p>
+            <div className="p-4 rounded-2xl obsidian-card">
+              <p className="text-xs text-[#5B7064]">Médecins à vérifier</p>
+              <p className="font-display text-2xl font-bold text-[#063725] font-mono tabular-nums">{metrics.pendingVerifications}</p>
               {metrics.overdueSla > 0 && (
-                <p className="text-xs text-rose-600 font-semibold mt-0.5">{metrics.overdueSla} hors SLA 72h</p>
+                <p className="text-xs text-red-700 font-semibold mt-0.5">{metrics.overdueSla} hors SLA 72h</p>
               )}
             </div>
-            <div className="p-4 rounded-2xl border border-slate-200 bg-white">
-              <p className="text-xs text-slate-500">Signalements ouverts</p>
-              <p className="text-2xl font-bold text-slate-900">
+            <div className="p-4 rounded-2xl obsidian-card">
+              <p className="text-xs text-[#5B7064]">Signalements ouverts</p>
+              <p className="font-display text-2xl font-bold text-[#063725] font-mono tabular-nums">
                 {metrics.openReviewReports + metrics.openForumReports}
               </p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-[#5B7064]">
                 {metrics.openReviewReports} avis · {metrics.openForumReports} forum
               </p>
             </div>
-            <div className="p-4 rounded-2xl border border-slate-200 bg-white">
-              <p className="text-xs text-slate-500">Dossiers sans réponse &gt; 48h</p>
-              <p className="text-2xl font-bold text-amber-700">{metrics.staleCases48h}</p>
+            <div className="p-4 rounded-2xl obsidian-card">
+              <p className="text-xs text-[#5B7064]">Dossiers sans réponse &gt; 48h</p>
+              <p className="font-display text-2xl font-bold text-[#B45309] font-mono tabular-nums">{metrics.staleCases48h}</p>
             </div>
-            <div className="p-4 rounded-2xl border border-slate-200 bg-white">
-              <p className="text-xs text-slate-500">Volume brut encaissé</p>
-              <p className="text-xl font-bold text-slate-900">{formatFcfa(metrics.grossVolumeFcfa)}</p>
+            <div className="p-4 rounded-2xl obsidian-card">
+              <p className="text-xs text-[#5B7064]">Volume brut encaissé</p>
+              <p className="font-display text-xl font-bold text-[#063725] font-mono tabular-nums">{formatFcfa(metrics.grossVolumeFcfa)}</p>
             </div>
-            <div className="p-4 rounded-2xl border border-slate-200 bg-white">
-              <p className="text-xs text-slate-500">Commission plateforme (10%)</p>
-              <p className="text-xl font-bold text-emerald-800">{formatFcfa(metrics.commissionVolumeFcfa)}</p>
+            <div className="p-4 rounded-2xl obsidian-card">
+              <p className="text-xs text-[#5B7064]">Commission plateforme (10%)</p>
+              <p className="font-display text-xl font-bold text-[#0D6E46] font-mono tabular-nums">{formatFcfa(metrics.commissionVolumeFcfa)}</p>
             </div>
           </div>
         )}
 
         {/* Shared optional reason bar for quick admin decisions */}
-        <div className="p-3.5 rounded-2xl border border-slate-200 bg-white flex flex-col sm:flex-row sm:items-center gap-2">
-          <label className="text-xs font-semibold text-slate-700 shrink-0">Motif / Note administrative (pour décisions & audits) :</label>
+        <div className="p-3.5 rounded-2xl obsidian-card flex flex-col sm:flex-row sm:items-center gap-2">
+          <label className="text-xs font-semibold text-[#063725] shrink-0">Motif / Note administrative (pour décisions &amp; audits) :</label>
           <input
             value={reasonInput}
             onChange={(e) => setReasonInput(e.target.value)}
             placeholder="Ex : Carte professionnelle expirée, propos contraires à l'anonymisation..."
-            className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 text-xs"
+            className="flex-1 px-3 py-1.5 rounded-xl border border-[#D5E2DA] text-xs"
           />
         </div>
 
         {notice && (
-          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-sm text-emerald-900">{notice}</div>
+          <div className="p-3.5 rounded-xl border border-[#C3D6CA] bg-[#ECF7F1] text-sm text-[#063725]">{notice}</div>
         )}
         {error && (
-          <div className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-sm text-rose-800">{error}</div>
+          <div className="p-3.5 rounded-xl border border-red-200 bg-red-50 text-sm text-red-900">{error}</div>
         )}
 
         {/* Tabs */}
@@ -429,10 +429,10 @@ export default function AdminPortalPage() {
               key={key}
               type="button"
               onClick={() => setTab(key)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+              className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition ${
                 tab === key
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                  ? 'bg-[#0D6E46] text-white'
+                  : 'bg-white border border-[#D5E2DA] text-[#063725] hover:bg-[#ECF7F1]'
               }`}
             >
               <Icon className="w-3.5 h-3.5" /> {label}
@@ -444,24 +444,24 @@ export default function AdminPortalPage() {
         {tab === 'verifications' && (
           <div className="space-y-3">
             {queue.map((item) => (
-              <div key={item.doctorId} className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
+              <div key={item.doctorId} className="p-5 rounded-2xl obsidian-card space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-slate-900">{item.publicName || item.fullName}</h3>
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
+                      <h3 className="font-display font-bold text-[#063725]">{item.publicName || item.fullName}</h3>
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#F1F6F3] border border-[#D5E2DA] text-[#063725]">
                         {item.verificationStatus}
                       </span>
                       {item.isOverdue72h && (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 flex items-center gap-1">
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-900 flex items-center gap-1">
                           <AlertTriangle className="w-3 h-3" /> SLA 72h dépassé
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-600 mt-1">
-                      {item.specialtyName} · N° Ordre : <strong>{item.orderNumber}</strong> · {item.facilityName} ({item.city})
+                    <p className="text-xs text-[#475E52] mt-1">
+                      {item.specialtyName} · N° Ordre : <strong className="font-mono text-[#063725]">{item.orderNumber}</strong> · {item.facilityName} ({item.city})
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-[#5B7064]">
                       Tél : {item.phone} · Email : {item.email || '—'} · SLA : {formatDateTimeFr(item.slaDueAt)}
                     </p>
                   </div>
@@ -469,21 +469,21 @@ export default function AdminPortalPage() {
                     <button
                       type="button"
                       onClick={() => decideDoctor(item.doctorId, 'verified')}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-700 text-white text-xs font-semibold hover:bg-emerald-800"
+                      className="px-4 py-1.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-xs font-semibold transition"
                     >
                       Valider
                     </button>
                     <button
                       type="button"
                       onClick={() => decideDoctor(item.doctorId, 'more_info_requested')}
-                      className="px-3 py-1.5 rounded-xl bg-amber-600 text-white text-xs font-semibold hover:bg-amber-700"
+                      className="px-4 py-1.5 rounded-full bg-[#D97706] hover:bg-[#B45309] text-white text-xs font-semibold transition"
                     >
                       Demander complément
                     </button>
                     <button
                       type="button"
                       onClick={() => decideDoctor(item.doctorId, 'rejected')}
-                      className="px-3 py-1.5 rounded-xl border border-rose-300 text-rose-700 text-xs font-semibold hover:bg-rose-50"
+                      className="px-4 py-1.5 rounded-full border border-red-300 text-red-700 text-xs font-semibold hover:bg-red-50 transition"
                     >
                       Refuser
                     </button>
@@ -492,14 +492,14 @@ export default function AdminPortalPage() {
 
                 <div className="flex flex-wrap gap-2">
                   {item.evidence.length === 0 ? (
-                    <span className="text-xs text-slate-400">Aucune pièce justificative déposée.</span>
+                    <span className="text-xs text-[#5B7064]">Aucune pièce justificative déposée.</span>
                   ) : (
                     item.evidence.map((ev) => (
                       <button
                         key={ev.id}
                         type="button"
                         onClick={() => viewEvidence(ev.id)}
-                        className="px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                        className="px-3.5 py-1.5 rounded-full border border-[#D5E2DA] bg-[#F1F6F3] text-xs font-semibold text-[#0D6E46] hover:bg-[#ECF7F1] transition"
                       >
                         Voir {ev.doc_type} ({ev.original_name_safe})
                       </button>
@@ -514,38 +514,38 @@ export default function AdminPortalPage() {
         {/* Tab 2: Specialties & Prevention */}
         {tab === 'catalog' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
-              <h2 className="font-bold text-slate-900">Spécialités médicales ({specialties.length})</h2>
+            <div className="p-5 rounded-2xl obsidian-card space-y-4">
+              <h2 className="font-display font-bold text-[#063725]">Spécialités médicales ({specialties.length})</h2>
               <form onSubmit={handleCreateSpecialty} className="space-y-2">
                 <input
                   required
                   value={specName}
                   onChange={(e) => setSpecName(e.target.value)}
                   placeholder="Nom de spécialité (ex : Cardiologie du sport)"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                  className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                 />
                 <input
                   value={specDesc}
                   onChange={(e) => setSpecDesc(e.target.value)}
                   placeholder="Description courte"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                  className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                 />
-                <button type="submit" className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold">
+                <button type="submit" className="px-4 py-2 rounded-full bg-[#063725] hover:bg-[#0D6E46] text-white text-xs font-semibold transition">
                   Ajouter spécialité
                 </button>
               </form>
               <div className="space-y-2">
                 {specialties.map((s) => (
-                  <div key={s.id} className="p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                  <div key={s.id} className="p-3 rounded-xl obsidian-inset flex items-center justify-between text-xs">
                     <div>
-                      <p className="font-semibold text-slate-900">{s.name}</p>
-                      <p className="text-slate-500">{s.description}</p>
+                      <p className="font-semibold text-[#063725]">{s.name}</p>
+                      <p className="text-[#5B7064]">{s.description}</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => toggleSpecialty(s)}
-                      className={`px-2.5 py-1 rounded-lg font-semibold ${
-                        s.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+                      className={`px-3 py-1 rounded-full font-semibold transition ${
+                        s.is_active ? 'bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46]' : 'bg-white border border-[#D5E2DA] text-[#5B7064]'
                       }`}
                     >
                       {s.is_active ? 'Active' : 'Inactive'}
@@ -555,13 +555,13 @@ export default function AdminPortalPage() {
               </div>
             </div>
 
-            <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
-              <h2 className="font-bold text-slate-900">Bibliothèque prévention validée ({articles.length})</h2>
+            <div className="p-5 rounded-2xl obsidian-card space-y-4">
+              <h2 className="font-display font-bold text-[#063725]">Bibliothèque prévention validée ({articles.length})</h2>
               <form onSubmit={handlePublishArticle} className="space-y-2 text-sm">
                 <select
                   value={artCat}
                   onChange={(e) => setArtCat(e.target.value as typeof artCat)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                  className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] bg-white"
                 >
                   <option value="warmup">Échauffement</option>
                   <option value="recovery">Récupération</option>
@@ -575,14 +575,14 @@ export default function AdminPortalPage() {
                   value={artTitle}
                   onChange={(e) => setArtTitle(e.target.value)}
                   placeholder="Titre de la fiche"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA]"
                 />
                 <input
                   required
                   value={artSummary}
                   onChange={(e) => setArtSummary(e.target.value)}
                   placeholder="Résumé synthétique (10 car. min.)"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA]"
                 />
                 <textarea
                   required
@@ -590,26 +590,26 @@ export default function AdminPortalPage() {
                   value={artContent}
                   onChange={(e) => setArtContent(e.target.value)}
                   placeholder="Contenu détaillé validé par un professionnel de santé..."
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA]"
                 />
                 <input
                   required
                   value={artReviewer}
                   onChange={(e) => setArtReviewer(e.target.value)}
                   placeholder="Professionnel relecteur"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                  className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA]"
                 />
-                <button type="submit" className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-xs font-semibold">
+                <button type="submit" className="px-4 py-2 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-xs font-semibold transition">
                   Publier le contenu validé
                 </button>
               </form>
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {articles.map((a) => (
-                  <div key={a.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                    <p className="font-semibold text-slate-900">
+                  <div key={a.id} className="p-2.5 rounded-xl obsidian-inset text-xs">
+                    <p className="font-semibold text-[#063725]">
                       [{a.category}] {a.title}
                     </p>
-                    <p className="text-slate-500">Validé par {a.reviewer_name}</p>
+                    <p className="text-[#5B7064]">Validé par {a.reviewer_name}</p>
                   </div>
                 ))}
               </div>
@@ -621,23 +621,23 @@ export default function AdminPortalPage() {
         {tab === 'payments' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                <h2 className="font-bold text-slate-900">Reversements en attente (dossiers clôturés)</h2>
+              <div className="p-5 rounded-2xl obsidian-card space-y-3">
+                <h2 className="font-display font-bold text-[#063725]">Reversements en attente (dossiers clôturés)</h2>
                 {pendingPayouts.length === 0 ? (
-                  <p className="text-xs text-slate-500">Aucun reversement en attente.</p>
+                  <p className="text-xs text-[#5B7064]">Aucun reversement en attente.</p>
                 ) : (
                   pendingPayouts.map((po) => (
-                    <div key={po.doctorId} className="p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                    <div key={po.doctorId} className="p-3 rounded-xl obsidian-inset flex items-center justify-between text-xs">
                       <div>
-                        <p className="font-semibold text-slate-900">{po.doctorName}</p>
-                        <p className="text-slate-500">
+                        <p className="font-semibold text-[#063725]">{po.doctorName}</p>
+                        <p className="text-[#475E52] font-mono tabular-nums">
                           {po.count} consultation(s) · <strong>{formatFcfa(po.totalNetFcfa)}</strong>
                         </p>
                       </div>
                       <button
                         type="button"
                         onClick={() => executePayout(po.doctorId)}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white font-semibold"
+                        className="px-3.5 py-1.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white font-semibold transition"
                       >
                         Marquer reversé
                       </button>
@@ -646,51 +646,51 @@ export default function AdminPortalPage() {
                 )}
               </div>
 
-              <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                <h2 className="font-bold text-slate-900">Dossiers sans réponse médecin &gt; 48h</h2>
+              <div className="p-5 rounded-2xl obsidian-card space-y-3">
+                <h2 className="font-display font-bold text-[#063725]">Dossiers sans réponse médecin &gt; 48h</h2>
                 {staleCases.length === 0 ? (
-                  <p className="text-xs text-slate-500">Aucun dossier en retard de 48h.</p>
+                  <p className="text-xs text-[#5B7064]">Aucun dossier en retard de 48h.</p>
                 ) : (
                   staleCases.map((sc) => (
                     <div key={sc.id} className="p-3 rounded-xl border border-amber-200 bg-amber-50 text-xs">
-                      <p className="font-semibold text-slate-900">
+                      <p className="font-semibold text-[#063725] font-mono tabular-nums">
                         {sc.reference} · {sc.doctorName}
                       </p>
-                      <p className="text-slate-600">Dernière activité : {formatDateTimeFr(sc.updated_at)}</p>
+                      <p className="text-[#475E52]">Dernière activité : {formatDateTimeFr(sc.updated_at)}</p>
                     </div>
                   ))
                 )}
               </div>
             </div>
 
-            <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3 overflow-x-auto">
-              <h2 className="font-bold text-slate-900">Transactions (10 000 FCFA fixe · 10% plateforme)</h2>
+            <div className="p-5 rounded-2xl obsidian-card space-y-3 overflow-x-auto">
+              <h2 className="font-display font-bold text-[#063725]">Transactions (10 000 FCFA fixe · 10% plateforme)</h2>
               <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 uppercase text-slate-600">
+                <thead className="bg-[#F1F6F3] uppercase text-[#475E52]">
                   <tr>
-                    <th className="px-3 py-2">Référence</th>
-                    <th className="px-3 py-2">Médecin bénéficiaire</th>
-                    <th className="px-3 py-2">Brut / Commission / Net</th>
-                    <th className="px-3 py-2">Statut</th>
-                    <th className="px-3 py-2">Action litige</th>
+                    <th className="px-3 py-2.5">Référence</th>
+                    <th className="px-3 py-2.5">Médecin bénéficiaire</th>
+                    <th className="px-3 py-2.5">Brut / Commission / Net</th>
+                    <th className="px-3 py-2.5">Statut</th>
+                    <th className="px-3 py-2.5">Action litige</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-[#E2EBE5]">
                   {payments.map((p) => (
-                    <tr key={p.id}>
-                      <td className="px-3 py-2 font-mono">{p.reference}</td>
-                      <td className="px-3 py-2">{p.doctorName}</td>
-                      <td className="px-3 py-2">
+                    <tr key={p.id} className="hover:bg-[#F6F8F5]">
+                      <td className="px-3 py-2.5 font-mono tabular-nums text-[#063725]">{p.reference}</td>
+                      <td className="px-3 py-2.5 text-[#063725]">{p.doctorName}</td>
+                      <td className="px-3 py-2.5 font-mono tabular-nums text-[#475E52]">
                         {formatFcfa(p.gross_amount_fcfa)} · -{formatFcfa(p.platform_commission_fcfa)} →{' '}
-                        <strong>{formatFcfa(p.doctor_net_fcfa)}</strong>
+                        <strong className="text-[#0D6E46]">{formatFcfa(p.doctor_net_fcfa)}</strong>
                       </td>
-                      <td className="px-3 py-2">{p.status}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5">{p.status}</td>
+                      <td className="px-3 py-2.5">
                         {p.status === 'succeeded' && (
                           <button
                             type="button"
                             onClick={() => refundDispute(p.id)}
-                            className="px-2.5 py-1 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50"
+                            className="px-3 py-1 rounded-full border border-red-300 text-red-700 font-semibold hover:bg-red-50 transition"
                           >
                             Rembourser litige
                           </button>
@@ -707,31 +707,31 @@ export default function AdminPortalPage() {
         {/* Tab 4: Moderation */}
         {tab === 'moderation' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-              <h2 className="font-bold text-slate-900">Signalements d’avis patients ({reviewReports.length})</h2>
+            <div className="p-5 rounded-2xl obsidian-card space-y-3">
+              <h2 className="font-display font-bold text-[#063725]">Signalements d’avis patients ({reviewReports.length})</h2>
               {reviewReports.length === 0 ? (
-                <p className="text-xs text-slate-500">Aucun avis signalé.</p>
+                <p className="text-xs text-[#5B7064]">Aucun avis signalé.</p>
               ) : (
                 reviewReports.map((r) => (
-                  <div key={r.id} className="p-3 rounded-xl border border-slate-200 text-xs space-y-2">
-                    <p className="font-semibold text-slate-900">
+                  <div key={r.id} className="p-3 rounded-xl obsidian-inset text-xs space-y-2">
+                    <p className="font-semibold text-[#063725]">
                       Note {r.reviews?.rating ?? '—'}★ · Statut signalement : {r.status}
                     </p>
-                    <p className="text-slate-700">Avis : « {r.reviews?.comment || '—'} »</p>
+                    <p className="text-[#475E52]">Avis : « {r.reviews?.comment || '—'} »</p>
                     <p className="text-amber-800">Motif signalement : {r.reason}</p>
                     {r.status === 'open' && (
                       <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => moderate('review', r.review_id, 'hide')}
-                          className="px-2.5 py-1 rounded-lg bg-amber-600 text-white font-semibold"
+                          className="px-3 py-1 rounded-full bg-[#D97706] hover:bg-[#B45309] text-white font-semibold transition"
                         >
                           Masquer
                         </button>
                         <button
                           type="button"
                           onClick={() => moderate('review', r.review_id, 'keep')}
-                          className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700"
+                          className="px-3 py-1 rounded-full border border-[#D5E2DA] bg-white text-[#063725] hover:bg-[#F1F6F3] font-semibold transition"
                         >
                           Maintenir
                         </button>
@@ -742,14 +742,14 @@ export default function AdminPortalPage() {
               )}
             </div>
 
-            <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-              <h2 className="font-bold text-slate-900">Signalements forum médical ({forumReports.length})</h2>
+            <div className="p-5 rounded-2xl obsidian-card space-y-3">
+              <h2 className="font-display font-bold text-[#063725]">Signalements forum médical ({forumReports.length})</h2>
               {forumReports.length === 0 ? (
-                <p className="text-xs text-slate-500">Aucun signalement forum.</p>
+                <p className="text-xs text-[#5B7064]">Aucun signalement forum.</p>
               ) : (
                 forumReports.map((fr) => (
-                  <div key={fr.id} className="p-3 rounded-xl border border-slate-200 text-xs space-y-2">
-                    <p className="font-semibold text-slate-900">
+                  <div key={fr.id} className="p-3 rounded-xl obsidian-inset text-xs space-y-2">
+                    <p className="font-semibold text-[#063725]">
                       Cible : {fr.target_type} · Statut : {fr.status}
                     </p>
                     <p className="text-amber-800">Motif : {fr.reason}</p>
@@ -760,7 +760,7 @@ export default function AdminPortalPage() {
                           onClick={() =>
                             moderate(fr.target_type === 'topic' ? 'forum_topic' : 'forum_post', fr.target_id, 'remove')
                           }
-                          className="px-2.5 py-1 rounded-lg bg-rose-700 text-white font-semibold"
+                          className="px-3 py-1 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold transition"
                         >
                           Retirer
                         </button>
@@ -769,7 +769,7 @@ export default function AdminPortalPage() {
                           onClick={() =>
                             moderate(fr.target_type === 'topic' ? 'forum_topic' : 'forum_post', fr.target_id, 'keep')
                           }
-                          className="px-2.5 py-1 rounded-lg border border-slate-300 text-slate-700"
+                          className="px-3 py-1 rounded-full border border-[#D5E2DA] bg-white text-[#063725] hover:bg-[#F1F6F3] font-semibold transition"
                         >
                           Maintenir
                         </button>
@@ -784,40 +784,40 @@ export default function AdminPortalPage() {
 
         {/* Tab 5: Users */}
         {tab === 'users' && (
-          <div className="p-5 rounded-2xl border border-slate-200 bg-white overflow-x-auto">
+          <div className="p-5 rounded-2xl obsidian-card overflow-x-auto">
             <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 uppercase text-slate-600">
+              <thead className="bg-[#F1F6F3] uppercase text-[#475E52]">
                 <tr>
-                  <th className="px-3 py-2">Nom</th>
-                  <th className="px-3 py-2">Rôle</th>
-                  <th className="px-3 py-2">Téléphone</th>
-                  <th className="px-3 py-2">Ville</th>
-                  <th className="px-3 py-2">Statut</th>
-                  <th className="px-3 py-2">Action</th>
+                  <th className="px-3 py-2.5">Nom</th>
+                  <th className="px-3 py-2.5">Rôle</th>
+                  <th className="px-3 py-2.5">Téléphone</th>
+                  <th className="px-3 py-2.5">Ville</th>
+                  <th className="px-3 py-2.5">Statut</th>
+                  <th className="px-3 py-2.5">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-[#E2EBE5]">
                 {users.map((u) => (
-                  <tr key={u.id}>
-                    <td className="px-3 py-2 font-semibold text-slate-900">{u.full_name}</td>
-                    <td className="px-3 py-2 uppercase">{u.role}</td>
-                    <td className="px-3 py-2">{u.phone}</td>
-                    <td className="px-3 py-2">{u.city}</td>
-                    <td className="px-3 py-2">
+                  <tr key={u.id} className="hover:bg-[#F6F8F5]">
+                    <td className="px-3 py-2.5 font-semibold text-[#063725]">{u.full_name}</td>
+                    <td className="px-3 py-2.5 uppercase text-[#475E52]">{u.role}</td>
+                    <td className="px-3 py-2.5 font-mono tabular-nums text-[#063725]">{u.phone}</td>
+                    <td className="px-3 py-2.5 text-[#475E52]">{u.city}</td>
+                    <td className="px-3 py-2.5">
                       <span
-                        className={`px-2 py-0.5 rounded-full font-medium ${
-                          u.status === 'active' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                        className={`px-2.5 py-0.5 rounded-full font-semibold ${
+                          u.status === 'active' ? 'bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46]' : 'bg-red-100 text-red-900'
                         }`}
                       >
                         {u.status}
                       </span>
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2.5">
                       {u.role !== 'admin' && (
                         <button
                           type="button"
                           onClick={() => toggleUserStatus(u)}
-                          className="px-2.5 py-1 rounded-lg border border-slate-300 hover:bg-slate-100"
+                          className="px-3 py-1 rounded-full border border-[#D5E2DA] bg-white hover:bg-[#F1F6F3] text-[#063725] font-semibold transition"
                         >
                           {u.status === 'active' ? 'Suspendre' : 'Réactiver'}
                         </button>
@@ -833,9 +833,9 @@ export default function AdminPortalPage() {
         {/* Tab 6: Audit Logs & Exceptional 15-min Support Grant */}
         {tab === 'audit' && (
           <div className="space-y-6">
-            <form onSubmit={grantExceptionalAccess} className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-              <h2 className="font-bold text-slate-900">Accès support exceptionnel à un dossier (15 minutes max, audité)</h2>
-              <p className="text-xs text-slate-600">
+            <form onSubmit={grantExceptionalAccess} className="p-5 rounded-2xl obsidian-card space-y-3">
+              <h2 className="font-display font-bold text-[#063725]">Accès support exceptionnel à un dossier (15 minutes max, audité)</h2>
+              <p className="text-xs text-[#475E52]">
                 Par défaut, l’administrateur n’a aucun accès aux échanges médicaux. Utilisez ce mandat uniquement pour résoudre un litige technique ou de facturation avec motif explicite.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -844,43 +844,43 @@ export default function AdminPortalPage() {
                   value={grantCaseId}
                   onChange={(e) => setGrantCaseId(e.target.value)}
                   placeholder="UUID du dossier concerné"
-                  className="px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                  className="px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm font-mono"
                 />
                 <input
                   required
                   value={grantReason}
                   onChange={(e) => setGrantReason(e.target.value)}
                   placeholder="Motif détaillé (15 car. min.)"
-                  className="sm:col-span-2 px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                  className="sm:col-span-2 px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                 />
               </div>
-              <button type="submit" className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold">
+              <button type="submit" className="px-5 py-2.5 rounded-full bg-[#063725] hover:bg-[#0D6E46] text-white text-xs font-semibold transition">
                 Autoriser l’accès temporaire (15 min)
               </button>
             </form>
 
-            <div className="p-5 rounded-2xl border border-slate-200 bg-white overflow-x-auto">
-              <h2 className="font-bold text-slate-900 mb-3">Journal d’audit immuable ({logs.length} entrées récentes)</h2>
+            <div className="p-5 rounded-2xl obsidian-card overflow-x-auto">
+              <h2 className="font-display font-bold text-[#063725] mb-3">Journal d’audit immuable ({logs.length} entrées récentes)</h2>
               <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 uppercase text-slate-600">
+                <thead className="bg-[#F1F6F3] uppercase text-[#475E52]">
                   <tr>
-                    <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2">Acteur</th>
-                    <th className="px-3 py-2">Action</th>
-                    <th className="px-3 py-2">Cible</th>
-                    <th className="px-3 py-2">Motif</th>
+                    <th className="px-3 py-2.5">Date</th>
+                    <th className="px-3 py-2.5">Acteur</th>
+                    <th className="px-3 py-2.5">Action</th>
+                    <th className="px-3 py-2.5">Cible</th>
+                    <th className="px-3 py-2.5">Motif</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-[#E2EBE5]">
                   {logs.map((l) => (
-                    <tr key={l.id}>
-                      <td className="px-3 py-2">{formatDateTimeFr(l.created_at)}</td>
-                      <td className="px-3 py-2 uppercase">{l.actor_role}</td>
-                      <td className="px-3 py-2 font-mono">{l.action}</td>
-                      <td className="px-3 py-2">
+                    <tr key={l.id} className="hover:bg-[#F6F8F5]">
+                      <td className="px-3 py-2.5">{formatDateTimeFr(l.created_at)}</td>
+                      <td className="px-3 py-2.5 uppercase font-semibold text-[#063725]">{l.actor_role}</td>
+                      <td className="px-3 py-2.5 font-mono text-[#0D6E46]">{l.action}</td>
+                      <td className="px-3 py-2.5 font-mono">
                         {l.target_type} ({l.target_id.slice(0, 8)}…)
                       </td>
-                      <td className="px-3 py-2 text-slate-600">{l.reason || '—'}</td>
+                      <td className="px-3 py-2.5 text-[#475E52]">{l.reason || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

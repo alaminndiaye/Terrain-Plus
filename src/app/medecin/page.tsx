@@ -68,13 +68,13 @@ interface WorkspaceAppointment {
 }
 
 const CASE_STATUS_LABELS: Record<string, { label: string; cls: string }> = {
-  awaiting_payment: { label: 'En attente de paiement', cls: 'bg-slate-100 text-slate-700' },
-  open: { label: 'Actif · Échanges ouverts', cls: 'bg-emerald-100 text-emerald-800' },
-  appointment_confirmed: { label: 'RDV confirmé', cls: 'bg-sky-100 text-sky-800' },
-  referral_proposed: { label: 'Transfert proposé', cls: 'bg-amber-100 text-amber-800' },
-  completed: { label: 'Clôturé · Dossier mis à jour', cls: 'bg-slate-900 text-white' },
-  transferred: { label: 'Transféré à un confrère', cls: 'bg-purple-100 text-purple-800' },
-  cancelled: { label: 'Annulé / Remboursé', cls: 'bg-rose-100 text-rose-800' },
+  awaiting_payment: { label: 'En attente de paiement', cls: 'bg-[#F1F6F3] text-[#475E52] border border-[#D5E2DA]' },
+  open: { label: 'Actif · Échanges ouverts', cls: 'bg-[#ECF7F1] text-[#0D6E46] border border-[#C3D6CA]' },
+  appointment_confirmed: { label: 'RDV confirmé', cls: 'bg-sky-50 text-sky-900 border border-sky-200' },
+  referral_proposed: { label: 'Transfert proposé', cls: 'bg-amber-50 text-amber-900 border border-amber-200' },
+  completed: { label: 'Clôturé · Dossier mis à jour', cls: 'bg-[#063725] text-white' },
+  transferred: { label: 'Transféré à un confrère', cls: 'bg-purple-50 text-purple-900 border border-purple-200' },
+  cancelled: { label: 'Annulé / Remboursé', cls: 'bg-red-50 text-red-900 border border-red-200' },
 };
 
 const VERIF_LABELS: Record<VerificationStatus, { title: string; badge: string; box: string }> = {
@@ -96,17 +96,17 @@ const VERIF_LABELS: Record<VerificationStatus, { title: string; badge: string; b
   verified: {
     title: 'Compte médecin vérifié et visible dans l’annuaire',
     badge: 'Vérifié Terrain+',
-    box: 'border-emerald-300 bg-emerald-50 text-emerald-950',
+    box: 'border-[#C3D6CA] bg-[#ECF7F1] text-[#063725]',
   },
   rejected: {
     title: 'Demande de vérification refusée',
     badge: 'Refusé',
-    box: 'border-rose-300 bg-rose-50 text-rose-950',
+    box: 'border-red-300 bg-red-50 text-red-950',
   },
   suspended: {
     title: 'Compte praticien suspendu',
     badge: 'Suspendu',
-    box: 'border-rose-300 bg-rose-50 text-rose-950',
+    box: 'border-red-300 bg-red-50 text-red-950',
   },
 };
 
@@ -137,35 +137,37 @@ export default function DoctorDashboardPage() {
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#0D6E46]">
               Espace Praticien Terrain+
             </p>
-            <h1 className="text-2xl font-bold text-slate-900">
+            <h1 className="font-display text-2xl font-bold text-[#063725]">
               {dash?.profile.publicName || 'Tableau de bord médecin'}
             </h1>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-[#475E52]">
               {dash?.profile.specialtyName || 'Spécialité médicale'} · {dash?.profile.facilityName || dash?.profile.city || 'Cabinet'} · Tarif unique{' '}
-              {formatFcfa(dash?.profile.consultationFeeFcfa || 10000)}
+              <span className="font-mono tabular-nums font-semibold text-[#063725]">
+                {formatFcfa(dash?.profile.consultationFeeFcfa || 10000)}
+              </span>
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
               href="/medecin/agenda"
-              className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-800 hover:bg-slate-50 flex items-center gap-1.5"
+              className="px-4 py-2 rounded-full border border-[#D5E2DA] bg-white text-sm font-semibold text-[#063725] hover:bg-[#F1F6F3] flex items-center gap-1.5 transition"
             >
-              <Calendar className="w-4 h-4 text-emerald-700" />
+              <Calendar className="w-4 h-4 text-[#0D6E46]" />
               Gérer l’agenda
             </Link>
             <Link
               href="/medecin/forum"
-              className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-800 hover:bg-slate-50 flex items-center gap-1.5"
+              className="px-4 py-2 rounded-full border border-[#D5E2DA] bg-white text-sm font-semibold text-[#063725] hover:bg-[#F1F6F3] flex items-center gap-1.5 transition"
             >
-              <Users className="w-4 h-4 text-emerald-700" />
+              <Users className="w-4 h-4 text-[#0D6E46]" />
               Forum confrères
             </Link>
             <Link
               href="/medecin/confreres"
-              className="px-3.5 py-2 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 flex items-center gap-1.5"
+              className="px-4 py-2 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold flex items-center gap-1.5 transition"
             >
               <MessageSquare className="w-4 h-4" />
               Messagerie confrères
@@ -174,16 +176,16 @@ export default function DoctorDashboardPage() {
         </div>
 
         {error && (
-          <div className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-sm text-rose-800">{error}</div>
+          <div className="p-3.5 rounded-xl border border-red-200 bg-red-50 text-sm text-red-900">{error}</div>
         )}
 
         {dash && verifMeta && (
           <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${verifMeta.box}`}>
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <ShieldCheck className="w-4 h-4 shrink-0 text-[#0D6E46]" />
                 <span className="font-semibold text-sm">{verifMeta.title}</span>
-                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-white/80">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white border border-[#D5E2DA] text-[#063725]">
                   {verifMeta.badge}
                 </span>
               </div>
@@ -199,7 +201,7 @@ export default function DoctorDashboardPage() {
             </div>
             <Link
               href="/medecin/verification"
-              className="px-3.5 py-2 rounded-xl bg-white text-slate-900 text-xs font-semibold border border-current/20 hover:bg-slate-50 shrink-0 text-center"
+              className="px-4 py-2 rounded-full bg-white text-[#063725] text-xs font-semibold border border-[#D5E2DA] hover:bg-[#F1F6F3] shrink-0 text-center transition"
             >
               {dash.verification.status === 'verified' ? 'Profil & justificatifs' : 'Compléter ma vérification'}
             </Link>
@@ -208,55 +210,63 @@ export default function DoctorDashboardPage() {
 
         {/* KPI Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 rounded-2xl border border-slate-200 bg-white">
-            <div className="flex items-center justify-between text-slate-500 text-xs mb-1">
+          <div className="p-5 rounded-2xl obsidian-card">
+            <div className="flex items-center justify-between text-[#5B7064] text-xs mb-1">
               <span>Dossiers actifs</span>
-              <FolderHeart className="w-4 h-4 text-emerald-600" />
+              <FolderHeart className="w-4 h-4 text-[#0D6E46]" />
             </div>
-            <p className="text-2xl font-bold text-slate-900">{dash?.stats.activeCases ?? 0}</p>
-            <p className="text-xs text-slate-500 mt-1">À traiter ou suivre</p>
+            <p className="font-display text-2xl font-bold text-[#063725] font-mono tabular-nums">
+              {dash?.stats.activeCases ?? 0}
+            </p>
+            <p className="text-xs text-[#5B7064] mt-1">À traiter ou suivre</p>
           </div>
-          <div className="p-4 rounded-2xl border border-slate-200 bg-white">
-            <div className="flex items-center justify-between text-slate-500 text-xs mb-1">
+          <div className="p-5 rounded-2xl obsidian-card">
+            <div className="flex items-center justify-between text-[#5B7064] text-xs mb-1">
               <span>Consultations clôturées</span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <CheckCircle2 className="w-4 h-4 text-[#0D6E46]" />
             </div>
-            <p className="text-2xl font-bold text-slate-900">{dash?.stats.completedCases ?? 0}</p>
-            <p className="text-xs text-slate-500 mt-1">Sur {dash?.stats.totalCases ?? 0} dossiers reçus</p>
+            <p className="font-display text-2xl font-bold text-[#063725] font-mono tabular-nums">
+              {dash?.stats.completedCases ?? 0}
+            </p>
+            <p className="text-xs text-[#5B7064] mt-1">Sur {dash?.stats.totalCases ?? 0} dossiers reçus</p>
           </div>
-          <div className="p-4 rounded-2xl border border-slate-200 bg-white">
-            <div className="flex items-center justify-between text-slate-500 text-xs mb-1">
+          <div className="p-5 rounded-2xl obsidian-card">
+            <div className="flex items-center justify-between text-[#5B7064] text-xs mb-1">
               <span>Actes payés</span>
-              <Clock className="w-4 h-4 text-sky-600" />
+              <Clock className="w-4 h-4 text-[#0D6E46]" />
             </div>
-            <p className="text-2xl font-bold text-slate-900">{dash?.stats.paidCount ?? 0}</p>
-            <p className="text-xs text-slate-500 mt-1">9 000 FCFA net / consultation</p>
+            <p className="font-display text-2xl font-bold text-[#063725] font-mono tabular-nums">
+              {dash?.stats.paidCount ?? 0}
+            </p>
+            <p className="text-xs text-[#5B7064] mt-1">9 000 FCFA net / consultation</p>
           </div>
           <Link
             href="/medecin/revenus"
-            className="p-4 rounded-2xl border border-slate-200 bg-white hover:border-emerald-300 transition"
+            className="p-5 rounded-2xl obsidian-card hover:border-[#0D6E46]/40 transition"
           >
-            <div className="flex items-center justify-between text-slate-500 text-xs mb-1">
+            <div className="flex items-center justify-between text-[#5B7064] text-xs mb-1">
               <span>Revenus nets</span>
-              <Wallet className="w-4 h-4 text-emerald-600" />
+              <Wallet className="w-4 h-4 text-[#0D6E46]" />
             </div>
-            <p className="text-2xl font-bold text-emerald-800">{formatFcfa(dash?.stats.totalNetFcfa ?? 0)}</p>
-            <p className="text-xs text-emerald-700 mt-1">Voir détail & reversements →</p>
+            <p className="font-display text-2xl font-bold text-[#0D6E46] font-mono tabular-nums">
+              {formatFcfa(dash?.stats.totalNetFcfa ?? 0)}
+            </p>
+            <p className="text-xs font-semibold text-[#0D6E46] mt-1">Voir détail &amp; reversements →</p>
           </Link>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Active consultations */}
-          <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+          <div className="lg:col-span-2 rounded-2xl obsidian-card p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-bold text-slate-900">Dossiers patients ({cases.length})</h2>
-              <span className="text-xs text-slate-500">{activeQueue.length} en cours</span>
+              <h2 className="font-display font-bold text-[#063725]">Dossiers patients ({cases.length})</h2>
+              <span className="text-xs text-[#5B7064]">{activeQueue.length} en cours</span>
             </div>
 
             {cases.length === 0 ? (
-              <div className="p-6 rounded-xl bg-slate-50 text-sm text-slate-600 text-center">
+              <div className="p-6 rounded-xl obsidian-inset text-sm text-[#475E52] text-center">
                 Aucun dossier patient reçu pour le moment. Publiez vos créneaux dans{' '}
-                <Link href="/medecin/agenda" className="text-emerald-700 font-semibold underline">
+                <Link href="/medecin/agenda" className="text-[#0D6E46] font-semibold underline">
                   votre agenda
                 </Link>{' '}
                 pour accueillir des sportifs.
@@ -266,44 +276,44 @@ export default function DoctorDashboardPage() {
                 {cases.map((c) => {
                   const badge = CASE_STATUS_LABELS[c.status] || {
                     label: c.status,
-                    cls: 'bg-slate-100 text-slate-700',
+                    cls: 'bg-[#F1F6F3] text-[#475E52]',
                   };
                   return (
                     <Link
                       key={c.id}
                       href={`/medecin/dossiers/${c.id}`}
-                      className="block p-4 rounded-xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/20 transition"
+                      className="block p-4 rounded-xl border border-[#D5E2DA] bg-white hover:border-[#0D6E46] hover:bg-[#F6F8F5] transition"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-900">{c.athleteName}</span>
-                          <span className="text-xs text-slate-500">· {c.reference}</span>
+                          <span className="font-semibold text-[#063725]">{c.athleteName}</span>
+                          <span className="text-xs font-mono text-[#5B7064]">· {c.reference}</span>
                         </div>
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${badge.cls}`}>
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${badge.cls}`}>
                           {badge.label}
                         </span>
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#475E52]">
                         {c.sport_context && (
-                          <span className="px-2 py-0.5 rounded bg-slate-100">{c.sport_context}</span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-[#F1F6F3] border border-[#E2EBE5]">{c.sport_context}</span>
                         )}
                         {c.body_part && (
-                          <span className="px-2 py-0.5 rounded bg-slate-100">Zone : {c.body_part}</span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-[#F1F6F3] border border-[#E2EBE5]">Zone : {c.body_part}</span>
                         )}
                         {c.share_training_trends && (
-                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                          <span className="px-2.5 py-0.5 rounded-full bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46] font-medium">
                             Tendances entraînement partagées
                           </span>
                         )}
                         {c.head_trauma_flagged && (
-                          <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 flex items-center gap-1">
+                          <span className="px-2.5 py-0.5 rounded-full bg-red-100 text-red-900 font-semibold flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3" /> Signalement choc crânien
                           </span>
                         )}
                       </div>
-                      <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                      <div className="mt-2.5 flex items-center justify-between text-xs text-[#5B7064]">
                         <span>Créé le {formatDateTimeFr(c.created_at)}</span>
-                        <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                        <span className="text-[#0D6E46] font-semibold flex items-center gap-1">
                           Ouvrir le dossier <ArrowRight className="w-3.5 h-3.5" />
                         </span>
                       </div>
@@ -315,39 +325,39 @@ export default function DoctorDashboardPage() {
           </div>
 
           {/* Upcoming appointments */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+          <div className="rounded-2xl obsidian-card p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-bold text-slate-900">Rendez-vous</h2>
-              <Link href="/medecin/agenda" className="text-xs text-emerald-700 font-semibold hover:underline">
+              <h2 className="font-display font-bold text-[#063725]">Rendez-vous</h2>
+              <Link href="/medecin/agenda" className="text-xs text-[#0D6E46] font-semibold hover:underline">
                 Agenda
               </Link>
             </div>
             {appointments.length === 0 ? (
-              <p className="text-sm text-slate-500">Aucun rendez-vous planifié pour l’instant.</p>
+              <p className="text-sm text-[#5B7064]">Aucun rendez-vous planifié pour l’instant.</p>
             ) : (
               <div className="space-y-2.5">
                 {appointments.slice(0, 8).map((a) => (
                   <Link
                     key={a.id}
                     href={`/medecin/dossiers/${a.case_id}`}
-                    className="block p-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-xs space-y-1"
+                    className="block p-3 rounded-xl border border-[#D5E2DA] bg-[#F6F8F5] hover:border-[#0D6E46]/40 text-xs space-y-1 transition"
                   >
-                    <div className="flex items-center justify-between font-semibold text-slate-900">
+                    <div className="flex items-center justify-between font-semibold text-[#063725]">
                       <span>{a.appointment_type === 'video' ? 'Téléconsultation Visio' : 'Consultation Cabinet'}</span>
                       <span
-                        className={`px-2 py-0.5 rounded-full text-[11px] ${
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
                           a.proposal_status === 'confirmed'
-                            ? 'bg-emerald-100 text-emerald-800'
+                            ? 'bg-[#ECF7F1] text-[#0D6E46] border border-[#C3D6CA]'
                             : a.proposal_status === 'proposed'
                             ? 'bg-amber-100 text-amber-800'
-                            : 'bg-slate-100 text-slate-700'
+                            : 'bg-white text-[#475E52] border border-[#D5E2DA]'
                         }`}
                       >
                         {a.proposal_status}
                       </span>
                     </div>
-                    <p className="text-slate-600">{formatDateTimeFr(a.starts_at)}</p>
-                    <p className="text-slate-500 truncate">{a.location_label}</p>
+                    <p className="text-[#475E52]">{formatDateTimeFr(a.starts_at)}</p>
+                    <p className="text-[#5B7064] truncate">{a.location_label}</p>
                   </Link>
                 ))}
               </div>

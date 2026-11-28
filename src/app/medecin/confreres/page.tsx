@@ -119,21 +119,21 @@ export default function DoctorColleaguesChatPage() {
     <AppShell requireAuthRole="doctor">
       <div className="space-y-6">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#0D6E46] flex items-center gap-1">
             <Lock className="w-3.5 h-3.5" /> Messagerie privée chiffrée entre confrères vérifiés
           </p>
-          <h1 className="text-2xl font-bold text-slate-900">Discussions directes confrères</h1>
+          <h1 className="font-display text-2xl font-bold text-[#063725]">Discussions directes confrères</h1>
         </div>
 
         {notVerified ? (
           <div className="p-6 rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 space-y-3">
-            <p className="font-bold">Vérification professionnelle requise</p>
+            <p className="font-display font-bold">Vérification professionnelle requise</p>
             <p className="text-sm">
               Seuls les médecins vérifiés peuvent échanger directement entre confrères sur Terrain+.
             </p>
             <Link
               href="/medecin/verification"
-              className="inline-block px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold"
+              className="inline-block px-5 py-2 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition"
             >
               Compléter ma vérification
             </Link>
@@ -141,15 +141,15 @@ export default function DoctorColleaguesChatPage() {
         ) : (
           <>
             {error && (
-              <div className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-sm text-rose-800">{error}</div>
+              <div className="p-3.5 rounded-xl border border-red-200 bg-red-50 text-sm text-red-900">{error}</div>
             )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="space-y-4">
-                <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5">
-                  <h2 className="font-bold text-sm text-slate-900">Discussions actives ({threads.length})</h2>
+                <div className="p-4 rounded-2xl obsidian-card space-y-2.5">
+                  <h2 className="font-display font-bold text-sm text-[#063725]">Discussions actives ({threads.length})</h2>
                   {threads.length === 0 ? (
-                    <p className="text-xs text-slate-500">Sélectionnez un confrère ci-dessous pour démarrer.</p>
+                    <p className="text-xs text-[#5B7064]">Sélectionnez un confrère ci-dessous pour démarrer.</p>
                   ) : (
                     threads.map((t) => (
                       <button
@@ -158,85 +158,87 @@ export default function DoctorColleaguesChatPage() {
                         onClick={() => setActiveThreadId(t.id)}
                         className={`w-full text-left p-3 rounded-xl border text-xs transition ${
                           activeThreadId === t.id
-                            ? 'border-emerald-500 bg-emerald-50'
-                            : 'border-slate-200 hover:bg-slate-50'
+                            ? 'border-[#0D6E46] bg-[#ECF7F1]'
+                            : 'border-[#D5E2DA] bg-white hover:bg-[#F6F8F5]'
                         }`}
                       >
-                        <p className="font-semibold text-slate-900">{t.peer.publicName}</p>
-                        <p className="text-slate-500">{t.peer.specialtyName}</p>
+                        <p className="font-semibold text-[#063725]">{t.peer.publicName}</p>
+                        <p className="text-[#5B7064]">{t.peer.specialtyName}</p>
                       </button>
                     ))
                   )}
                 </div>
 
-                <div className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2.5">
-                  <h2 className="font-bold text-sm text-slate-900">Confrères vérifiés ({colleagues.length})</h2>
+                <div className="p-4 rounded-2xl obsidian-card space-y-2.5">
+                  <h2 className="font-display font-bold text-sm text-[#063725]">Confrères vérifiés ({colleagues.length})</h2>
                   <div className="space-y-2 max-h-72 overflow-y-auto">
                     {colleagues.map((c) => (
                       <button
                         key={c.id}
                         type="button"
                         onClick={() => startConversation(c.id)}
-                        className="w-full text-left p-2.5 rounded-xl border border-slate-200 hover:border-emerald-400 text-xs flex items-center justify-between gap-2"
+                        className="w-full text-left p-2.5 rounded-xl border border-[#D5E2DA] hover:border-[#0D6E46] hover:bg-[#F6F8F5] text-xs flex items-center justify-between gap-2 transition"
                       >
                         <div>
-                          <p className="font-semibold text-slate-900">{c.publicName}</p>
-                          <p className="text-slate-500">
+                          <p className="font-semibold text-[#063725]">{c.publicName}</p>
+                          <p className="text-[#5B7064]">
                             {c.specialtyName} · {c.city}
                           </p>
                         </div>
-                        <MessageCircle className="w-4 h-4 text-emerald-700 shrink-0" />
+                        <MessageCircle className="w-4 h-4 text-[#0D6E46] shrink-0" />
                       </button>
                     ))}
                   </div>
                 </div>
               </div>
 
-              <div className="lg:col-span-2 p-5 rounded-2xl border border-slate-200 bg-white flex flex-col min-h-[460px]">
+              <div className="lg:col-span-2 p-5 rounded-2xl obsidian-card flex flex-col min-h-[460px]">
                 {!activeThread ? (
-                  <p className="text-sm text-slate-500 m-auto">
+                  <p className="text-sm text-[#5B7064] m-auto">
                     Choisissez un confrère pour échanger de manière confidentielle (orientation, protocole, avis).
                   </p>
                 ) : (
                   <>
-                    <div className="pb-3 border-b border-slate-200">
-                      <h2 className="font-bold text-slate-900">{activeThread.peer.publicName}</h2>
-                      <p className="text-xs text-slate-500">{activeThread.peer.specialtyName}</p>
+                    <div className="pb-3 border-b border-[#E2EBE5]">
+                      <h2 className="font-display font-bold text-[#063725]">{activeThread.peer.publicName}</h2>
+                      <p className="text-xs text-[#5B7064]">{activeThread.peer.specialtyName}</p>
                     </div>
 
                     <div className="flex-1 py-4 space-y-3 overflow-y-auto max-h-[380px]">
                       {messages.length === 0 ? (
-                        <p className="text-xs text-slate-500 text-center py-8">Aucun message pour l’instant.</p>
+                        <p className="text-xs text-[#5B7064] text-center py-8">Aucun message pour l’instant.</p>
                       ) : (
                         messages.map((m) => {
                           const mine = m.senderId === myId;
                           return (
                             <div
                               key={m.id}
-                              className={`p-3 rounded-xl text-sm max-w-[85%] ${
+                              className={`p-3 rounded-2xl text-sm max-w-[85%] ${
                                 mine
-                                  ? 'ml-auto bg-emerald-50 border border-emerald-200'
-                                  : 'mr-auto bg-slate-50 border border-slate-200'
+                                  ? 'ml-auto bg-[#063725] text-white'
+                                  : 'mr-auto obsidian-inset text-[#063725]'
                               }`}
                             >
-                              <p className="text-slate-800 whitespace-pre-wrap">{m.body}</p>
-                              <p className="text-[10px] text-slate-400 mt-1">{formatDateTimeFr(m.createdAt)}</p>
+                              <p className="whitespace-pre-wrap">{m.body}</p>
+                              <p className={`text-[10px] mt-1 ${mine ? 'text-white/75' : 'text-[#5B7064]'}`}>
+                                {formatDateTimeFr(m.createdAt)}
+                              </p>
                             </div>
                           );
                         })
                       )}
                     </div>
 
-                    <form onSubmit={sendDm} className="pt-3 border-t border-slate-200 flex gap-2">
+                    <form onSubmit={sendDm} className="pt-3 border-t border-[#E2EBE5] flex gap-2">
                       <input
                         value={text}
                         onChange={(e) => setText(e.target.value)}
                         placeholder="Écrire au confrère (ne mentionnez jamais l'identité complète d'un patient sans nécessité de transfert)..."
-                        className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                        className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#D5E2DA] text-sm"
                       />
                       <button
                         type="submit"
-                        className="px-4 py-2.5 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 flex items-center gap-1.5"
+                        className="px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold flex items-center gap-1.5 transition"
                       >
                         <Send className="w-4 h-4" /> Envoyer
                       </button>

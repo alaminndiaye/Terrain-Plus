@@ -68,15 +68,15 @@ export default function AthleteOnboardingPage() {
   return (
     <AppShell requireAuthRole="athlete">
       <div className="max-w-2xl mx-auto">
-        <div className="surface-card rounded-xl border-t-4 border-t-[#0d3320] overflow-hidden">
-          <div className="p-6 border-b border-[#dcdfd6] bg-white">
+        <div className="obsidian-card rounded-2xl border-t-4 border-t-[#0D6E46] overflow-hidden">
+          <div className="p-6 border-b border-[#E2EBE5] bg-white">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold bg-[#f4f5f0] border border-[#dcdfd6] text-[#0d3320] px-2.5 py-1 rounded-md tabular-nums">
+              <span className="text-xs font-semibold bg-[#ECF7F1] border border-[#C3D6CA] text-[#0D6E46] px-3 py-1 rounded-full tabular-nums">
                 Première connexion · Étape {step} / 4
               </span>
             </div>
-            <h1 className="text-2xl font-bold text-[#112118] mt-3">Configurons votre profil sportif</h1>
-            <p className="text-sm text-[#526057] mt-1">
+            <h1 className="font-display text-2xl font-bold text-[#063725] mt-3">Configurons votre profil sportif</h1>
+            <p className="text-sm text-[#475E52] mt-1">
               Ces réponses préparent votre dossier médical privé et votre espace Suivi &amp; Prévention.
             </p>
           </div>
@@ -99,8 +99,8 @@ export default function AthleteOnboardingPage() {
                         onClick={() => toggleSport(sp.code)}
                         className={`p-3 rounded-xl border text-xs font-bold text-left transition ${
                           active
-                            ? 'border-[#0a2e1c] bg-emerald-50 text-[#0a2e1c]'
-                            : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                            ? 'border-[#0D6E46] bg-[#ECF7F1] text-[#0D6E46]'
+                            : 'border-[#D5E2DA] bg-white text-[#475E52] hover:bg-[#F1F6F3]'
                         }`}
                       >
                         {sp.label}
@@ -113,7 +113,7 @@ export default function AthleteOnboardingPage() {
                   <select
                     value={primarySport}
                     onChange={(e) => setPrimarySport(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm bg-white"
                   >
                     {SUPPORTED_SPORTS.filter((s) => sports.includes(s.code)).map((s) => (
                       <option key={s.code} value={s.code}>
@@ -127,13 +127,13 @@ export default function AthleteOnboardingPage() {
 
             {step === 2 && (
               <div className="space-y-4">
-                <h2 className="font-bold text-lg">2. Niveau et rythme d’entraînement</h2>
+                <h2 className="font-display font-bold text-lg text-[#063725]">2. Niveau et rythme d’entraînement</h2>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Niveau de pratique</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Niveau de pratique</label>
                   <select
                     value={practiceLevel}
                     onChange={(e) => setPracticeLevel(e.target.value as typeof practiceLevel)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm bg-white"
                   >
                     <option value="loisir">Loisir / Remise en forme</option>
                     <option value="scolaire_universitaire">Universitaire / Campus</option>
@@ -142,29 +142,29 @@ export default function AthleteOnboardingPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Fréquence hebdomadaire *</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Fréquence hebdomadaire *</label>
                   <input
                     required
                     value={weeklyFrequency}
                     onChange={(e) => setWeeklyFrequency(e.target.value)}
                     placeholder="Ex. 3 entraînements + 1 match par semaine"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm"
                   />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold mb-1">Taille (cm)</label>
+                    <label className="block text-xs font-semibold text-[#063725] mb-1">Taille (cm)</label>
                     <input
                       type="number"
                       min={120}
                       max={240}
                       value={heightCm}
                       onChange={(e) => setHeightCm(e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm font-mono tabular-nums"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold mb-1">Poids (kg)</label>
+                    <label className="block text-xs font-semibold text-[#063725] mb-1">Poids (kg)</label>
                     <input
                       type="number"
                       step="0.1"
@@ -172,15 +172,15 @@ export default function AthleteOnboardingPage() {
                       max={200}
                       value={weightKg}
                       onChange={(e) => setWeightKg(e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm font-mono tabular-nums"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold mb-1">Côté dominant</label>
+                    <label className="block text-xs font-semibold text-[#063725] mb-1">Côté dominant</label>
                     <select
                       value={dominantSide}
                       onChange={(e) => setDominantSide(e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white"
+                      className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm bg-white"
                     >
                       <option value="droite">Droit</option>
                       <option value="gauche">Gauche</option>
@@ -193,25 +193,25 @@ export default function AthleteOnboardingPage() {
 
             {step === 3 && (
               <div className="space-y-4">
-                <h2 className="font-bold text-lg">3. Repères médicaux &amp; antécédents</h2>
+                <h2 className="font-display font-bold text-lg text-[#063725]">3. Repères médicaux &amp; antécédents</h2>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Blessures ou douleurs antérieures (facultatif)</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Blessures ou douleurs antérieures (facultatif)</label>
                   <textarea
                     rows={3}
                     value={priorInjuries}
                     onChange={(e) => setPriorInjuries(e.target.value)}
                     placeholder="Ex. Entorse cheville droite il y a 6 mois, tendinite genou..."
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Allergies ou traitements en cours (facultatif)</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Allergies ou traitements en cours (facultatif)</label>
                   <textarea
                     rows={2}
                     value={allergiesConditions}
                     onChange={(e) => setAllergiesConditions(e.target.value)}
                     placeholder="Ex. Asthme d’effort, allergie..."
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm"
                   />
                 </div>
               </div>
@@ -219,13 +219,13 @@ export default function AthleteOnboardingPage() {
 
             {step === 4 && (
               <div className="space-y-4">
-                <h2 className="font-bold text-lg">4. Objectif de suivi &amp; consentement</h2>
+                <h2 className="font-display font-bold text-lg text-[#063725]">4. Objectif de suivi &amp; consentement</h2>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Objectif principal sur Terrain+</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Objectif principal sur Terrain+</label>
                   <select
                     value={medicalGoal}
                     onChange={(e) => setMedicalGoal(e.target.value as MedicalGoal)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm bg-white"
                   >
                     <option value="regular_followup">Suivi médical sportif régulier</option>
                     <option value="injury_advice">Avis sur une douleur ou blessure actuelle</option>
@@ -234,23 +234,23 @@ export default function AthleteOnboardingPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold mb-1">Rythme de bilan souhaité</label>
+                  <label className="block text-xs font-semibold text-[#063725] mb-1">Rythme de bilan souhaité</label>
                   <select
                     value={followupFrequency}
                     onChange={(e) => setFollowupFrequency(e.target.value as typeof followupFrequency)}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white"
+                    className="w-full rounded-xl border border-[#D5E2DA] px-3 py-2 text-sm bg-white"
                   >
                     <option value="monthly">Mensuel</option>
                     <option value="quarterly">Trimestriel</option>
                     <option value="as_needed">Ponctuel selon le besoin</option>
                   </select>
                 </div>
-                <label className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs text-slate-800 cursor-pointer">
+                <label className="flex items-start gap-2.5 bg-[#ECF7F1] border border-[#C3D6CA] rounded-xl p-3.5 text-xs text-[#063725] cursor-pointer">
                   <input
                     type="checkbox"
                     checked={healthConsent}
                     onChange={(e) => setHealthConsent(e.target.checked)}
-                    className="mt-0.5"
+                    className="mt-0.5 accent-[#0D6E46]"
                   />
                   <span>
                     Je consens distinctement au traitement sécurisé de mes données de santé et sportives par Terrain+ et
@@ -261,12 +261,12 @@ export default function AthleteOnboardingPage() {
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-between pt-3 border-t border-[#E2EBE5]">
               {step > 1 ? (
                 <button
                   type="button"
                   onClick={() => setStep((s) => s - 1)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-semibold"
+                  className="px-4 py-2.5 rounded-full border border-[#D5E2DA] hover:bg-[#F1F6F3] text-[#063725] text-sm font-semibold transition"
                 >
                   ← Retour
                 </button>
@@ -285,7 +285,7 @@ export default function AthleteOnboardingPage() {
                     setError(null);
                     setStep((s) => s + 1);
                   }}
-                  className="px-6 py-2.5 rounded-xl bg-[#0a2e1c] text-white text-sm font-bold"
+                  className="px-6 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition"
                 >
                   Continuer →
                 </button>
@@ -293,7 +293,7 @@ export default function AthleteOnboardingPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-2.5 rounded-xl bg-[#0a2e1c] text-white text-sm font-bold disabled:opacity-50"
+                  className="px-6 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition disabled:opacity-50"
                 >
                   {saving ? 'Enregistrement...' : 'Entrer sur la plateforme →'}
                 </button>

@@ -415,57 +415,57 @@ export default function DoctorCaseDetailPage() {
     <AppShell requireAuthRole="doctor">
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <Link href="/medecin" className="text-sm font-medium text-emerald-700 hover:underline flex items-center gap-1">
+          <Link href="/medecin" className="text-sm font-semibold text-[#0D6E46] hover:text-[#063725] flex items-center gap-1 transition">
             <ArrowLeft className="w-4 h-4" /> Retour aux dossiers
           </Link>
           {c && c.paymentUnlocked && !isClosed && (
             <button
               type="button"
               onClick={() => setShowVideo((v) => !v)}
-              className="px-4 py-2 rounded-xl bg-sky-700 text-white text-sm font-semibold hover:bg-sky-800 flex items-center gap-2"
+              className="px-4 py-2 rounded-full bg-[#063725] hover:bg-[#0D6E46] text-white text-sm font-semibold flex items-center gap-2 transition"
             >
-              <Video className="w-4 h-4" />
+              <Video className="w-4 h-4 text-[#FBBF24]" />
               {showVideo ? 'Masquer la salle Visio' : 'Démarrer la Visio'}
             </button>
           )}
         </div>
 
         {notice && (
-          <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-sm text-emerald-900">{notice}</div>
+          <div className="p-3.5 rounded-xl border border-[#C3D6CA] bg-[#ECF7F1] text-sm text-[#063725]">{notice}</div>
         )}
         {error && (
-          <div className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-sm text-rose-800">{error}</div>
+          <div className="p-3.5 rounded-xl border border-red-200 bg-red-50 text-sm text-red-900">{error}</div>
         )}
 
         {c && (
           <>
             {/* Patient header */}
-            <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
+            <div className="p-5 rounded-2xl obsidian-card border-l-4 border-l-[#0D6E46] space-y-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-mono text-slate-500">
-                    {c.reference} · Statut : <span className="font-semibold text-slate-800">{c.status}</span>
+                  <p className="text-xs font-mono tabular-nums text-[#5B7064]">
+                    {c.reference} · Statut : <span className="font-semibold text-[#063725]">{c.status}</span>
                   </p>
-                  <h1 className="text-xl font-bold text-slate-900 mt-0.5">
+                  <h1 className="font-display text-xl font-bold text-[#063725] mt-0.5">
                     {c.athlete.fullName} {c.athlete.city ? `(${c.athlete.city})` : ''}
                   </h1>
-                  <p className="text-xs text-slate-600 mt-1">
+                  <p className="text-xs text-[#475E52] mt-1">
                     Sport principal : <strong>{c.athlete.primarySport || c.sportContext || 'Non précisé'}</strong> · Niveau :{' '}
                     {c.athlete.practiceLevel || '—'} · Fréquence : {c.athlete.weeklyFrequency || '—'}
                   </p>
                 </div>
                 {c.headTraumaFlagged && (
-                  <div className="px-3 py-1.5 rounded-xl bg-rose-100 border border-rose-200 text-rose-900 text-xs font-semibold flex items-center gap-1.5">
+                  <div className="px-3 py-1.5 rounded-full bg-red-100 border border-red-200 text-red-900 text-xs font-semibold flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4" /> Choc crânien / commotion signalé
                   </div>
                 )}
               </div>
 
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-800 space-y-1">
-                <p className="text-xs font-semibold text-slate-500 uppercase">Motif initial du sportif</p>
+              <div className="p-3.5 rounded-xl obsidian-inset text-sm text-[#063725] space-y-1">
+                <p className="text-xs font-semibold text-[#5B7064] uppercase">Motif initial du sportif</p>
                 <p>{c.initialReason}</p>
                 {(c.athlete.priorInjuries || c.athlete.allergiesConditions) && (
-                  <p className="text-xs text-slate-600 pt-1">
+                  <p className="text-xs text-[#475E52] pt-1">
                     Antécédents : {c.athlete.priorInjuries || 'Aucun renseigné'} · Allergies/conditions :{' '}
                     {c.athlete.allergiesConditions || 'Aucune renseignée'}
                   </p>
@@ -486,18 +486,18 @@ export default function DoctorCaseDetailPage() {
               {/* Left 2 columns: Chat + Appointments + Referrals list */}
               <div className="lg:col-span-2 space-y-6">
                 {/* Chat */}
-                <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
+                <div className="p-5 rounded-2xl obsidian-card space-y-4">
                   <div className="flex items-center justify-between">
-                    <h2 className="font-bold text-slate-900">Messagerie & Médias sécurisés</h2>
+                    <h2 className="font-display font-bold text-[#063725]">Messagerie &amp; Médias sécurisés</h2>
                     {isClosed && (
-                      <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-medium flex items-center gap-1">
+                      <span className="px-2.5 py-1 rounded-full bg-[#F1F6F3] border border-[#D5E2DA] text-[#475E52] text-xs font-semibold flex items-center gap-1">
                         <Lock className="w-3.5 h-3.5" /> Lecture seule
                       </span>
                     )}
                   </div>
 
                   {!c.paymentUnlocked ? (
-                    <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-900">
+                    <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-950">
                       Ce dossier est en attente de règlement (10 000 FCFA) par le sportif. La messagerie et les médias seront débloqués dès confirmation.
                     </div>
                   ) : (
@@ -509,30 +509,30 @@ export default function DoctorCaseDetailPage() {
                           return (
                             <div
                               key={m.id}
-                              className={`p-3.5 rounded-xl text-sm ${
+                              className={`p-3.5 rounded-2xl text-sm ${
                                 isSys
-                                  ? 'bg-slate-100 text-slate-700 text-xs text-center'
+                                  ? 'bg-[#F1F6F3] border border-[#E2EBE5] text-[#475E52] text-xs text-center'
                                   : isDoc
-                                  ? 'bg-emerald-50 border border-emerald-200 ml-6'
-                                  : 'bg-slate-50 border border-slate-200 mr-6'
+                                  ? 'bg-[#063725] text-white ml-6'
+                                  : 'obsidian-inset text-[#063725] mr-6'
                               }`}
                             >
                               {!isSys && (
-                                <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                                <div className={`flex items-center justify-between text-[11px] mb-1 ${isDoc ? 'text-white/75' : 'text-[#5B7064]'}`}>
                                   <span className="font-semibold">
                                     {isDoc ? 'Vous (Médecin)' : c.athlete.fullName}
                                   </span>
                                   <span>{formatDateTimeFr(m.createdAt)}</span>
                                 </div>
                               )}
-                              <p className="whitespace-pre-wrap text-slate-800">{m.body}</p>
+                              <p className="whitespace-pre-wrap">{m.body}</p>
                               {m.attachments.map((att) => (
                                 <div key={att.id} className="mt-2">
                                   {!mediaUrls[att.id] ? (
                                     <button
                                       type="button"
                                       onClick={() => loadAttachmentUrl(att.id, att.mediaKind)}
-                                      className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                                      className="px-3 py-1.5 rounded-full bg-white border border-[#D5E2DA] text-xs font-semibold text-[#0D6E46] hover:bg-[#ECF7F1] transition"
                                     >
                                       Ouvrir pièce ({att.originalName})
                                     </button>
@@ -540,20 +540,20 @@ export default function DoctorCaseDetailPage() {
                                     <img
                                       src={mediaUrls[att.id].url}
                                       alt={att.originalName}
-                                      className="max-h-60 rounded-lg border border-slate-200 mt-1"
+                                      className="max-h-60 rounded-xl border border-[#D5E2DA] mt-1"
                                     />
                                   ) : mediaUrls[att.id].kind === 'video' ? (
                                     <video
                                       src={mediaUrls[att.id].url}
                                       controls
-                                      className="max-h-64 rounded-lg border border-slate-200 mt-1 w-full"
+                                      className="max-h-64 rounded-xl border border-[#D5E2DA] mt-1 w-full"
                                     />
                                   ) : (
                                     <a
                                       href={mediaUrls[att.id].url}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="text-xs font-semibold text-emerald-700 underline"
+                                      className={`text-xs font-semibold underline ${isDoc ? 'text-[#FBBF24]' : 'text-[#0D6E46]'}`}
                                     >
                                       Télécharger le PDF ({att.originalName})
                                     </a>
@@ -566,12 +566,12 @@ export default function DoctorCaseDetailPage() {
                       </div>
 
                       {c.canMessage && (
-                        <form onSubmit={sendMessage} className="flex flex-wrap gap-2 pt-2 border-t border-slate-200">
+                        <form onSubmit={sendMessage} className="flex flex-wrap gap-2 pt-2 border-t border-[#E2EBE5]">
                           <input
                             value={msgText}
                             onChange={(e) => setMsgText(e.target.value)}
                             placeholder="Répondre au sportif, préciser le créneau ou donner des consignes..."
-                            className="flex-1 min-w-[200px] px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                            className="flex-1 min-w-[200px] px-3.5 py-2.5 rounded-xl border border-[#D5E2DA] text-sm"
                           />
                           <MediaUploader
                             caseId={caseId}
@@ -580,7 +580,7 @@ export default function DoctorCaseDetailPage() {
                           />
                           <button
                             type="submit"
-                            className="px-4 py-2.5 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 flex items-center gap-1.5"
+                            className="px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold flex items-center gap-1.5 transition"
                           >
                             <Send className="w-4 h-4" /> Envoyer
                           </button>
@@ -592,22 +592,22 @@ export default function DoctorCaseDetailPage() {
 
                 {/* Appointments negotiation */}
                 {c.paymentUnlocked && (
-                  <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
-                    <h2 className="font-bold text-slate-900 flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-emerald-700" /> Rendez-vous (Visio ou Cabinet)
+                  <div className="p-5 rounded-2xl obsidian-card space-y-4">
+                    <h2 className="font-display font-bold text-[#063725] flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-[#0D6E46]" /> Rendez-vous (Visio ou Cabinet)
                     </h2>
 
                     {data.appointments.map((a) => (
                       <div
                         key={a.id}
-                        className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs"
+                        className="p-3.5 rounded-xl obsidian-inset flex flex-wrap items-center justify-between gap-2 text-xs"
                       >
                         <div>
-                          <p className="font-semibold text-slate-900">
+                          <p className="font-semibold text-[#063725]">
                             {a.appointment_type === 'video' ? 'Téléconsultation Visio' : 'Consultation Cabinet'} ·{' '}
                             {formatDateTimeFr(a.starts_at)}
                           </p>
-                          <p className="text-slate-600">
+                          <p className="text-[#475E52]">
                             {a.location_label} · Statut : <strong>{a.proposal_status}</strong>
                           </p>
                         </div>
@@ -616,14 +616,14 @@ export default function DoctorCaseDetailPage() {
                             <button
                               type="button"
                               onClick={() => respondAppointment(a.id, 'confirmed')}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white font-semibold hover:bg-emerald-800"
+                              className="px-3.5 py-1.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white font-semibold transition"
                             >
                               Confirmer
                             </button>
                             <button
                               type="button"
                               onClick={() => respondAppointment(a.id, 'declined')}
-                              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                              className="px-3.5 py-1.5 rounded-full border border-[#D5E2DA] bg-white text-[#063725] hover:bg-[#F1F6F3] font-semibold transition"
                             >
                               Refuser
                             </button>
@@ -637,7 +637,7 @@ export default function DoctorCaseDetailPage() {
                         <select
                           value={apptType}
                           onChange={(e) => setApptType(e.target.value as 'video' | 'physical')}
-                          className="px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                          className="px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm bg-white"
                         >
                           <option value="video">Visio</option>
                           <option value="physical">Cabinet</option>
@@ -647,19 +647,19 @@ export default function DoctorCaseDetailPage() {
                           required
                           value={apptDate}
                           onChange={(e) => setApptDate(e.target.value)}
-                          className="px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                          className="px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                         />
                         <input
                           type="time"
                           required
                           value={apptTime}
                           onChange={(e) => setApptTime(e.target.value)}
-                          className="px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                          className="px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm font-mono tabular-nums"
                         />
                         <button
                           type="submit"
                           disabled={busy}
-                          className="px-3 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
+                          className="px-3 py-2 rounded-full bg-[#063725] hover:bg-[#0D6E46] text-white text-sm font-semibold transition"
                         >
                           Proposer RDV
                         </button>
@@ -668,7 +668,7 @@ export default function DoctorCaseDetailPage() {
                             value={apptLocation}
                             onChange={(e) => setApptLocation(e.target.value)}
                             placeholder="Adresse / cabinet (optionnel)"
-                            className="sm:col-span-4 px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                            className="sm:col-span-4 px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                           />
                         )}
                       </form>
@@ -678,14 +678,14 @@ export default function DoctorCaseDetailPage() {
 
                 {/* Mandatory Closure Form */}
                 {c.paymentUnlocked && !isClosed && (
-                  <form onSubmit={handleCompleteCase} className="p-5 rounded-2xl border-2 border-emerald-300 bg-white space-y-4">
+                  <form onSubmit={handleCompleteCase} className="p-5 rounded-2xl obsidian-card-glow space-y-4">
                     <div className="flex items-start gap-2">
-                      <ClipboardCheck className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+                      <ClipboardCheck className="w-5 h-5 text-[#0D6E46] shrink-0 mt-0.5" />
                       <div>
-                        <h2 className="font-bold text-slate-900">
-                          Clôturer la consultation & Mettre à jour le dossier patient
+                        <h2 className="font-display font-bold text-[#063725]">
+                          Clôturer la consultation &amp; Mettre à jour le dossier patient
                         </h2>
-                        <p className="text-xs text-slate-600">
+                        <p className="text-xs text-[#475E52]">
                           Obligatoire : vous ne pouvez clôturer ce dossier qu’après avoir rempli la synthèse et mis à jour le dossier médical partagé pour les futures consultations.
                         </p>
                       </div>
@@ -693,7 +693,7 @@ export default function DoctorCaseDetailPage() {
 
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                        <label className="block text-xs font-semibold text-[#063725] mb-1">
                           Synthèse de cette consultation (15 caractères min.) *
                         </label>
                         <textarea
@@ -702,11 +702,11 @@ export default function DoctorCaseDetailPage() {
                           value={entrySummary}
                           onChange={(e) => setEntrySummary(e.target.value)}
                           placeholder="Examen clinique, observations, évolution..."
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                          className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                        <label className="block text-xs font-semibold text-[#063725] mb-1">
                           Recommandations médicales et sportives (10 caractères min.) *
                         </label>
                         <textarea
@@ -715,11 +715,11 @@ export default function DoctorCaseDetailPage() {
                           value={recommendations}
                           onChange={(e) => setRecommendations(e.target.value)}
                           placeholder="Charge adaptée, soins, examens complémentaires..."
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                          className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">
+                        <label className="block text-xs font-semibold text-[#063725] mb-1">
                           Dossier médical longitudinal mis à jour (15 caractères min.) *
                         </label>
                         <textarea
@@ -728,24 +728,24 @@ export default function DoctorCaseDetailPage() {
                           value={clinicalSummary}
                           onChange={(e) => setClinicalSummary(e.target.value)}
                           placeholder="Synthèse globale utile aux prochains médecins consultés sur Terrain+..."
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                          className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                         />
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs font-medium text-slate-700 mb-1">Contre-indications éventuelles</label>
+                          <label className="block text-xs font-semibold text-[#063725] mb-1">Contre-indications éventuelles</label>
                           <input
                             value={contraindications}
                             onChange={(e) => setContraindications(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                            className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-slate-700 mb-1">Statut sportif</label>
+                          <label className="block text-xs font-semibold text-[#063725] mb-1">Statut sportif</label>
                           <select
                             value={fitnessStatus}
                             onChange={(e) => setFitnessStatus(e.target.value as typeof fitnessStatus)}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                            className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm bg-white"
                           >
                             <option value="reprise_progressive">Reprise progressive</option>
                             <option value="apte_sans_restriction">Apte sans restriction</option>
@@ -754,20 +754,20 @@ export default function DoctorCaseDetailPage() {
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-slate-700 mb-1">Consignes de charge / reprise</label>
+                          <label className="block text-xs font-semibold text-[#063725] mb-1">Consignes de charge / reprise</label>
                           <input
                             value={fitnessGuidance}
                             onChange={(e) => setFitnessGuidance(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                            className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-slate-700 mb-1">Prochain suivi conseillé (date)</label>
+                          <label className="block text-xs font-semibold text-[#063725] mb-1">Prochain suivi conseillé (date)</label>
                           <input
                             type="date"
                             value={nextFollowupDate}
                             onChange={(e) => setNextFollowupDate(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                            className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                           />
                         </div>
                       </div>
@@ -776,7 +776,7 @@ export default function DoctorCaseDetailPage() {
                     <button
                       type="submit"
                       disabled={busy}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 disabled:opacity-50"
+                      className="px-6 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition disabled:opacity-50"
                     >
                       {busy ? 'Enregistrement...' : 'Enregistrer le dossier & Clôturer la consultation'}
                     </button>
@@ -785,12 +785,12 @@ export default function DoctorCaseDetailPage() {
 
                 {/* Handoff Transfer / Referral */}
                 {c.paymentUnlocked && !isClosed && (
-                  <form onSubmit={handleCreateReferral} className="p-5 rounded-2xl border border-slate-200 bg-white space-y-4">
+                  <form onSubmit={handleCreateReferral} className="p-5 rounded-2xl obsidian-card space-y-4">
                     <div className="flex items-start gap-2">
                       <ArrowRightLeft className="w-5 h-5 text-purple-700 shrink-0 mt-0.5" />
                       <div>
-                        <h2 className="font-bold text-slate-900">Transférer ou orienter vers un confrère vérifié</h2>
-                        <p className="text-xs text-slate-600">
+                        <h2 className="font-display font-bold text-[#063725]">Transférer ou orienter vers un confrère vérifié</h2>
+                        <p className="text-xs text-[#475E52]">
                           Si vous n’avez pas effectué la consultation, le transfert sans consultation reverse automatiquement les 10 000 FCFA (9 000 FCFA net) au médecin receveur après accord du sportif.
                         </p>
                       </div>
@@ -798,25 +798,25 @@ export default function DoctorCaseDetailPage() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">Type de démarche</label>
+                        <label className="block text-xs font-semibold text-[#063725] mb-1">Type de démarche</label>
                         <select
                           value={referralType}
                           onChange={(e) =>
                             setReferralType(e.target.value as 'handoff_transfer' | 'post_consult_referral')
                           }
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                          className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm bg-white"
                         >
                           <option value="handoff_transfer">Transfert avant consultation (reversement 10 000 FCFA)</option>
                           <option value="post_consult_referral">Orientation après consultation (nouveau parcours)</option>
                         </select>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-slate-700 mb-1">Confrère destinataire</label>
+                        <label className="block text-xs font-semibold text-[#063725] mb-1">Confrère destinataire</label>
                         <select
                           required
                           value={toDoctorId}
                           onChange={(e) => setToDoctorId(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                          className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm bg-white"
                         >
                           <option value="">Choisir un confrère vérifié...</option>
                           {colleagues.map((col) => (
@@ -829,18 +829,18 @@ export default function DoctorCaseDetailPage() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">Motif médical du transfert *</label>
+                      <label className="block text-xs font-semibold text-[#063725] mb-1">Motif médical du transfert *</label>
                       <textarea
                         required
                         rows={2}
                         value={referralReason}
                         onChange={(e) => setReferralReason(e.target.value)}
                         placeholder="Précisez la spécialité ou l'examen requis..."
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                        className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                       />
                     </div>
 
-                    <div className="flex flex-wrap gap-4 text-xs text-slate-700">
+                    <div className="flex flex-wrap gap-4 text-xs text-[#475E52]">
                       {(
                         [
                           ['initial_complaint', 'Motif initial'],
@@ -853,6 +853,7 @@ export default function DoctorCaseDetailPage() {
                             type="checkbox"
                             checked={sharedFields.includes(k)}
                             onChange={() => toggleSharedField(k)}
+                            className="accent-[#0D6E46]"
                           />
                           {label}
                         </label>
@@ -862,17 +863,17 @@ export default function DoctorCaseDetailPage() {
                     <button
                       type="submit"
                       disabled={busy || sharedFields.length === 0}
-                      className="px-4 py-2 rounded-xl bg-purple-700 text-white text-sm font-semibold hover:bg-purple-800 disabled:opacity-50"
+                      className="px-5 py-2.5 rounded-full bg-[#063725] hover:bg-[#0D6E46] text-white text-sm font-semibold transition disabled:opacity-50"
                     >
                       Proposer le transfert au sportif
                     </button>
 
                     {data.referrals.length > 0 && (
-                      <div className="pt-2 border-t border-slate-200 space-y-1.5 text-xs">
+                      <div className="pt-2 border-t border-[#E2EBE5] space-y-1.5 text-xs">
                         {data.referrals.map((r) => (
-                          <p key={r.id} className="text-slate-600">
+                          <p key={r.id} className="text-[#475E52]">
                             → <strong>{r.toDoctorName}</strong> ({r.referralType}) : Statut{' '}
-                            <span className="font-semibold">{r.status}</span>
+                            <span className="font-semibold text-[#063725]">{r.status}</span>
                           </p>
                         ))}
                       </div>
@@ -884,49 +885,49 @@ export default function DoctorCaseDetailPage() {
               {/* Right Column: Longitudinal Record, Shared Training Trends, RTS */}
               <div className="space-y-6">
                 {/* Longitudinal Medical Record */}
-                <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                  <div className="flex items-center gap-2 font-bold text-slate-900">
-                    <FileHeart className="w-4 h-4 text-emerald-700" />
+                <div className="p-5 rounded-2xl obsidian-card space-y-3">
+                  <div className="flex items-center gap-2 font-display font-bold text-[#063725]">
+                    <FileHeart className="w-4 h-4 text-[#0D6E46]" />
                     Dossier médical longitudinal
                   </div>
                   {data.longitudinalRecord ? (
-                    <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs space-y-1.5">
-                      <p className="font-semibold text-emerald-950">Synthèse actuelle</p>
-                      <p className="text-slate-800 whitespace-pre-wrap">{data.longitudinalRecord.clinicalSummary}</p>
+                    <div className="p-3.5 rounded-xl bg-[#ECF7F1] border border-[#C3D6CA] text-xs space-y-1.5">
+                      <p className="font-semibold text-[#063725]">Synthèse actuelle</p>
+                      <p className="text-[#063725] whitespace-pre-wrap">{data.longitudinalRecord.clinicalSummary}</p>
                       {data.longitudinalRecord.contraindications && (
-                        <p className="text-rose-800">
+                        <p className="text-red-900">
                           <strong>Contre-indications :</strong> {data.longitudinalRecord.contraindications}
                         </p>
                       )}
                       {data.longitudinalRecord.fitnessGuidance && (
-                        <p className="text-slate-700">
+                        <p className="text-[#475E52]">
                           <strong>Charge / aptitude :</strong> {data.longitudinalRecord.fitnessGuidance}
                         </p>
                       )}
-                      <p className="text-[11px] text-slate-500">
+                      <p className="text-[11px] text-[#5B7064]">
                         Mis à jour le {formatDateFr(data.longitudinalRecord.updatedAt)} par{' '}
                         {data.longitudinalRecord.lastUpdatedByDoctorName || 'Médecin Terrain+'}
                       </p>
                     </div>
                   ) : (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-[#5B7064]">
                       Aucune note médicale antérieure enregistrée pour ce sportif.
                     </p>
                   )}
 
                   {data.medicalEntries.length > 0 && (
                     <div className="space-y-2 pt-2">
-                      <p className="text-xs font-semibold text-slate-600">
+                      <p className="text-xs font-semibold text-[#475E52]">
                         Historique des consultations ({data.medicalEntries.length})
                       </p>
                       {data.medicalEntries.map((entry) => (
-                        <div key={entry.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50 text-xs space-y-1">
-                          <div className="flex justify-between font-semibold text-slate-900">
+                        <div key={entry.id} className="p-3 rounded-xl obsidian-inset text-xs space-y-1">
+                          <div className="flex justify-between font-semibold text-[#063725]">
                             <span>{entry.doctorName}</span>
                             <span>{formatDateFr(entry.createdAt)}</span>
                           </div>
-                          <p className="text-slate-800">{entry.summary}</p>
-                          <p className="text-emerald-800">Recommandations : {entry.recommendations}</p>
+                          <p className="text-[#063725]">{entry.summary}</p>
+                          <p className="text-[#0D6E46] font-medium">Recommandations : {entry.recommendations}</p>
                         </div>
                       ))}
                     </div>
@@ -934,13 +935,13 @@ export default function DoctorCaseDetailPage() {
                 </div>
 
                 {/* Shared Training & Prevention Trends */}
-                <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                  <div className="flex items-center gap-2 font-bold text-slate-900">
-                    <Activity className="w-4 h-4 text-emerald-700" />
+                <div className="p-5 rounded-2xl obsidian-card space-y-3">
+                  <div className="flex items-center gap-2 font-display font-bold text-[#063725]">
+                    <Activity className="w-4 h-4 text-[#0D6E46]" />
                     Suivi d’entraînement partagé
                   </div>
                   {!data.sharedTrainingData ? (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-[#5B7064]">
                       Le sportif n’a pas activé le partage de son journal d’entraînement sur ce dossier.
                     </p>
                   ) : (
@@ -951,22 +952,22 @@ export default function DoctorCaseDetailPage() {
                           className={`p-2.5 rounded-xl border ${
                             sig.severity === 'attention'
                               ? 'border-amber-200 bg-amber-50 text-amber-950'
-                              : 'border-sky-200 bg-sky-50 text-sky-950'
+                              : 'border-[#C3D6CA] bg-[#ECF7F1] text-[#063725]'
                           }`}
                         >
                           <p className="font-semibold">{sig.title}</p>
                           <p className="mt-0.5">{sig.message}</p>
                         </div>
                       ))}
-                      <p className="font-semibold text-slate-700 pt-1">
+                      <p className="font-semibold text-[#063725] pt-1">
                         Dernières séances ({data.sharedTrainingData.logs.length})
                       </p>
                       {data.sharedTrainingData.logs.slice(0, 6).map((l) => (
-                        <div key={l.id} className="p-2 rounded-lg bg-slate-50 border border-slate-200 flex justify-between">
-                          <span>
+                        <div key={l.id} className="p-2.5 rounded-xl obsidian-inset flex justify-between">
+                          <span className="text-[#063725]">
                             {l.session_date} · {l.sport} ({l.duration_minutes} min)
                           </span>
-                          <span className="font-semibold">
+                          <span className="font-semibold font-mono tabular-nums text-[#0D6E46]">
                             RPE {l.rpe_intensity}/10 {l.has_discomfort ? `· Gêne (${l.body_part || 'zone'})` : ''}
                           </span>
                         </div>
@@ -977,25 +978,25 @@ export default function DoctorCaseDetailPage() {
 
                 {/* Return to sport */}
                 {c.paymentUnlocked && (
-                  <div className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                    <div className="flex items-center gap-2 font-bold text-slate-900">
-                      <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                  <div className="p-5 rounded-2xl obsidian-card space-y-3">
+                    <div className="flex items-center gap-2 font-display font-bold text-[#063725]">
+                      <ShieldCheck className="w-4 h-4 text-[#0D6E46]" />
                       Retour après blessure (validation médicale)
                     </div>
                     {data.returnToSportPlan ? (
                       <div className="space-y-2 text-xs">
-                        <p className="font-semibold text-slate-900">
+                        <p className="font-semibold text-[#063725]">
                           {data.returnToSportPlan.title} ·{' '}
-                          <span className="text-emerald-700">{data.returnToSportPlan.status}</span>
+                          <span className="text-[#0D6E46]">{data.returnToSportPlan.status}</span>
                         </p>
                         {data.returnToSportPlan.steps.map((st, idx) => (
-                          <div key={st.id} className="p-2.5 rounded-xl border border-slate-200 space-y-1">
+                          <div key={st.id} className="p-2.5 rounded-xl obsidian-inset space-y-1">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-semibold text-slate-900">
+                              <span className="font-semibold text-[#063725]">
                                 Étape {st.step_order} : {st.label}
                               </span>
                               {st.doctor_validated_at ? (
-                                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                                <CheckCircle2 className="w-4 h-4 text-[#0D6E46] shrink-0" />
                               ) : !isClosed ? (
                                 <button
                                   type="button"
@@ -1005,7 +1006,7 @@ export default function DoctorCaseDetailPage() {
                                       idx === data.returnToSportPlan!.steps.length - 1
                                     )
                                   }
-                                  className="px-2.5 py-1 rounded-lg bg-emerald-700 text-white text-[11px] font-semibold hover:bg-emerald-800 shrink-0"
+                                  className="px-3 py-1 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-[11px] font-semibold shrink-0 transition"
                                 >
                                   {idx === data.returnToSportPlan!.steps.length - 1
                                     ? 'Valider reprise finale'
@@ -1013,7 +1014,7 @@ export default function DoctorCaseDetailPage() {
                                 </button>
                               ) : null}
                             </div>
-                            <p className="text-slate-500">
+                            <p className="text-[#5B7064]">
                               Sportif : {st.athlete_done_at ? 'Signalé fait' : 'En cours'} · Médecin :{' '}
                               {st.doctor_validated_at ? 'Validé' : 'En attente'}
                             </p>
@@ -1026,24 +1027,24 @@ export default function DoctorCaseDetailPage() {
                           required
                           value={rtsTitle}
                           onChange={(e) => setRtsTitle(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                          className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA]"
                         />
                         <textarea
                           rows={4}
                           value={rtsStepsText}
                           onChange={(e) => setRtsStepsText(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-300"
+                          className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA]"
                         />
                         <button
                           type="submit"
                           disabled={busy}
-                          className="px-3.5 py-2 rounded-xl bg-slate-900 text-white font-semibold hover:bg-slate-800 flex items-center gap-1.5"
+                          className="px-4 py-2 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white font-semibold flex items-center gap-1.5 transition"
                         >
                           <Plus className="w-3.5 h-3.5" /> Créer le protocole de reprise
                         </button>
                       </form>
                     ) : (
-                      <p className="text-xs text-slate-500">Aucun protocole de reprise actif.</p>
+                      <p className="text-xs text-[#5B7064]">Aucun protocole de reprise actif.</p>
                     )}
                   </div>
                 )}

@@ -156,16 +156,16 @@ export default function DoctorForumPage() {
       <div className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#0D6E46] flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5" /> Communauté réservée aux médecins vérifiés
             </p>
-            <h1 className="text-2xl font-bold text-slate-900">Forum médical entre confrères</h1>
+            <h1 className="font-display text-2xl font-bold text-[#063725]">Forum médical entre confrères</h1>
           </div>
           {!notVerified && (
             <button
               type="button"
               onClick={() => setShowCreate((s) => !s)}
-              className="px-4 py-2.5 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 flex items-center gap-1.5"
+              className="px-4 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold flex items-center gap-1.5 transition"
             >
               <MessageSquarePlus className="w-4 h-4" /> Nouveau sujet
             </button>
@@ -174,13 +174,13 @@ export default function DoctorForumPage() {
 
         {notVerified ? (
           <div className="p-6 rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 space-y-3">
-            <h2 className="font-bold text-base">Accès réservé aux praticiens vérifiés</h2>
+            <h2 className="font-display font-bold text-base">Accès réservé aux praticiens vérifiés</h2>
             <p className="text-sm">
               Le forum médical n’est accessible qu’après validation de vos justificatifs professionnels par l’équipe Terrain+.
             </p>
             <Link
               href="/medecin/verification"
-              className="inline-block px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold"
+              className="inline-block px-5 py-2 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition"
             >
               Compléter ma vérification
             </Link>
@@ -195,24 +195,24 @@ export default function DoctorForumPage() {
             )}
 
             {notice && (
-              <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-sm text-emerald-900">{notice}</div>
+              <div className="p-3.5 rounded-xl border border-[#C3D6CA] bg-[#ECF7F1] text-sm text-[#063725]">{notice}</div>
             )}
             {error && (
-              <div className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-sm text-rose-800">{error}</div>
+              <div className="p-3.5 rounded-xl border border-red-200 bg-red-50 text-sm text-red-900">{error}</div>
             )}
 
             {showCreate && (
-              <form onSubmit={handleCreateTopic} className="p-5 rounded-2xl border border-slate-200 bg-white space-y-3">
-                <h2 className="font-bold text-slate-900">Publier un sujet anonymisé</h2>
+              <form onSubmit={handleCreateTopic} className="p-5 rounded-2xl obsidian-card space-y-3">
+                <h2 className="font-display font-bold text-[#063725]">Publier un sujet anonymisé</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <select
                     value={newCat}
                     onChange={(e) => setNewCat(e.target.value)}
-                    className="px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                    className="px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm bg-white"
                   >
                     <option value="clinical_case_anon">Cas clinique anonymisé</option>
                     <option value="protocols">Protocoles médicaux</option>
-                    <option value="prevention">Prévention & reprise</option>
+                    <option value="prevention">Prévention &amp; reprise</option>
                     <option value="specialty">Échange par spécialité</option>
                     <option value="platform">Plateforme Terrain+</option>
                   </select>
@@ -221,7 +221,7 @@ export default function DoctorForumPage() {
                     value={newTitle}
                     onChange={(e) => setNewTitle(e.target.value)}
                     placeholder="Titre explicite (sans identité patient)"
-                    className="sm:col-span-2 px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                    className="sm:col-span-2 px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                   />
                 </div>
                 <textarea
@@ -230,11 +230,11 @@ export default function DoctorForumPage() {
                   value={newBody}
                   onChange={(e) => setNewBody(e.target.value)}
                   placeholder="Contexte clinique anonymisé (âge approx., sport, symptômes, question aux confrères)..."
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                  className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"
+                  className="px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition"
                 >
                   Publier sur le forum
                 </button>
@@ -247,22 +247,22 @@ export default function DoctorForumPage() {
                   key={k}
                   type="button"
                   onClick={() => setCategory(k)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition ${
                     category === k
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+                      ? 'bg-[#0D6E46] text-white'
+                      : 'bg-white border border-[#D5E2DA] text-[#063725] hover:bg-[#ECF7F1]'
                   }`}
                 >
                   {label}
                 </button>
               ))}
               <div className="relative ml-auto">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <Search className="w-3.5 h-3.5 text-[#5B7064] absolute left-3 top-2.5" />
                 <input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Rechercher..."
-                  className="pl-8 pr-3 py-1.5 rounded-full border border-slate-300 text-xs bg-white"
+                  className="pl-8 pr-3 py-1.5 rounded-full border border-[#D5E2DA] text-xs bg-white"
                 />
               </div>
             </div>
@@ -270,7 +270,7 @@ export default function DoctorForumPage() {
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
               <div className="lg:col-span-2 space-y-2.5">
                 {topics.length === 0 ? (
-                  <div className="p-5 rounded-2xl border border-slate-200 bg-white text-sm text-slate-500">
+                  <div className="p-5 rounded-2xl obsidian-card text-sm text-[#5B7064]">
                     Aucun sujet dans cette catégorie.
                   </div>
                 ) : (
@@ -284,19 +284,19 @@ export default function DoctorForumPage() {
                       }}
                       className={`w-full text-left p-4 rounded-2xl border transition ${
                         selectedId === t.id
-                          ? 'border-emerald-500 bg-emerald-50/40'
-                          : 'border-slate-200 bg-white hover:border-slate-300'
+                          ? 'border-[#0D6E46] bg-[#ECF7F1]'
+                          : 'border-[#D5E2DA] bg-white hover:border-[#0D6E46]/40'
                       }`}
                     >
-                      <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                        <span className="font-semibold text-emerald-700">
+                      <div className="flex items-center justify-between text-[11px] text-[#5B7064] mb-1">
+                        <span className="font-semibold text-[#0D6E46]">
                           {CATEGORY_LABELS[t.category] || t.category}
                         </span>
-                        <span>{t.repliesCount} réponse(s)</span>
+                        <span className="font-mono tabular-nums">{t.repliesCount} réponse(s)</span>
                       </div>
-                      <p className="font-bold text-sm text-slate-900">{t.title}</p>
-                      <p className="text-xs text-slate-600 line-clamp-2 mt-1">{t.body}</p>
-                      <p className="text-[11px] text-slate-400 mt-2">
+                      <p className="font-bold text-sm text-[#063725]">{t.title}</p>
+                      <p className="text-xs text-[#475E52] line-clamp-2 mt-1">{t.body}</p>
+                      <p className="text-[11px] text-[#5B7064] mt-2">
                         Par {t.authorName} · {formatDateTimeFr(t.lastActivityAt)}
                       </p>
                     </button>
@@ -304,35 +304,35 @@ export default function DoctorForumPage() {
                 )}
               </div>
 
-              <div className="lg:col-span-3 rounded-2xl border border-slate-200 bg-white p-5">
+              <div className="lg:col-span-3 rounded-2xl obsidian-card p-5">
                 {!activeTopic ? (
-                  <p className="text-sm text-slate-500 py-10 text-center">
+                  <p className="text-sm text-[#5B7064] py-10 text-center">
                     Sélectionnez un sujet pour lire les échanges entre confrères et contribuer.
                   </p>
                 ) : (
                   <div className="space-y-4">
-                    <div className="flex items-start justify-between gap-2 pb-3 border-b border-slate-200">
+                    <div className="flex items-start justify-between gap-2 pb-3 border-b border-[#E2EBE5]">
                       <div>
-                        <h2 className="text-lg font-bold text-slate-900">{activeTopic.title}</h2>
-                        <p className="text-xs text-slate-500">
+                        <h2 className="font-display text-lg font-bold text-[#063725]">{activeTopic.title}</h2>
+                        <p className="text-xs text-[#5B7064]">
                           Par {activeTopic.authorName} · {formatDateTimeFr(activeTopic.createdAt)}
                         </p>
                       </div>
                       <button
                         type="button"
                         onClick={() => handleReport('topic', activeTopic.id)}
-                        className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs text-slate-600 hover:bg-rose-50 hover:text-rose-700 flex items-center gap-1"
+                        className="px-2.5 py-1 rounded-full border border-[#D5E2DA] text-xs text-[#475E52] hover:bg-red-50 hover:text-red-700 flex items-center gap-1 transition"
                       >
                         <Flag className="w-3.5 h-3.5" /> Signaler
                       </button>
                     </div>
-                    <p className="text-sm text-slate-800 whitespace-pre-wrap">{activeTopic.body}</p>
+                    <p className="text-sm text-[#063725] whitespace-pre-wrap">{activeTopic.body}</p>
 
                     <div className="space-y-2.5 pt-2">
                       {posts.map((p) => (
-                        <div key={p.id} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                          <div className="flex items-center justify-between text-xs text-slate-500">
-                            <span className="font-semibold text-slate-900">
+                        <div key={p.id} className="p-3.5 rounded-xl obsidian-inset space-y-1">
+                          <div className="flex items-center justify-between text-xs text-[#5B7064]">
+                            <span className="font-semibold text-[#063725]">
                               {p.authorName} {p.authorSpecialty ? `· ${p.authorSpecialty}` : ''}
                             </span>
                             <div className="flex items-center gap-2">
@@ -341,29 +341,29 @@ export default function DoctorForumPage() {
                                 type="button"
                                 onClick={() => handleReport('post', p.id)}
                                 title="Signaler cette réponse"
-                                className="text-slate-400 hover:text-rose-600"
+                                className="text-[#5B7064] hover:text-red-600"
                               >
                                 <Flag className="w-3 h-3" />
                               </button>
                             </div>
                           </div>
-                          <p className="text-sm text-slate-800 whitespace-pre-wrap">{p.body}</p>
+                          <p className="text-sm text-[#063725] whitespace-pre-wrap">{p.body}</p>
                         </div>
                       ))}
                     </div>
 
-                    <form onSubmit={handleReply} className="pt-3 border-t border-slate-200 space-y-2">
+                    <form onSubmit={handleReply} className="pt-3 border-t border-[#E2EBE5] space-y-2">
                       <textarea
                         required
                         rows={3}
                         value={replyBody}
                         onChange={(e) => setReplyBody(e.target.value)}
                         placeholder="Partager votre avis confraternel (sans information identifiante patient)..."
-                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                        className="w-full px-3 py-2 rounded-xl border border-[#D5E2DA] text-sm"
                       />
                       <button
                         type="submit"
-                        className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800"
+                        className="px-5 py-2.5 rounded-full bg-[#0D6E46] hover:bg-[#095637] text-white text-sm font-semibold transition"
                       >
                         Publier la réponse
                       </button>
